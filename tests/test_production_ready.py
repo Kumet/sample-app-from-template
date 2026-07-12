@@ -1,6 +1,8 @@
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -23,11 +25,13 @@ from agent.notifications import github_comment, payload, stdout_json, write_outb
 from agent.quality import validate as validate_quality
 from agent.queue import Queue
 from agent.release import check as release_check
+from agent import review
 from agent.review import REVIEW_IDENTITY_FIELDS, ReviewIdentity, ReviewResult
 from agent.review_shards import (
     SHARDS,
     ShardResult,
     aggregate,
+    record_reuse_decision,
     reusable_event,
     split_files,
 )
@@ -200,6 +204,19 @@ class ProductionReadyTests(unittest.TestCase):
                 data={"identity_digest": "timeout"},
             )
             self.assertEqual(reusable_event(store.read(), identity.digest), passed)
+            reuse = record_reuse_decision(
+                store,
+                source=passed,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity_digest=identity.digest,
+            )
+            self.assertEqual(reuse.data["source_sequence"], passed.sequence)
+            self.assertEqual(reuse.data["identity_digest"], identity.digest)
             for field in REVIEW_IDENTITY_FIELDS:
                 values = dict(identity.__dict__)
                 value = values[field]
@@ -228,6 +245,47 @@ class ProductionReadyTests(unittest.TestCase):
             with self.assertRaises((TypeError, ValueError)):
                 ReviewIdentity.from_payload(malformed)
             self.assertIsNone(reusable_event(store.read(), "timeout"))
+
+    def test_reviewer_timeout_removes_child_and_grandchild_processes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            child_path = Path(directory) / "child.pid"
+            grandchild_path = Path(directory) / "grandchild.pid"
+            child_program = (
+                "import subprocess,sys,time; "
+                "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+                f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
+            )
+            parent_program = (
+                "import subprocess,sys,time; "
+                f"p=subprocess.Popen([sys.executable,'-c',{child_program!r}]); "
+                f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
+            )
+            with self.assertRaises(review.ReviewTimeout) as raised:
+                review.run_process_group(
+                    (sys.executable, "-c", parent_program),
+                    "",
+                    Path(directory),
+                    0.2,
+                    {
+                        "shard": "security",
+                        "head_sha": "abc",
+                        "attempt": 1,
+                        "input_digest": "digest",
+                    },
+                    term_grace_seconds=0.2,
+                )
+            self.assertTrue(raised.exception.diagnostic["process_group_terminated"])
+            self.assertIn(raised.exception.diagnostic["termination"], {"term", "kill"})
+            for path in (child_path, grandchild_path):
+                pid = int(path.read_text())
+                for _ in range(20):
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail(f"review descendant {pid} survived timeout cleanup")
 
     def test_events_recover_truncated_tail_and_render_all_history(self):
         with tempfile.TemporaryDirectory() as directory:

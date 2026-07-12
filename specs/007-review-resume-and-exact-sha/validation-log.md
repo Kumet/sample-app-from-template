@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:59:35.979954+00:00","included_event_sequence":95,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:03:29.994416+00:00","included_event_sequence":108,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -106,3 +106,16 @@ Final included event result: PASS.
 | 93 | review/review-shard | FAIL | `828c5629d9de` |  |
 | 94 | review/review-shard | PASS | `828c5629d9de` |  |
 | 95 | review-remediation/runtime-redaction-and-test-isolation | PASS | `828c5629d9de` | Loop 4: suppress raw timeout exception chaining, allowlist and redact runtime evidence prompt data, isolate mismatch tests, and complete diagnostic and malformed identity coverage; make validate passed |
+| 96 | evidence/tracked-evidence-snapshot | PASS | `22bf9425f670` |  |
+| 97 | post-evidence/final-validation | PASS | `22bf9425f670` |  |
+| 98 | review/review-shard | PASS | `22bf9425f670` |  |
+| 99 | review/review-shard | PASS | `22bf9425f670` |  |
+| 100 | review/review-shard | PASS | `22bf9425f670` |  |
+| 101 | review/review-shard | PASS | `22bf9425f670` |  |
+| 102 | review/review-shard | PASS | `22bf9425f670` |  |
+| 103 | review/review-shard | PASS | `22bf9425f670` |  |
+| 104 | review/review-shard | FAIL | `22bf9425f670` |  |
+| 105 | review/review-shard | FAIL | `22bf9425f670` |  |
+| 106 | review/review-shard | PASS | `22bf9425f670` |  |
+| 107 | review/review-shard | PASS | `22bf9425f670` |  |
+| 108 | review-remediation/production-ready-regression-coverage | PASS | `22bf9425f670` | Loop 5: prove child and grandchild timeout cleanup and source-linked cache reuse in the production-ready suite; make validate passed |
