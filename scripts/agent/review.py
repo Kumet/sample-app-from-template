@@ -16,7 +16,9 @@ MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
 REVIEW_PROMPT_VERSION = "2"
+REVIEW_MODEL = "gpt-5.4-mini"
 MODEL_SETTINGS = (
+    f"model={REVIEW_MODEL}",
     "approval_policy=never",
     "model_reasoning_effort=low",
     "sandbox=read-only",
@@ -194,6 +196,8 @@ def prepare_review(
     command = (
         "codex",
         "exec",
+        "--model",
+        REVIEW_MODEL,
         "--sandbox",
         "read-only",
         "-c",

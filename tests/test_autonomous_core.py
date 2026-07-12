@@ -168,6 +168,7 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertIn("Do not run commands", prompt)
             self.assertIn(":(exclude)specs/012-test/**", run.call_args_list[1].args[0])
             command = process_group.call_args.args[0]
+            self.assertIn(review.REVIEW_MODEL, command)
             self.assertIn('model_reasoning_effort="low"', command)
             self.assertEqual(
                 process_group.call_args.args[3], review.REVIEW_TIMEOUT_SECONDS

@@ -134,6 +134,10 @@ Review timeouts terminate the dedicated process group with TERM and then KILL
 only when necessary. Diagnostics contain allowlisted identity metadata and
 redacted output tails. The timeout remains capped at 600 seconds.
 
+The reviewer model is explicitly pinned in the review command and included in
+the identity digest. Changing that model invalidates every cached shard. The
+current reviewer is `gpt-5.4-mini`, selected for bounded, structured review.
+
 Generate and commit `validation-log.md` from pre-final events, then run full
 validation on that new HEAD and append the PASS runtime event. Do not regenerate
 tracked evidence afterward. PR summaries identify the tracked-log cutoff, final
