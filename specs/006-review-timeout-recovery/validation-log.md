@@ -9,5 +9,5 @@ it does not skip reviews, truncate inputs, or alter delivery approval gates.
 
 | HEAD SHA | Command | Result | Notes |
 |---|---|---|---|
-| Pre-commit | `make spec-lint FEATURE=006-review-timeout-recovery` | Passed | Contract and traceability accepted. |
-| Pre-commit | `make validate` | Passed | Framework tests, application tests, integration tests, static checks, and build passed. |
+| `e51ca16d685e1c09c7850f7cdc5f2f268c8651b4` | `make spec-lint FEATURE=006-review-timeout-recovery` | Passed | Revalidated on the exact detached framework commit on 2026-07-13. |
+| `e51ca16d685e1c09c7850f7cdc5f2f268c8651b4` | `make validate` | Passed | Exact-SHA revalidation passed framework tests, application tests, integration tests, static checks, and build on 2026-07-13. |
