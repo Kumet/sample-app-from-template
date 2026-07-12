@@ -1,4 +1,3 @@
-import os
 import subprocess
 import sys
 import tempfile
@@ -247,6 +246,20 @@ class ProductionReadyTests(unittest.TestCase):
             with self.assertRaises((TypeError, ValueError)):
                 ReviewIdentity.from_payload(malformed)
             self.assertIsNone(reusable_event(store.read(), "timeout"))
+            for result in ("FAIL", "TIMEOUT", "CANCELLED", "INVALID", "PARSE_FAILED"):
+                non_pass = store.append(
+                    feature="007-x",
+                    repository="repo",
+                    branch="branch",
+                    worktree="worktree",
+                    phase="review",
+                    kind="review-shard",
+                    result=result,
+                    head_sha="abc",
+                    data={"identity_digest": identity.digest},
+                )
+                with self.subTest(result=result):
+                    self.assertIsNone(reusable_event([non_pass], identity.digest))
 
     def test_reviewer_timeout_removes_child_and_grandchild_processes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -283,9 +296,13 @@ class ProductionReadyTests(unittest.TestCase):
                 pid = int(path.read_text())
                 self.assertIn(pid, tracked)
                 for _ in range(20):
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
+                    status = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(pid)],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    ).stdout.strip()
+                    if not status or status.startswith("Z"):
                         break
                     time.sleep(0.02)
                 else:

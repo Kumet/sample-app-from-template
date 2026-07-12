@@ -23,5 +23,6 @@ scope, validation, or high-risk approval gates.
 
 ## Scope
 
-Only `scripts/agent/review.py`, its existing unit test, and this specification
-may change. Feature 001 risk and scope are unchanged.
+Only `scripts/agent/review.py`, its existing unit test, and the specification
+artifacts under `specs/006-review-timeout-recovery/**` may change. Feature 001
+risk and scope are unchanged.

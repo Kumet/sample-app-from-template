@@ -584,13 +584,17 @@ def run_process_group(
         tracker.stop()
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
+        process_group = process.pid
+        _signal_process_group(process_group, signal.SIGSTOP)
         descendants = tracker.stop()
+        _signal_processes(descendants, signal.SIGSTOP)
         stdout = _output_text(error.output)
         stderr = _output_text(error.stderr)
         termination = "term"
-        process_group = process.pid
         _signal_process_group(process_group, signal.SIGTERM)
         _signal_processes(descendants, signal.SIGTERM)
+        _signal_process_group(process_group, signal.SIGCONT)
+        _signal_processes(descendants, signal.SIGCONT)
         try:
             tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
         except subprocess.TimeoutExpired:
@@ -617,8 +621,8 @@ def run_process_group(
             "command_id": Path(command[0]).name + " " + command[1],
             "prompt_chars": len(input_text),
             "prompt_bytes": len(input_text.encode("utf-8")),
-            "stdout_tail": redact((stdout + _output_text(tail_out))[-2000:]),
-            "stderr_tail": redact((stderr + _output_text(tail_err))[-2000:]),
+            "stdout_tail": _safe_stream_tail(stdout + _output_text(tail_out)),
+            "stderr_tail": _safe_stream_tail(stderr + _output_text(tail_err)),
             "process_status": "timeout",
             "pid": process.pid,
             "termination": termination,
@@ -741,6 +745,14 @@ def _output_text(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def _safe_stream_tail(value: str, limit: int = 2000) -> str:
+    safe_controls = "".join(
+        character if character in "\n\t" or ord(character) >= 32 else "?"
+        for character in value
+    )
+    return redact(safe_controls, limit)
 
 
 def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:

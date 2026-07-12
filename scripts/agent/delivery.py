@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 
@@ -263,8 +264,22 @@ def deliver(
                         f"Independent review shard {shard} retry budget exhausted"
                     ) from last_error
                 prefix = f"review-{review_counter}-{shard}"
-                (evidence / f"{prefix}-prompt.txt").write_text(
-                    prepared.prompt, encoding="utf-8"
+                (evidence / f"{prefix}-prompt-metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "identity_digest": prepared.identity.digest,
+                            "runtime_evidence_digest": (
+                                prepared.identity.runtime_evidence_digest
+                            ),
+                            "prompt_chars": len(prepared.prompt),
+                            "prompt_digest": hashlib.sha256(
+                                prepared.prompt.encode("utf-8")
+                            ).hexdigest(),
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
                 )
                 (evidence / f"{prefix}-stderr.txt").write_text(
                     redact(stderr, 4000), encoding="utf-8"

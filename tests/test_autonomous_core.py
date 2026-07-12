@@ -267,6 +267,31 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertNotEqual(identity.digest, changed_input.digest)
 
     def test_every_canonical_identity_field_invalidates_cached_pass(self):
+        self.assertEqual(
+            set(review.REVIEW_IDENTITY_FIELDS),
+            {
+                "identity_schema_version",
+                "feature",
+                "head_sha",
+                "shard",
+                "review_schema_version",
+                "prompt_version",
+                "reviewer_model",
+                "reviewer_command_identity",
+                "review_settings",
+                "reviewed_files",
+                "spec_digest",
+                "plan_digest",
+                "tasks_digest",
+                "validation_contract_digest",
+                "diff_input_digest",
+                "runtime_evidence_digest",
+                "tracked_snapshot_event_sequence",
+                "validation_log_blob_sha",
+                "final_validation_event_sequence",
+                "final_validation_result_digest",
+            },
+        )
         identity = review_identity(reviewed_files=("b.py", "a.py"))
         event = Event(
             1,
@@ -481,14 +506,18 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertTrue(diagnostic["process_group_terminated"])
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
-                [signal.SIGTERM],
+                [signal.SIGSTOP, signal.SIGTERM, signal.SIGCONT],
             )
             for pid_path in (child_path, grandchild_path):
                 child_pid = int(pid_path.read_text())
                 for _ in range(20):
-                    try:
-                        os.kill(child_pid, 0)
-                    except ProcessLookupError:
+                    status = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(child_pid)],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    ).stdout.strip()
+                    if not status or status.startswith("Z"):
                         break
                     time.sleep(0.02)
                 else:
@@ -529,13 +558,22 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(captured.exception.diagnostic["termination"], "kill")
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
-                [signal.SIGTERM, signal.SIGKILL],
+                [
+                    signal.SIGSTOP,
+                    signal.SIGTERM,
+                    signal.SIGCONT,
+                    signal.SIGKILL,
+                ],
             )
             child_pid = int(child_path.read_text())
             for _ in range(20):
-                try:
-                    os.kill(child_pid, 0)
-                except ProcessLookupError:
+                status = subprocess.run(
+                    ["ps", "-o", "stat=", "-p", str(child_pid)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                ).stdout.strip()
+                if not status or status.startswith("Z"):
                     break
                 time.sleep(0.02)
             else:
