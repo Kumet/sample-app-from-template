@@ -9,6 +9,7 @@ from .weakening import Finding
 
 
 MAX_REVIEW_INPUT_CHARS = 100_000
+REVIEW_TIMEOUT_SECONDS = 600
 
 
 @dataclass(frozen=True)
@@ -90,9 +91,12 @@ def run_review(repo: Path, feature_dir: Path, review_focus: str = "complete") ->
                str(repo / "schemas" / "review-result.schema.json"), "-"]
     try:
         completed = subprocess.run(command, input=prompt, cwd=repo, text=True,
-                                   capture_output=True, check=False, timeout=300)
+                                   capture_output=True, check=False,
+                                   timeout=REVIEW_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as error:
-        raise RuntimeError("Independent review timed out after 300 seconds") from error
+        raise RuntimeError(
+            f"Independent review timed out after {REVIEW_TIMEOUT_SECONDS} seconds"
+        ) from error
     if completed.returncode:
         raise RuntimeError(f"Review Codex failed: {completed.stderr[-4000:]}")
     return parse_review(completed.stdout), prompt, completed.stderr

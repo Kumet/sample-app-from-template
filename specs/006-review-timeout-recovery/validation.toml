@@ -1,0 +1,41 @@
+version = 2
+risk = "medium"
+auto_merge = false
+risk_domains = ["automation"]
+max_tasks = 5
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+integration = "test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "AC-002", "T001"]
+REQ-002 = ["AC-002", "AC-003", "T001", "T002"]
+
+[dependencies]
+T002 = ["T001"]
+
+[scope]
+allowed = [
+  "scripts/agent/review.py",
+  "tests/test_autonomous_core.py",
+  "specs/006-review-timeout-recovery/**",
+]
+forbidden = [
+  ".env",
+  ".env.*",
+  "**/.env",
+  "**/.env.*",
+  "**/*.pem",
+  "**/*.key",
+  "**/credentials.*",
+  "**/secrets.*",
+  ".agent-policy.toml",
+  "Makefile",
+  ".github/**",
+]

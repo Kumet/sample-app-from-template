@@ -101,7 +101,9 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertIn("Do not run commands", prompt)
             self.assertIn(":(exclude)specs/012-test/**", run.call_args_list[1].args[0])
             self.assertIn('model_reasoning_effort="low"', run.call_args_list[2].args[0])
-            self.assertEqual(run.call_args_list[2].kwargs["timeout"], 300)
+            self.assertEqual(
+                run.call_args_list[2].kwargs["timeout"], review.REVIEW_TIMEOUT_SECONDS
+            )
 
     def test_review_fails_closed_instead_of_truncating_oversized_input(self):
         with tempfile.TemporaryDirectory() as directory:
