@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import subprocess
 from pathlib import Path
 
 from . import (
@@ -15,11 +14,12 @@ from . import (
     weakening,
     worktree,
 )
-from .github_delivery import GitHubDelivery, checks_with_repairs
-from .evidence import redact
 from .events import EventStore
+from .evidence import redact
 from .gates import require_mergeable
-from .notifications import payload as notification_payload, write_outbox
+from .github_delivery import GitHubDelivery, checks_with_repairs
+from .notifications import payload as notification_payload
+from .notifications import write_outbox
 from .parser import Task, load_config, parse_tasks, resolve_feature
 from .policy import RepositoryPolicy
 from .risk import assess, merge_allowed
@@ -30,7 +30,6 @@ def dry_run(repo: Path, feature: str, policy: RepositoryPolicy) -> dict:
     feature_dir = resolve_feature(repo, feature)
     report = require_lint(feature_dir, policy)
     config = load_config(feature_dir, policy)
-    event_store = EventStore(repo / ".agent-work" / feature_dir.name / "events.jsonl")
     tasks = parse_tasks(feature_dir / "tasks.md", set(config.commands))
     return {
         "feature": feature_dir.name,
@@ -61,6 +60,7 @@ def deliver(
     feature_dir = resolve_feature(repo, feature)
     require_lint(feature_dir, policy)
     config = load_config(feature_dir, policy)
+    event_store = EventStore(repo / ".agent-work" / feature_dir.name / "events.jsonl")
     existing_path = repo / ".agent-worktrees" / feature_dir.name
     resuming = existing_path.exists()
     if resuming:
@@ -157,11 +157,18 @@ def deliver(
                     review_calls += 1
                     review_counter += 1
                     try:
-                        result, stderr = review.run_prepared(isolated.path, prepared)
+                        result, stderr = review.run_prepared(
+                            isolated.path, prepared, attempt=shard_attempt
+                        )
                         break
                     except Exception as error:
                         last_error = error
                         signature = f"{type(error).__name__}:{str(error)[-1000:]}"
+                        diagnostic = (
+                            error.diagnostic
+                            if isinstance(error, review.ReviewTimeout)
+                            else {}
+                        )
                         event_store.append(
                             feature=feature_dir.name,
                             repository=str(repo),
@@ -169,7 +176,7 @@ def deliver(
                             worktree=str(isolated.path),
                             phase="review",
                             kind="review-shard",
-                            result="INVALID",
+                            result="TIMEOUT" if diagnostic else "INVALID",
                             head_sha=head,
                             detail=str(error),
                             data={
@@ -178,6 +185,7 @@ def deliver(
                                 "identity": prepared.identity.payload(),
                                 "failure_signature": signature,
                                 "attempt": shard_attempt,
+                                "diagnostic": diagnostic,
                             },
                         )
                         if (
@@ -187,7 +195,8 @@ def deliver(
                             >= 2
                         ):
                             raise RuntimeError(
-                                f"Independent review shard {shard} repeated identical failure"
+                                "Independent review shard "
+                                f"{shard} repeated identical failure"
                             ) from error
                 else:
                     raise RuntimeError(
@@ -395,7 +404,7 @@ def deliver(
             "risk": assessment.effective,
             "checks_passed": checks_passed,
             "merged": merged,
-            "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "completed_at": dt.datetime.now(dt.UTC).isoformat(),
         }
     finally:
         # Successful cleanup is intentionally left explicit; a delivery result
@@ -406,8 +415,10 @@ def deliver(
 def _pr_body(feature: str, assessment, review_result, weakening_findings) -> str:
     return (
         f"## Feature\n\n`{feature}`\n\n## Risk\n\n{assessment.effective}: "
-        f"{', '.join(assessment.reasons)}\n\n## Validation\n\nMechanical validation passed.\n\n"
-        f"## Independent review\n\n{review_result.result}; {len(review_result.findings)} findings.\n\n"
+        f"{', '.join(assessment.reasons)}\n\n## Validation\n\n"
+        "Mechanical validation passed.\n\n"
+        f"## Independent review\n\n{review_result.result}; "
+        f"{len(review_result.findings)} findings.\n\n"
         f"## Test weakening\n\n{len(weakening_findings)} findings.\n"
     )
 
@@ -428,7 +439,8 @@ def _repair_and_commit(
     check = validation.run_named(repo, config, "full")
     if not check.succeeded:
         raise RuntimeError(
-            f"{repair_id} repair validation failed: {(check.stderr or check.stdout)[-4000:]}"
+            f"{repair_id} repair validation failed: "
+            f"{(check.stderr or check.stdout)[-4000:]}"
         )
     git_utils.commit(repo, paths, f"fix: address {repair_id.lower()} findings")
 
@@ -456,7 +468,8 @@ def _record_delivery_evidence(
         text = text.replace(old, new)
     text += (
         f"\n| 1 | LIVE DELIVERY | PASS | worktree isolated; review passed; "
-        f"PR={pr_url}; checks={'passed' if checks_passed else 'failed'}; risk={risk}; unmerged |\n"
+        f"PR={pr_url}; checks={'passed' if checks_passed else 'failed'}; "
+        f"risk={risk}; unmerged |\n"
     )
     path.write_text(text, encoding="utf-8")
     paths = git_utils.changed_paths(repo)
@@ -467,7 +480,8 @@ def _validate_delivery_evidence(repo: Path, feature_dir: Path, config) -> None:
     check = validation.run_named(repo, config, "full")
     if not check.succeeded:
         raise RuntimeError(
-            f"Delivery evidence validation failed: {(check.stderr or check.stdout)[-4000:]}"
+            "Delivery evidence validation failed: "
+            f"{(check.stderr or check.stdout)[-4000:]}"
         )
     result, _, _ = review.run_review(repo, feature_dir)
     if result.result != "pass" or result.required_findings:

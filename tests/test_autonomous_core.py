@@ -1,22 +1,22 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from agent import adapters, recovery, weakening
-from agent.policy import RepositoryPolicy, validation_commands
-from agent.review import parse_review
-from agent.review import ReviewResult, review_with_repairs
-from agent import review
 from unittest import mock
+
+from agent import adapters, recovery, review, weakening
+from agent.budget import Budget
+from agent.evidence import redact
+from agent.policy import RepositoryPolicy, validation_commands
+from agent.review import ReviewResult, parse_review, review_with_repairs
 from agent.risk import assess, merge_allowed
 from agent.state import RunState, abort, read_state, verify_resume, write_state
-from agent.evidence import redact
-from agent.budget import Budget
-
 
 POLICY = RepositoryPolicy(
     "main",
@@ -145,10 +145,15 @@ class AutonomousCoreTests(unittest.TestCase):
             diff = subprocess.CompletedProcess([], 0, diff_text, "")
             head = subprocess.CompletedProcess([], 0, "abc\n", "")
             changed = subprocess.CompletedProcess([], 0, "src/a.py\n", "")
-            with mock.patch(
-                "agent.review.subprocess.run",
-                side_effect=(merge, diff, head, changed, completed),
-            ) as run:
+            with (
+                mock.patch(
+                    "agent.review.subprocess.run",
+                    side_effect=(merge, diff, head, changed),
+                ) as run,
+                mock.patch(
+                    "agent.review.run_process_group", return_value=completed
+                ) as process_group,
+            ):
                 result, prompt, _ = review.run_review(repo, feature)
             self.assertEqual(result.result, "pass")
             for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
@@ -158,9 +163,10 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertIn("diff-end", prompt)
             self.assertIn("Do not run commands", prompt)
             self.assertIn(":(exclude)specs/012-test/**", run.call_args_list[1].args[0])
-            self.assertIn('model_reasoning_effort="low"', run.call_args_list[4].args[0])
+            command = process_group.call_args.args[0]
+            self.assertIn('model_reasoning_effort="low"', command)
             self.assertEqual(
-                run.call_args_list[4].kwargs["timeout"], review.REVIEW_TIMEOUT_SECONDS
+                process_group.call_args.args[3], review.REVIEW_TIMEOUT_SECONDS
             )
 
     def test_review_fails_closed_instead_of_truncating_oversized_input(self):
@@ -183,13 +189,16 @@ class AutonomousCoreTests(unittest.TestCase):
             diff = subprocess.CompletedProcess([], 0, oversized, "")
             head = subprocess.CompletedProcess([], 0, "abc\n", "")
             changed = subprocess.CompletedProcess([], 0, "src/a.py\n", "")
-            with mock.patch(
-                "agent.review.subprocess.run", side_effect=(merge, diff, head, changed)
-            ) as run:
-                with self.assertRaisesRegex(
+            with (
+                mock.patch(
+                    "agent.review.subprocess.run",
+                    side_effect=(merge, diff, head, changed),
+                ) as run,
+                self.assertRaisesRegex(
                     RuntimeError, "refusing to review truncated content"
-                ):
-                    review.run_review(repo, feature)
+                ),
+            ):
+                review.run_review(repo, feature)
             self.assertEqual(run.call_count, 4)
 
     def test_review_identity_changes_with_head_and_complete_input(self):
@@ -229,6 +238,81 @@ class AutonomousCoreTests(unittest.TestCase):
         first = review.bind_context(prepared, {"security": "pass"})
         second = review.bind_context(prepared, {"security": "fail"})
         self.assertNotEqual(first.identity.digest, second.identity.digest)
+
+    def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            child_path = Path(directory) / "child.pid"
+            program = (
+                "import subprocess,sys,time; "
+                "p=subprocess.Popen([sys.executable,'-c',"
+                "'import time; time.sleep(60)']); "
+                f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
+            )
+            command = (sys.executable, "-c", program)
+            with self.assertRaises(review.ReviewTimeout) as captured:
+                review.run_process_group(
+                    command,
+                    "",
+                    Path(directory),
+                    0.2,
+                    {
+                        "shard": "tests",
+                        "head_sha": "abc",
+                        "attempt": 1,
+                        "input_digest": "digest",
+                    },
+                    term_grace_seconds=0.2,
+                )
+            diagnostic = captured.exception.diagnostic
+            self.assertEqual(diagnostic["shard"], "tests")
+            self.assertEqual(diagnostic["head_sha"], "abc")
+            self.assertEqual(diagnostic["attempt"], 1)
+            self.assertEqual(diagnostic["input_digest"], "digest")
+            self.assertTrue(diagnostic["process_group_terminated"])
+            child_pid = int(child_path.read_text())
+            for _ in range(20):
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("review child process survived process-group timeout")
+
+    def test_timeout_kills_process_group_when_term_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            child_path = Path(directory) / "child.pid"
+            child = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+            program = (
+                "import signal,subprocess,sys,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
+                f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
+            )
+            with self.assertRaises(review.ReviewTimeout) as captured:
+                review.run_process_group(
+                    (sys.executable, "-c", program),
+                    "",
+                    Path(directory),
+                    0.2,
+                    {
+                        "shard": "maintainability",
+                        "head_sha": "def",
+                        "attempt": 2,
+                        "input_digest": "digest",
+                    },
+                    term_grace_seconds=0.1,
+                )
+            self.assertEqual(captured.exception.diagnostic["termination"], "kill")
+            child_pid = int(child_path.read_text())
+            for _ in range(20):
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("SIGKILL did not remove review child process")
 
     def test_risk_only_escalates_and_merge_is_fully_gated(self):
         medium = assess("low", [".github/workflows/ci.yml"], [], POLICY)

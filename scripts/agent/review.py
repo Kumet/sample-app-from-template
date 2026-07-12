@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
 import subprocess
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .evidence import redact
 from .weakening import Finding
-
 
 MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
@@ -68,6 +71,15 @@ class PreparedReview:
     identity: ReviewIdentity
     prompt: str
     command: tuple[str, ...]
+
+
+class ReviewTimeout(RuntimeError):
+    def __init__(self, diagnostic: dict):
+        self.diagnostic = diagnostic
+        super().__init__(
+            f"Independent review shard {diagnostic['shard']} timed out after "
+            f"{diagnostic['configured_timeout']} seconds"
+        )
 
 
 def parse_review(text: str) -> ReviewResult:
@@ -230,24 +242,80 @@ def run_review(
     return result, prepared.prompt, stderr
 
 
-def run_prepared(repo: Path, prepared: PreparedReview) -> tuple[ReviewResult, str]:
-    try:
-        completed = subprocess.run(
-            prepared.command,
-            input=prepared.prompt,
-            cwd=repo,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=REVIEW_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as error:
-        raise RuntimeError(
-            f"Independent review timed out after {REVIEW_TIMEOUT_SECONDS} seconds"
-        ) from error
+def run_prepared(
+    repo: Path,
+    prepared: PreparedReview,
+    *,
+    timeout_seconds: float = REVIEW_TIMEOUT_SECONDS,
+    attempt: int = 1,
+) -> tuple[ReviewResult, str]:
+    if timeout_seconds > REVIEW_TIMEOUT_SECONDS:
+        raise ValueError("Review timeout exceeds the 600-second maximum")
+    completed = run_process_group(
+        prepared.command,
+        prepared.prompt,
+        repo,
+        timeout_seconds,
+        {
+            "shard": prepared.identity.shard,
+            "head_sha": prepared.identity.head_sha,
+            "attempt": attempt,
+            "input_digest": prepared.identity.input_digest,
+        },
+    )
     if completed.returncode:
         raise RuntimeError(f"Review Codex failed: {completed.stderr[-4000:]}")
     return parse_review(completed.stdout), completed.stderr
+
+
+def run_process_group(
+    command: tuple[str, ...],
+    input_text: str,
+    cwd: Path,
+    timeout_seconds: float,
+    identity: dict,
+    *,
+    term_grace_seconds: float = 2.0,
+) -> subprocess.CompletedProcess[str]:
+    started = time.monotonic()
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        text=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired as error:
+        stdout = error.output or ""
+        stderr = error.stderr or ""
+        termination = "term"
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
+        except subprocess.TimeoutExpired:
+            termination = "kill"
+            os.killpg(process.pid, signal.SIGKILL)
+            tail_out, tail_err = process.communicate()
+        diagnostic = {
+            **identity,
+            "configured_timeout": timeout_seconds,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "command_id": Path(command[0]).name + " " + command[1],
+            "prompt_chars": len(input_text),
+            "prompt_bytes": len(input_text.encode("utf-8")),
+            "stdout_tail": redact((stdout + (tail_out or ""))[-2000:]),
+            "stderr_tail": redact((stderr + (tail_err or ""))[-2000:]),
+            "process_status": "timeout",
+            "pid": process.pid,
+            "termination": termination,
+            "process_group_terminated": process.poll() is not None,
+        }
+        raise ReviewTimeout(diagnostic) from error
 
 
 def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:

@@ -8,7 +8,7 @@
 - [x] T002: Implement bounded shard retry and integration ordering
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010
   - Validation: unit
-- [ ] T003: Add timeout diagnostics and process-group termination
+- [x] T003: Add timeout diagnostics and process-group termination
   - Requirements: REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
   - Validation: unit, integration
 - [ ] T004: Implement exact-HEAD validation finalization and delivery gates
