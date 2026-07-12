@@ -523,7 +523,7 @@ def run_prepared(
         },
     )
     if completed.returncode:
-        raise RuntimeError(f"Review Codex failed: {completed.stderr[-4000:]}")
+        raise RuntimeError(f"Review Codex failed: {redact(completed.stderr, 4000)}")
     return parse_review(completed.stdout), completed.stderr
 
 

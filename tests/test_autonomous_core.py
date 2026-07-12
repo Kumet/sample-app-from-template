@@ -17,7 +17,11 @@ from agent.events import Event
 from agent.evidence import redact
 from agent.policy import RepositoryPolicy, validation_commands
 from agent.review import ReviewResult, parse_review, review_with_repairs
-from agent.review_shards import reusable_event
+from agent.review_shards import (
+    matching_failure_count,
+    record_reuse_decision,
+    reusable_event,
+)
 from agent.risk import assess, merge_allowed
 from agent.state import RunState, abort, read_state, verify_resume, write_state
 
@@ -241,12 +245,14 @@ class AutonomousCoreTests(unittest.TestCase):
                     "agent.review.subprocess.run",
                     side_effect=(merge, diff, head, changed),
                 ) as run,
+                mock.patch("agent.review.run_process_group") as process_group,
                 self.assertRaisesRegex(
                     RuntimeError, "refusing to review truncated content"
                 ),
             ):
                 review.run_review(repo, feature, evidence_fields=EVIDENCE_FIELDS)
             self.assertEqual(run.call_count, 4)
+            process_group.assert_not_called()
 
     def test_review_identity_changes_with_head_and_complete_input(self):
         identity = review_identity()
@@ -276,6 +282,23 @@ class AutonomousCoreTests(unittest.TestCase):
             data={"identity_digest": identity.digest},
         )
         self.assertIs(reusable_event([event], identity.digest), event)
+        with tempfile.TemporaryDirectory() as directory:
+            from agent.events import EventStore
+
+            store = EventStore(Path(directory) / "events.jsonl")
+            decision = record_reuse_decision(
+                store,
+                source=event,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity_digest=identity.digest,
+            )
+            self.assertEqual(decision.kind, "review-reused")
+            self.assertEqual(decision.data["source_sequence"], event.sequence)
         for field in review.REVIEW_IDENTITY_FIELDS:
             with self.subTest(field=field):
                 values = dict(identity.__dict__)
@@ -294,6 +317,48 @@ class AutonomousCoreTests(unittest.TestCase):
                 changed = review.ReviewIdentity(**values)
                 self.assertNotEqual(identity.digest, changed.digest)
                 self.assertIsNone(reusable_event([event], changed.digest))
+
+    def test_identical_failure_signature_stops_at_two(self):
+        identity = review_identity()
+        failure = Event(
+            1,
+            1,
+            "now",
+            "007-x",
+            "repo",
+            "branch",
+            "worktree",
+            "review",
+            "review-shard",
+            "INVALID",
+            "abc",
+            data={
+                "identity_digest": identity.digest,
+                "failure_signature": "same-failure",
+            },
+        )
+        second = Event(**{**failure.__dict__, "sequence": 2})
+        self.assertEqual(
+            matching_failure_count([failure, second], identity, "same-failure"),
+            2,
+        )
+
+    def test_non_timeout_review_failure_redacts_stderr_before_raise(self):
+        prepared = review.PreparedReview(review_identity(), "prompt", ("codex", "exec"))
+        completed = subprocess.CompletedProcess(
+            prepared.command,
+            1,
+            "",
+            "token=token-value password=hunter2 Authorization: Bearer bearer-value",
+        )
+        with (
+            mock.patch("agent.review.run_process_group", return_value=completed),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            review.run_prepared(Path.cwd(), prepared)
+        message = str(raised.exception)
+        for secret in ("token-value", "hunter2", "bearer-value"):
+            self.assertNotIn(secret, message)
 
     def test_identity_payload_validation_and_file_order_are_fail_closed(self):
         identity = review_identity(reviewed_files=("b.py", "a.py"))

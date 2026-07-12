@@ -210,20 +210,16 @@ def deliver(
                     event_store.read(), prepared.identity.digest
                 )
                 if cached is not None:
-                    event_store.append(
+                    review_shards.record_reuse_decision(
+                        event_store,
+                        source=cached,
                         feature=feature_dir.name,
                         repository=str(repo),
                         branch=isolated.branch,
                         worktree=str(isolated.path),
-                        phase="review",
-                        kind="review-reused",
-                        result="PASS",
                         head_sha=head,
-                        data={
-                            "shard": shard,
-                            "identity_digest": prepared.identity.digest,
-                            "source_sequence": cached.sequence,
-                        },
+                        shard=shard,
+                        identity_digest=prepared.identity.digest,
                     )
                     return review_shards.result_from_event(cached)
                 last_error = None
@@ -692,9 +688,7 @@ def _repair_and_commit(
     prompt = codex_runner.render_prompt(repo, feature_dir, task, failure)
     result = codex_runner.run(repo, prompt)
     if result.returncode:
-        raise _safe_command_failure(
-            f"{repair_id} repair Codex failed", result.stderr
-        )
+        raise _safe_command_failure(f"{repair_id} repair Codex failed", result.stderr)
     paths = git_utils.changed_paths(repo)
     if not paths:
         raise RuntimeError(f"{repair_id} repair produced no changes")

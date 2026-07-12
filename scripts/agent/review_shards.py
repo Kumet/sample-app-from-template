@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .review import ReviewIdentity, ReviewResult
-from .events import Event
+from .events import Event, EventStore
 from .weakening import Finding
 
 
@@ -64,6 +64,36 @@ def reusable_event(events: list[Event], identity_digest: str) -> Event | None:
         ):
             return event
     return None
+
+
+def record_reuse_decision(
+    store: EventStore,
+    *,
+    source: Event,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+    shard: str,
+    identity_digest: str,
+) -> Event:
+    """Append the auditable decision that reuses an exact-identity PASS."""
+    return store.append(
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        phase="review",
+        kind="review-reused",
+        result="PASS",
+        head_sha=head_sha,
+        data={
+            "shard": shard,
+            "identity_digest": identity_digest,
+            "source_sequence": source.sequence,
+        },
+    )
 
 
 def result_from_event(event: Event) -> ReviewResult:

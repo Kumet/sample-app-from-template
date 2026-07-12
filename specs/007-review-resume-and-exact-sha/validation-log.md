@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:36:29.106699+00:00","included_event_sequence":57,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:41:30.154605+00:00","included_event_sequence":69,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -68,3 +68,15 @@ Final included event result: PASS.
 | 55 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
 | 56 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
 | 57 | review-remediation/security-redaction | PASS | `1c7a9bd9f3ea` | Loop 1: redacted raw subprocess output before RuntimeError exposure; targeted safety test and make validate passed |
+| 58 | evidence/tracked-evidence-snapshot | PASS | `f14745f04dbd` |  |
+| 59 | post-evidence/final-validation | PASS | `f14745f04dbd` |  |
+| 60 | review/review-shard | PASS | `f14745f04dbd` |  |
+| 61 | review/review-shard | PASS | `f14745f04dbd` |  |
+| 62 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 63 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 64 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 65 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 66 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 67 | review/review-shard | FAIL | `f14745f04dbd` |  |
+| 68 | review/review-shard | PASS | `f14745f04dbd` |  |
+| 69 | review-remediation/gate-redaction-and-tests | PASS | `f14745f04dbd` | Loop 2: require integration at pre-push, redact reviewer stderr before exposure, record source-linked reuse decisions, and strengthen retry/input tests; make validate passed |

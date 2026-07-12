@@ -120,6 +120,11 @@ class EvidenceSnapshotTests(unittest.TestCase):
             **common, kind="weakening", result="PASS", data={"findings": []}
         )
         for shard in REQUIRED_REVIEW_SHARDS:
+            if shard == "integration":
+                with self.assertRaisesRegex(
+                    ValueError, "Missing exact-HEAD review shards: integration"
+                ):
+                    require_pre_push(self.repo, self.feature, self.store.read(), head)
             identity = ReviewIdentity(
                 identity_schema_version="2",
                 feature=self.feature.name,
