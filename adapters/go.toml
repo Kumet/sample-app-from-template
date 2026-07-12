@@ -1,0 +1,13 @@
+name = "go"
+markers = ["go.mod"]
+tool_markers = ["gofmt", "go vet"]
+
+[targets]
+unit = "test"
+full = "validate"
+
+[commands]
+format-check = ["gofmt", "-l", "."]
+lint = ["go", "vet", "./..."]
+test = ["go", "test", "./..."]
+build = ["go", "build", "./..."]

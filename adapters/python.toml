@@ -1,0 +1,15 @@
+name = "python"
+markers = ["pyproject.toml", "setup.py", "requirements.txt"]
+tool_markers = ["ruff", "mypy", "pytest", "unittest"]
+
+[targets]
+unit = "test"
+full = "validate"
+
+[commands]
+setup = ["python3", "-m", "pip", "install", "-e", ".[dev]"]
+format-check = ["python3", "-m", "ruff", "format", "--check", "."]
+lint = ["python3", "-m", "ruff", "check", "."]
+typecheck = ["python3", "-m", "mypy", "."]
+test = ["python3", "-m", "unittest", "discover"]
+build = ["python3", "-m", "build"]

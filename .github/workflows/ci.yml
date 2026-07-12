@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate template files
+        run: |
+          test -f AGENTS.md
+          test -f CLAUDE.md
+          test -f Makefile
+          test -f .agent-policy.toml
+          test -f docs/project-context.md
+          test -f .github/pull_request_template.md
+          test -f schemas/review-result.schema.json
+          test -f adapters/generic.toml
+
+      - name: Check scripts are executable
+        run: |
+          test -x scripts/init-project.sh
+          test -x scripts/check-secrets.sh
+          test -x scripts/validate-spec.sh
+
+      - name: Run secret check
+        run: ./scripts/check-secrets.sh
+
+      - name: Run project validation
+        run: make validate
+
+      - name: Qualify stack fixtures
+        run: make qualify-stacks

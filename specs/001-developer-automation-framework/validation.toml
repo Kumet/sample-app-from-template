@@ -1,0 +1,42 @@
+version = 1
+max_tasks = 20
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+
+[commands]
+unit = ["make", "test"]
+full = ["make", "validate"]
+
+[scope]
+allowed = [
+  "scripts/agent/**",
+  "prompts/**",
+  "tests/**",
+  "specs/001-developer-automation-framework/**",
+  "specs/_template/**",
+  "scripts/validate-spec.sh",
+  "scripts/check-secrets.sh",
+  "Makefile",
+  ".gitignore",
+  "README.md",
+  "docs/ai-operation.md",
+  "docs/project-context.md",
+  "docs/architecture.md",
+  ".github/workflows/ci.yml",
+]
+forbidden = [
+  ".env",
+  ".env.*",
+  "**/.env",
+  "**/.env.*",
+  "local.properties",
+  "**/local.properties",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "credentials.*",
+  "**/credentials.*",
+  "secrets.*",
+  "**/secrets.*",
+]

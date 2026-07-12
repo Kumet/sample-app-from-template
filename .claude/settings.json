@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(AGENTS.md)",
+      "Read(CLAUDE.md)",
+      "Read(docs/**)",
+      "Read(specs/**)",
+      "Read(src/**)",
+      "Read(tests/**)",
+      "Edit(specs/**)",
+      "Edit(docs/**)",
+      "Edit(src/**)",
+      "Edit(tests/**)",
+      "Bash(make validate)",
+      "Bash(make ci)",
+      "Bash(make test)",
+      "Bash(git status)",
+      "Bash(git diff)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(rm -rf *)",
+      "Bash(curl * | bash)",
+      "Bash(wget * | bash)",
+      "Edit(.github/workflows/**)",
+      "Edit(.env*)"
+    ]
+  }
+}

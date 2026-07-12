@@ -1,0 +1,36 @@
+version = 1
+default_branch = "main"
+allowed_make_targets = ["setup", "lint", "typecheck", "test", "build", "integration-test", "validate"]
+max_tasks = 50
+max_attempts_per_task = 5
+max_review_attempts = 3
+max_ci_attempts = 3
+max_elapsed_minutes = 120
+auto_merge_low_risk = false
+allow_legacy_contracts = false
+queue_concurrency = 1
+max_codex_calls = 20
+max_review_calls = 8
+max_ci_repairs = 3
+
+[quality.lint]
+enabled = false
+reason = "Template repository contains no application source linter configuration."
+
+[quality.typecheck]
+enabled = false
+reason = "Template runtime is validated by Python compilation and unittest."
+
+[quality.test]
+enabled = true
+
+[quality.build]
+enabled = false
+reason = "Template repository has no distributable application build."
+
+[notifications]
+sinks = ["stdout", "outbox"]
+
+[risk_paths]
+high = ["auth/**", "security/**", "migrations/**", "deploy/**", "**/production.*"]
+medium = [".github/**", "Dockerfile", "Makefile", "**/Dockerfile"]

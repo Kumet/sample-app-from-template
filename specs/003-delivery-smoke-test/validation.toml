@@ -1,0 +1,27 @@
+version = 2
+risk = "medium"
+auto_merge = false
+risk_domains = []
+max_tasks = 1
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "T001"]
+REQ-002 = ["AC-002", "T001"]
+REQ-003 = ["AC-003", "T001"]
+REQ-004 = ["AC-004", "T001"]
+REQ-005 = ["AC-005", "T001"]
+REQ-006 = ["AC-006", "T001"]
+
+[dependencies]
+
+[scope]
+allowed = ["README.md", "prompts/**", "scripts/agent/**", "tests/**", "specs/003-delivery-smoke-test/**", "docs/ai-operation.md", "docs/architecture.md"]
+forbidden = [".env", ".env.*", "**/.env", "**/.env.*", "local.properties", "**/*.pem", "**/*.key", ".agent-policy.toml", ".github/**"]

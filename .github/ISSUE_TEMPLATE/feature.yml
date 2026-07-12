@@ -1,0 +1,41 @@
+name: Feature request
+description: Request a new feature with enough context for SDD
+labels: [feature]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: What problem are we solving?
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired behavior
+      description: What should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true when this is done?
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: Allowed changes
+      description: Which areas may be changed?
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden changes
+      description: Which areas must not be changed?
+  - type: textarea
+    id: security
+    attributes:
+      label: Security/privacy notes
+      description: Sensitive data, permissions, auth, logging, etc.

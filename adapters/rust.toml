@@ -1,0 +1,13 @@
+name = "rust"
+markers = ["Cargo.toml"]
+tool_markers = ["cargo fmt", "cargo clippy"]
+
+[targets]
+unit = "test"
+full = "validate"
+
+[commands]
+format-check = ["cargo", "fmt", "--check"]
+lint = ["cargo", "clippy", "--", "-D", "warnings"]
+test = ["cargo", "test"]
+build = ["cargo", "build"]

@@ -1,0 +1,37 @@
+# secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets.*
+credentials.*
+
+# dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# build outputs
+dist/
+build/
+coverage/
+htmlcov/
+
+# local editor
+.DS_Store
+.idea/
+.vscode/
+.history/
+
+# logs
+*.log
+.agent-work/
+.agent-worktrees/
+Makefile.*.proposed

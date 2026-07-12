@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["result", "findings"],
+  "properties": {
+    "result": {"enum": ["pass", "fail"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "category", "file", "description", "required"],
+        "properties": {
+          "severity": {"enum": ["low", "medium", "high"]},
+          "category": {"type": "string"},
+          "file": {"type": "string"},
+          "description": {"type": "string"},
+          "required": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

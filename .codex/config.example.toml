@@ -1,0 +1,9 @@
+# Example Codex configuration placeholder.
+# Keep actual credentials and local machine settings out of the repository.
+
+[workflow]
+default_validation_command = "make validate"
+
+[safety]
+read_env_files = false
+allow_destructive_commands = false

@@ -1,0 +1,11 @@
+name = "generic"
+markers = ["Makefile"]
+tool_markers = ["make"]
+
+[targets]
+unit = "test"
+full = "validate"
+
+[commands]
+test = ["make", "test"]
+build = ["make", "build"]
