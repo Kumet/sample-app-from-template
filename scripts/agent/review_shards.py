@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .review import ReviewResult
+from .events import Event
 from .weakening import Finding
 
 
@@ -16,7 +17,9 @@ class ShardResult:
     result: ReviewResult
 
 
-def split_files(patches: dict[str, str], max_chars: int = 50000) -> list[dict[str, str]]:
+def split_files(
+    patches: dict[str, str], max_chars: int = 50000
+) -> list[dict[str, str]]:
     chunks: list[dict[str, str]] = []
     current: dict[str, str] = {}
     size = 0
@@ -48,3 +51,16 @@ def aggregate(results: list[ShardResult], head_sha: str) -> ReviewResult:
         raise ValueError("Missing review shards: " + ", ".join(sorted(missing)))
     failed = any(f.required and f.severity == "high" for f in findings)
     return ReviewResult("fail" if failed else "pass", tuple(findings))
+
+
+def reusable_event(events: list[Event], identity_digest: str) -> Event | None:
+    """Return only an exact-identity successful shard event."""
+    for event in reversed(events):
+        data = event.data or {}
+        if (
+            event.kind == "review-shard"
+            and event.result == "PASS"
+            and data.get("identity_digest") == identity_digest
+        ):
+            return event
+    return None

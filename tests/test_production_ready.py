@@ -18,9 +18,13 @@ from agent.queue import Queue
 from agent.release import check as release_check
 from agent.review import ReviewResult
 from agent.review_shards import SHARDS, ShardResult, aggregate, split_files
-from agent.scope_approval import (apply as scope_apply, preview as scope_preview,
-                                  preview_request as scope_request_preview,
-                                  request as scope_request)
+from agent.review_shards import reusable_event
+from agent.scope_approval import (
+    apply as scope_apply,
+    preview as scope_preview,
+    preview_request as scope_request_preview,
+    request as scope_request,
+)
 from agent.state import RunState, write_state
 from agent.telemetry import Limits, Usage, parse_codex_tokens
 from agent.validation import ScopeViolation
@@ -29,20 +33,76 @@ from unittest import mock
 
 
 class ProductionReadyTests(unittest.TestCase):
+    def test_review_cache_reuses_only_matching_pass_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            passed = store.append(
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                phase="review",
+                kind="review-shard",
+                result="PASS",
+                head_sha="abc",
+                data={"identity_digest": "same"},
+            )
+            store.append(
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                phase="review",
+                kind="review-shard",
+                result="TIMEOUT",
+                head_sha="abc",
+                data={"identity_digest": "timeout"},
+            )
+            self.assertEqual(reusable_event(store.read(), "same"), passed)
+            self.assertIsNone(reusable_event(store.read(), "different"))
+            self.assertIsNone(reusable_event(store.read(), "timeout"))
+
     def test_events_recover_truncated_tail_and_render_all_history(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "events.jsonl"
             store = EventStore(path)
-            store.append(feature="012-x", repository="repo", branch="b", worktree="w",
-                         phase="test", kind="validation", result="FAIL", head_sha="a", detail="first")
-            store.append(feature="012-x", repository="repo", branch="b", worktree="w",
-                         phase="test", kind="validation", result="PASS", head_sha="b", detail="second")
+            store.append(
+                feature="012-x",
+                repository="repo",
+                branch="b",
+                worktree="w",
+                phase="test",
+                kind="validation",
+                result="FAIL",
+                head_sha="a",
+                detail="first",
+            )
+            store.append(
+                feature="012-x",
+                repository="repo",
+                branch="b",
+                worktree="w",
+                phase="test",
+                kind="validation",
+                result="PASS",
+                head_sha="b",
+                detail="second",
+            )
             with path.open("ab") as handle:
                 handle.write(b'{"truncated":')
             events = store.read()
             self.assertEqual(len(events), 2)
-            store.append(feature="012-x", repository="repo", branch="b", worktree="w",
-                         phase="test", kind="review", result="PASS", head_sha="b", detail="third")
+            store.append(
+                feature="012-x",
+                repository="repo",
+                branch="b",
+                worktree="w",
+                phase="test",
+                kind="review",
+                result="PASS",
+                head_sha="b",
+                detail="third",
+            )
             events = store.read()
             self.assertEqual([event.sequence for event in events], [1, 2, 3])
             markdown = render_validation_log(events, "012-x")
@@ -54,15 +114,29 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             for kind in ("validation", "weakening", "review", "ci"):
-                store.append(feature="x", repository="r", branch="b", worktree="w",
-                             phase=kind, kind=kind, result="PASS", head_sha="abc")
+                store.append(
+                    feature="x",
+                    repository="r",
+                    branch="b",
+                    worktree="w",
+                    phase=kind,
+                    kind=kind,
+                    result="PASS",
+                    head_sha="abc",
+                )
             self.assertTrue(evaluate_gates(store.read(), "abc").passed)
             with self.assertRaisesRegex(ValueError, "not fully gated"):
                 require_mergeable(store.read(), "def")
 
     def test_quality_requires_explicit_reason(self):
-        valid = {name: ({"enabled": True} if name == "test" else {"enabled": False, "reason": "not applicable"})
-                 for name in ("lint", "typecheck", "test", "build")}
+        valid = {
+            name: (
+                {"enabled": True}
+                if name == "test"
+                else {"enabled": False, "reason": "not applicable"}
+            )
+            for name in ("lint", "typecheck", "test", "build")
+        }
         self.assertEqual(validate_quality(valid), [])
         valid["lint"] = {"enabled": False}
         self.assertTrue(validate_quality(valid))
@@ -73,8 +147,10 @@ class ProductionReadyTests(unittest.TestCase):
         self.assertFalse(result["medium_delivery"])
 
     def test_ci_selects_exact_sha(self):
-        runs = [WorkflowRun(1, "old", "completed", "failure"),
-                WorkflowRun(2, "new", "in_progress", None)]
+        runs = [
+            WorkflowRun(1, "old", "completed", "failure"),
+            WorkflowRun(2, "new", "in_progress", None),
+        ]
         selected = select_run(runs, "new")
         self.assertEqual(selected.run_id, 2)
         self.assertEqual(normalize_status(selected), "pending")
@@ -84,8 +160,10 @@ class ProductionReadyTests(unittest.TestCase):
     def test_review_shards_complete_and_sha_bound(self):
         chunks = split_files({"a.py": "a" * 10, "b.py": "b" * 10}, max_chars=15)
         self.assertEqual(len(chunks), 2)
-        results = [ShardResult(name, "sha", ReviewResult("pass", ()))
-                   for name in (*SHARDS, "integration")]
+        results = [
+            ShardResult(name, "sha", ReviewResult("pass", ()))
+            for name in (*SHARDS, "integration")
+        ]
         self.assertEqual(aggregate(results, "sha").result, "pass")
         with self.assertRaises(ValueError):
             aggregate(results, "other")
@@ -94,14 +172,17 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             feature = Path(directory)
             (feature / "validation.toml").write_text(
-                'version=1\nmax_tasks=2\nmax_attempts_per_task=3\nmax_final_validation_attempts=3\n'
+                "version=1\nmax_tasks=2\nmax_attempts_per_task=3\nmax_final_validation_attempts=3\n"
                 '[commands]\nunit=["make","test"]\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
-                encoding="utf-8")
+                encoding="utf-8",
+            )
             self.assertTrue(migration_preview(feature, {"test"})["safe"])
             self.assertIn("version = 2", render_v2(feature, {"test"}))
             (feature / "validation.toml").write_text(
-                'version=1\nmax_tasks=2\nmax_attempts_per_task=3\nmax_final_validation_attempts=3\n'
-                '[commands]\nbad=["python","evil.py"]\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+                "version=1\nmax_tasks=2\nmax_attempts_per_task=3\nmax_final_validation_attempts=3\n"
+                '[commands]\nbad=["python","evil.py"]\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
+                encoding="utf-8",
+            )
             self.assertFalse(migration_preview(feature, {"test"})["safe"])
 
     def test_notifications_are_structured_and_persisted(self):
@@ -143,17 +224,36 @@ class ProductionReadyTests(unittest.TestCase):
             feature.mkdir(parents=True)
             (feature / "spec.md").write_text(
                 "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n",
-                encoding="utf-8")
+                encoding="utf-8",
+            )
             (feature / "validation.toml").write_text(
-                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
+                encoding="utf-8",
+            )
             store = EventStore(root / "events.jsonl")
-            store.append(feature="012-x", repository="r", branch="b", worktree="w",
-                         phase="task", kind="scope-request", result="HUMAN_REQUIRED",
-                         head_sha="abc", data={"path": "prompts/**"})
-            self.assertEqual(scope_preview(feature, "prompts/**", "review", store)["path"], "prompts/**")
+            store.append(
+                feature="012-x",
+                repository="r",
+                branch="b",
+                worktree="w",
+                phase="task",
+                kind="scope-request",
+                result="HUMAN_REQUIRED",
+                head_sha="abc",
+                data={"path": "prompts/**"},
+            )
+            self.assertEqual(
+                scope_preview(feature, "prompts/**", "review", store)["path"],
+                "prompts/**",
+            )
             scope_apply(feature, "prompts/**", "review", store)
-            self.assertIn("prompts/**", (feature / "spec.md").read_text(encoding="utf-8"))
-            self.assertIn('"prompts/**"', (feature / "validation.toml").read_text(encoding="utf-8"))
+            self.assertIn(
+                "prompts/**", (feature / "spec.md").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                '"prompts/**"',
+                (feature / "validation.toml").read_text(encoding="utf-8"),
+            )
 
     def test_scope_paths_survive_exception_wrapping(self):
         violation = ScopeViolation("outside", ["src/pkg.egg-info/", "README.md"])
@@ -161,7 +261,9 @@ class ProductionReadyTests(unittest.TestCase):
             try:
                 raise violation
             except ScopeViolation as error:
-                raise RuntimeError(f"Unsafe scope failure requires human review: {error}") from error
+                raise RuntimeError(
+                    f"Unsafe scope failure requires human review: {error}"
+                ) from error
         except RuntimeError as wrapped:
             self.assertEqual(_scope_paths(wrapped), ("src/pkg.egg-info", "README.md"))
 
@@ -172,27 +274,57 @@ class ProductionReadyTests(unittest.TestCase):
             feature.mkdir(parents=True)
             (feature / "spec.md").write_text(
                 "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n",
-                encoding="utf-8")
+                encoding="utf-8",
+            )
             (feature / "plan.md").write_text("plan\n", encoding="utf-8")
             (feature / "tasks.md").write_text("tasks\n", encoding="utf-8")
             (feature / "validation.toml").write_text(
-                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
+                encoding="utf-8",
+            )
             state_path = root / ".agent-work" / "012-x" / "state.json"
-            write_state(state_path, RunState(
-                1, "012-x", "feature/012-x", "base", "head", "digest", "T001", 1,
-                "implement", "scope", ("src/pkg.egg-info/",), "failed", "/tmp/worktree", "now"))
+            write_state(
+                state_path,
+                RunState(
+                    1,
+                    "012-x",
+                    "feature/012-x",
+                    "base",
+                    "head",
+                    "digest",
+                    "T001",
+                    1,
+                    "implement",
+                    "scope",
+                    ("src/pkg.egg-info/",),
+                    "failed",
+                    "/tmp/worktree",
+                    "now",
+                ),
+            )
             store = EventStore(root / ".agent-work" / "012-x" / "events.jsonl")
-            store.append(feature="012-x", repository=str(root), branch="feature/012-x",
-                         worktree="/tmp/worktree", phase="task", kind="scope-request",
-                         result="FAIL", head_sha="head",
-                         detail="Unsafe scope failure requires human review: Out-of-scope files changed: src/pkg.egg-info/",
-                         data={"path": "Out-of-scope files changed: src/pkg.egg-info/"})
+            store.append(
+                feature="012-x",
+                repository=str(root),
+                branch="feature/012-x",
+                worktree="/tmp/worktree",
+                phase="task",
+                kind="scope-request",
+                result="FAIL",
+                head_sha="head",
+                detail="Unsafe scope failure requires human review: Out-of-scope files changed: src/pkg.egg-info/",
+                data={"path": "Out-of-scope files changed: src/pkg.egg-info/"},
+            )
 
             before = store.path.read_bytes()
-            preview = scope_request_preview(feature, ".gitignore", "ignore build output", store, state_path)
+            preview = scope_request_preview(
+                feature, ".gitignore", "ignore build output", store, state_path
+            )
             self.assertEqual(preview["mutation"], "append scope-request event")
             self.assertEqual(store.path.read_bytes(), before)
-            scope_request(feature, ".gitignore", "ignore build output", store, state_path)
+            scope_request(
+                feature, ".gitignore", "ignore build output", store, state_path
+            )
             request_event = store.read()[-1]
             self.assertEqual(request_event.result, "HUMAN_REQUIRED")
             self.assertEqual(request_event.data["paths"], [".gitignore"])
@@ -200,10 +332,16 @@ class ProductionReadyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already exists"):
                 scope_request_preview(feature, ".gitignore", "again", store, state_path)
 
-            self.assertEqual(scope_preview(feature, ".gitignore", "approved", store)["path"], ".gitignore")
+            self.assertEqual(
+                scope_preview(feature, ".gitignore", "approved", store)["path"],
+                ".gitignore",
+            )
             scope_apply(feature, ".gitignore", "approved", store, state_path)
             self.assertEqual(store.read()[-1].kind, "scope-approved")
-            self.assertIn('".gitignore"', (feature / "validation.toml").read_text(encoding="utf-8"))
+            self.assertIn(
+                '".gitignore"',
+                (feature / "validation.toml").read_text(encoding="utf-8"),
+            )
             with self.assertRaisesRegex(ValueError, "No matching"):
                 scope_preview(feature, ".gitignore", "approve twice", store)
 
@@ -213,19 +351,37 @@ class ProductionReadyTests(unittest.TestCase):
             feature = root / "specs" / "012-x"
             feature.mkdir(parents=True)
             (feature / "validation.toml").write_text(
-                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
+                encoding="utf-8",
+            )
             store = EventStore(root / "events.jsonl")
             for unsafe in ("", "/tmp/x", "../x", "a\nb", "**", "*"):
                 with self.assertRaises(ValueError):
                     scope_preview(feature, unsafe, "reason", store)
-            store.append(feature="other", repository="r", branch="b", worktree="w",
-                         phase="task", kind="scope-request", result="HUMAN_REQUIRED",
-                         head_sha="abc", data={"paths": ["README.md"]})
+            store.append(
+                feature="other",
+                repository="r",
+                branch="b",
+                worktree="w",
+                phase="task",
+                kind="scope-request",
+                result="HUMAN_REQUIRED",
+                head_sha="abc",
+                data={"paths": ["README.md"]},
+            )
             with self.assertRaisesRegex(ValueError, "No matching"):
                 scope_preview(feature, "README.md", "reason", store)
-            store.append(feature="012-x", repository="r", branch="b", worktree="w",
-                         phase="task", kind="scope-request", result="FAIL", head_sha="abc",
-                         data={"path": "Out-of-scope files changed: README.md"})
+            store.append(
+                feature="012-x",
+                repository="r",
+                branch="b",
+                worktree="w",
+                phase="task",
+                kind="scope-request",
+                result="FAIL",
+                head_sha="abc",
+                data={"path": "Out-of-scope files changed: README.md"},
+            )
             with self.assertRaisesRegex(ValueError, "No matching"):
                 scope_preview(feature, "README.md", "reason", store)
 
@@ -237,30 +393,67 @@ class ProductionReadyTests(unittest.TestCase):
             feature.mkdir(parents=True)
             worktree_feature.mkdir(parents=True)
             spec = "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n"
-            contract = 'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n'
+            contract = (
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n'
+            )
             for directory_path in (feature, worktree_feature):
                 (directory_path / "spec.md").write_text(spec, encoding="utf-8")
                 (directory_path / "plan.md").write_text("plan\n", encoding="utf-8")
                 (directory_path / "tasks.md").write_text("tasks\n", encoding="utf-8")
-                (directory_path / "validation.toml").write_text(contract, encoding="utf-8")
+                (directory_path / "validation.toml").write_text(
+                    contract, encoding="utf-8"
+                )
             state_path = root / ".agent-work" / "012-x" / "state.json"
-            write_state(state_path, RunState(
-                1, "012-x", "agent/012-x", "base", "head", "old", "T001", 1,
-                "implement", "scope", ("src/generated/",), "failed",
-                str(root / "worktree"), "now"))
+            write_state(
+                state_path,
+                RunState(
+                    1,
+                    "012-x",
+                    "agent/012-x",
+                    "base",
+                    "head",
+                    "old",
+                    "T001",
+                    1,
+                    "implement",
+                    "scope",
+                    ("src/generated/",),
+                    "failed",
+                    str(root / "worktree"),
+                    "now",
+                ),
+            )
             store = EventStore(root / ".agent-work" / "012-x" / "events.jsonl")
-            store.append(feature="012-x", repository=str(root), branch="agent/012-x",
-                         worktree=str(root / "worktree"), phase="approval",
-                         kind="scope-request", result="HUMAN_REQUIRED", head_sha="head",
-                         data={"paths": [".gitignore"]})
-            with mock.patch("agent.scope_approval.git_utils.changed_paths",
-                            return_value=["specs/012-x/spec.md", "specs/012-x/validation.toml", "src/generated/"]):
+            store.append(
+                feature="012-x",
+                repository=str(root),
+                branch="agent/012-x",
+                worktree=str(root / "worktree"),
+                phase="approval",
+                kind="scope-request",
+                result="HUMAN_REQUIRED",
+                head_sha="head",
+                data={"paths": [".gitignore"]},
+            )
+            with mock.patch(
+                "agent.scope_approval.git_utils.changed_paths",
+                return_value=[
+                    "specs/012-x/spec.md",
+                    "specs/012-x/validation.toml",
+                    "src/generated/",
+                ],
+            ):
                 scope_apply(feature, ".gitignore", "approved", store, state_path)
-            self.assertEqual((feature / "spec.md").read_text(),
-                             (worktree_feature / "spec.md").read_text())
-            self.assertEqual((feature / "validation.toml").read_text(),
-                             (worktree_feature / "validation.toml").read_text())
+            self.assertEqual(
+                (feature / "spec.md").read_text(),
+                (worktree_feature / "spec.md").read_text(),
+            )
+            self.assertEqual(
+                (feature / "validation.toml").read_text(),
+                (worktree_feature / "validation.toml").read_text(),
+            )
             from agent.state import contract_digest, read_state
+
             state = read_state(state_path)
             self.assertEqual(state.contract_digest, contract_digest(worktree_feature))
             self.assertIn("specs/012-x/spec.md", state.changed_paths)
@@ -273,4 +466,6 @@ class ProductionReadyTests(unittest.TestCase):
             (repo / "CHANGELOG.md").write_text("1.0.0", encoding="utf-8")
             for name in ("migration-v1.md", "compatibility.md", "release-checklist.md"):
                 (repo / "docs" / name).write_text(name, encoding="utf-8")
-            self.assertEqual(release_check(repo, require_main=False, require_clean=False), [])
+            self.assertEqual(
+                release_check(repo, require_main=False, require_clean=False), []
+            )

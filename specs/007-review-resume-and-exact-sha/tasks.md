@@ -2,7 +2,7 @@
 
 ## Tasks
 
-- [ ] T001: Define canonical review identity and event-backed reuse
+- [x] T001: Define canonical review identity and event-backed reuse
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-011, REQ-012, REQ-019, REQ-020
   - Validation: unit
 - [ ] T002: Implement bounded shard retry and integration ordering
