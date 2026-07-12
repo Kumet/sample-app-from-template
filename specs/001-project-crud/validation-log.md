@@ -71,3 +71,4 @@ attempt. It changes no implementation scope, test, or quality gate.
 | 1 | T005 | PASS | task validation passed |
 | 1 | T006 | PASS | task validation passed |
 | 1 | T007 | PASS | task validation passed |
+| 1 | FINAL | PASS | ng isolated environment: venv+pip... * Installing packages in isolated environment: - setuptools>=68,<81 * Getting build dependencies for sdist... * Installed build dependency versions: - setuptools==80.10.2 * Building sdist... * Building wheel from sdist * Creating isolated environment: venv+pip... * Installing packages in isolated environment: - setuptools>=68,<81 * Getting build dependencies for wheel... * Installed build dependency versions: - setuptools==80.10.2 * Building wheel... |
