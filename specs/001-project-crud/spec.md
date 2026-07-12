@@ -201,6 +201,8 @@ At least one field must be explicitly present.
 - `docs/architecture.md`
 - `specs/001-project-crud/**`
 
+- `.gitignore`
+
 ### Forbidden changes
 
 - `.env`, `.env.*`, `**/.env`, and `**/.env.*`

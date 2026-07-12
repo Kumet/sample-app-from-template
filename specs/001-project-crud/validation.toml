@@ -51,6 +51,7 @@ allowed = [
   "README.md",
   "docs/architecture.md",
   "specs/001-project-crud/**",
+  ".gitignore",
 ]
 forbidden = [
   ".env",

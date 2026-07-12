@@ -59,3 +59,9 @@ attempt. It changes no implementation scope, test, or quality gate.
 - SQLite timezone behavior and transaction rollback require integration evidence.
 - Production migration policy remains intentionally undefined; Alembic is not included.
 - Project-to-Task relationships remain intentionally undefined until Task work is specified.
+| 1 | T001 | FAIL | class=integration-test strategy=codex-repair integration exited 2: make[1]: *** [integration-test] Error 2 full exited 2: make[1]: *** [typecheck] Error 1 |
+| 2 | T001 | FAIL | ------------ Ran 13 tests in 1.234s OK .................. ---------------------------------------------------------------------- Ran 18 tests in 0.456s OK ............ ---------------------------------------------------------------------- Ran 12 tests in 0.009s OK .. ---------------------------------------------------------------------- Ran 2 tests in 0.003s OK .. ---------------------------------------------------------------------- Ran 2 tests in 0.001s OK make[1]: *** [test-app] Error 2 |
+| 3 | T001 | PASS | task validation passed |
+| 3 | T001 | FAIL | class=scope strategy=human-review Out-of-scope files changed: src/local_project_board.egg-info/ |
+| 1 | T002 | FAIL | class=scope strategy=human-review Out-of-scope files changed: src/local_project_board.egg-info |
+| 1 | T001 | PASS | task validation passed |

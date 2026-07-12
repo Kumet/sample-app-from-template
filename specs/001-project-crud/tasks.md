@@ -13,7 +13,7 @@
 
 ## Tasks
 
-- [ ] T001: Add SQLAlchemy and implement database engine, session, and explicit schema initialization.
+- [x] T001: Add SQLAlchemy and implement database engine, session, and explicit schema initialization.
   - Requirements: REQ-001, REQ-015, REQ-017, REQ-020
   - Validation: integration, full
 - [ ] T002: Implement the Project domain model and domain errors.
