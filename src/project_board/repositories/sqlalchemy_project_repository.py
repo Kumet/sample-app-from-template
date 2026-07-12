@@ -1,6 +1,7 @@
 """Transactional SQLAlchemy implementation of Project persistence."""
 
 from datetime import UTC, datetime
+from typing import NoReturn
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from project_board.domain import Project, RepositoryError
 from project_board.infrastructure.models import ProjectModel
+
 
 def _as_utc(value: datetime) -> datetime:
     """Restore UTC awareness lost by SQLite's datetime representation."""
@@ -91,6 +93,6 @@ class SQLAlchemyProjectRepository:
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
 
-    def _rollback_and_raise(self, error: SQLAlchemyError) -> None:
+    def _rollback_and_raise(self, error: SQLAlchemyError) -> NoReturn:
         self._session.rollback()
         raise RepositoryError("Project persistence operation failed") from error

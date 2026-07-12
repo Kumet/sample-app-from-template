@@ -28,7 +28,7 @@
 - [x] T005: Implement API schemas, dependencies, routes, and error mapping while preserving health.
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-014, REQ-018
   - Validation: integration
-- [ ] T006: Complete unit, repository, and API integration coverage with isolated databases.
+- [x] T006: Complete unit, repository, and API integration coverage with isolated databases.
   - Requirements: REQ-001, REQ-003, REQ-004, REQ-006, REQ-010, REQ-011, REQ-012, REQ-015, REQ-016, REQ-017, REQ-018, REQ-019
   - Validation: unit, integration, full
 - [ ] T007: Update architecture and README documentation and run final validation.
