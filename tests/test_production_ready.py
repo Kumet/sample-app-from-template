@@ -23,7 +23,7 @@ from agent.notifications import github_comment, payload, stdout_json, write_outb
 from agent.quality import validate as validate_quality
 from agent.queue import Queue
 from agent.release import check as release_check
-from agent.review import ReviewIdentity, ReviewResult
+from agent.review import REVIEW_IDENTITY_FIELDS, ReviewIdentity, ReviewResult
 from agent.review_shards import (
     SHARDS,
     ShardResult,
@@ -58,6 +58,15 @@ class ProductionReadyTests(unittest.TestCase):
                 **common,
                 phase="final",
                 kind="validation",
+                result="PASS",
+                head_sha="abc",
+            )
+            with self.assertRaisesRegex(ValueError, "post-evidence final-validation"):
+                require_exact_validation(store.read(), "abc")
+            store.append(
+                **common,
+                phase="post-evidence",
+                kind="final-validation",
                 result="PASS",
                 head_sha="abc",
             )
@@ -118,7 +127,7 @@ class ProductionReadyTests(unittest.TestCase):
             self.assertEqual(
                 require_exact_validation(store.read(), "abc").head_sha, "abc"
             )
-            with self.assertRaisesRegex(ValueError, "No validation PASS"):
+            with self.assertRaisesRegex(ValueError, "post-evidence final-validation"):
                 require_exact_validation(store.read(), "def")
 
     def test_validation_log_render_does_not_copy_future_final_event(self):
@@ -147,6 +156,27 @@ class ProductionReadyTests(unittest.TestCase):
     def test_review_cache_reuses_only_matching_pass_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
+            identity = ReviewIdentity(
+                identity_schema_version="2",
+                feature="007-x",
+                head_sha="abc",
+                shard="security",
+                review_schema_version="1",
+                prompt_version="2",
+                reviewer_model="gpt-5.4-mini",
+                reviewer_command_identity="c" * 64,
+                review_settings=("model=gpt-5.4-mini",),
+                reviewed_files=("file.py",),
+                spec_digest="1" * 64,
+                plan_digest="2" * 64,
+                tasks_digest="3" * 64,
+                validation_contract_digest="4" * 64,
+                diff_input_digest="5" * 64,
+                tracked_snapshot_event_sequence=1,
+                validation_log_blob_sha="b" * 40,
+                final_validation_event_sequence=2,
+                final_validation_result_digest="6" * 64,
+            )
             passed = store.append(
                 feature="007-x",
                 repository="repo",
@@ -156,7 +186,7 @@ class ProductionReadyTests(unittest.TestCase):
                 kind="review-shard",
                 result="PASS",
                 head_sha="abc",
-                data={"identity_digest": "same"},
+                data={"identity_digest": identity.digest},
             )
             store.append(
                 feature="007-x",
@@ -169,8 +199,22 @@ class ProductionReadyTests(unittest.TestCase):
                 head_sha="abc",
                 data={"identity_digest": "timeout"},
             )
-            self.assertEqual(reusable_event(store.read(), "same"), passed)
-            self.assertIsNone(reusable_event(store.read(), "different"))
+            self.assertEqual(reusable_event(store.read(), identity.digest), passed)
+            for field in REVIEW_IDENTITY_FIELDS:
+                values = dict(identity.__dict__)
+                value = values[field]
+                if field == "identity_schema_version":
+                    continue
+                values[field] = (
+                    value + 1
+                    if isinstance(value, int)
+                    else value + ("changed",)
+                    if isinstance(value, tuple)
+                    else value + "-changed"
+                )
+                changed = ReviewIdentity(**values)
+                with self.subTest(field=field):
+                    self.assertIsNone(reusable_event(store.read(), changed.digest))
             self.assertIsNone(reusable_event(store.read(), "timeout"))
 
     def test_events_recover_truncated_tail_and_render_all_history(self):
@@ -236,6 +280,11 @@ class ProductionReadyTests(unittest.TestCase):
                     head_sha="abc",
                 )
             self.assertTrue(evaluate_gates(store.read(), "abc").passed)
+            report = evaluate_gates(store.read(), "def")
+            self.assertEqual(
+                set(report.mismatched),
+                {"final-validation", "weakening", "review", "ci"},
+            )
             with self.assertRaisesRegex(ValueError, "not fully gated"):
                 require_mergeable(store.read(), "def")
 

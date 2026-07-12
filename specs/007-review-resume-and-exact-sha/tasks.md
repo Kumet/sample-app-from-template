@@ -29,3 +29,6 @@
 - [x] T009: Complete mutation, evidence, redaction, and regression tests
   - Requirements: REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036
   - Validation: unit, integration, full
+- [x] T010: Verify full process-group termination and close remaining review-test gaps
+  - Requirements: REQ-007, REQ-012, REQ-017, REQ-019, REQ-027, REQ-029
+  - Validation: unit, integration, full

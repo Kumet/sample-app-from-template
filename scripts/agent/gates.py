@@ -55,12 +55,15 @@ def require_mergeable(events: list[Event], pr_head_sha: str) -> None:
 def require_exact_validation(events: list[Event], head_sha: str) -> Event:
     for event in reversed(events):
         if (
-            event.kind == "validation"
+            event.phase == "post-evidence"
+            and event.kind == "final-validation"
             and event.result == "PASS"
             and event.head_sha == head_sha
         ):
             return event
-    raise ValueError(f"No validation PASS event for current HEAD {head_sha}")
+    raise ValueError(
+        f"No post-evidence final-validation PASS for current HEAD {head_sha}"
+    )
 
 
 def require_pre_push(

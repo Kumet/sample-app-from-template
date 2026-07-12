@@ -553,13 +553,24 @@ def run_process_group(
         stdout = _output_text(error.output)
         stderr = _output_text(error.stderr)
         termination = "term"
-        os.killpg(process.pid, signal.SIGTERM)
+        process_group = process.pid
+        os.killpg(process_group, signal.SIGTERM)
         try:
             tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
         except subprocess.TimeoutExpired:
+            tail_out, tail_err = "", ""
+        if not _wait_for_process_group_exit(process_group, term_grace_seconds):
             termination = "kill"
-            os.killpg(process.pid, signal.SIGKILL)
-            tail_out, tail_err = process.communicate()
+            os.killpg(process_group, signal.SIGKILL)
+            more_out, more_err = process.communicate()
+            tail_out += _output_text(more_out)
+            tail_err += _output_text(more_err)
+            _wait_for_process_group_exit(process_group, term_grace_seconds)
+        elif process.poll() is None:
+            more_out, more_err = process.communicate()
+            tail_out += _output_text(more_out)
+            tail_err += _output_text(more_err)
+        group_terminated = not _process_group_exists(process_group)
         diagnostic = {
             **identity,
             "configured_timeout": timeout_seconds,
@@ -572,9 +583,28 @@ def run_process_group(
             "process_status": "timeout",
             "pid": process.pid,
             "termination": termination,
-            "process_group_terminated": process.poll() is not None,
+            "process_group_terminated": group_terminated,
         }
         raise ReviewTimeout(diagnostic) from error
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_process_group_exit(process_group: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+    return True
 
 
 def _output_text(value: str | bytes | None) -> str:

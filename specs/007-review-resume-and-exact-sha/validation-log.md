@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:41:30.154605+00:00","included_event_sequence":69,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:54:26.006251+00:00","included_event_sequence":82,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -80,3 +80,16 @@ Final included event result: PASS.
 | 67 | review/review-shard | FAIL | `f14745f04dbd` |  |
 | 68 | review/review-shard | PASS | `f14745f04dbd` |  |
 | 69 | review-remediation/gate-redaction-and-tests | PASS | `f14745f04dbd` | Loop 2: require integration at pre-push, redact reviewer stderr before exposure, record source-linked reuse decisions, and strengthen retry/input tests; make validate passed |
+| 70 | evidence/tracked-evidence-snapshot | PASS | `33657fec0c1d` |  |
+| 71 | post-evidence/final-validation | PASS | `33657fec0c1d` |  |
+| 72 | review/review-shard | FAIL | `33657fec0c1d` |  |
+| 73 | review/review-shard | PASS | `33657fec0c1d` |  |
+| 74 | review/review-shard | FAIL | `33657fec0c1d` |  |
+| 75 | review/review-shard | FAIL | `33657fec0c1d` |  |
+| 76 | review/review-shard | FAIL | `33657fec0c1d` |  |
+| 77 | review/review-shard | FAIL | `33657fec0c1d` |  |
+| 78 | review/review-shard | PASS | `33657fec0c1d` |  |
+| 79 | review/review-shard | PASS | `33657fec0c1d` |  |
+| 80 | review/review-shard | PASS | `33657fec0c1d` |  |
+| 81 | clarification/human-approval | PASS | `33657fec0c1d` | Human approved a new repair cycle for full reviewer process-group descendant termination verification and REQ-017 tests |
+| 82 | review-remediation/process-group-and-test-closure | PASS | `33657fec0c1d` | Loop 3: verify process-group disappearance after TERM/KILL, test child and grandchild exit, require dedicated exact validation, strengthen canonical cache and SHA gate tests; make validate passed |

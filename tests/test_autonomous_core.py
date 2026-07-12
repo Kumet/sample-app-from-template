@@ -428,10 +428,15 @@ class AutonomousCoreTests(unittest.TestCase):
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
+            grandchild_path = Path(directory) / "grandchild.pid"
+            child_program = (
+                "import subprocess,sys,time; "
+                "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+                f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
+            )
             program = (
                 "import subprocess,sys,time; "
-                "p=subprocess.Popen([sys.executable,'-c',"
-                "'import time; time.sleep(60)']); "
+                f"p=subprocess.Popen([sys.executable,'-c',{child_program!r}]); "
                 f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
             command = (sys.executable, "-c", program)
@@ -459,17 +464,21 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(diagnostic["input_digest"], "digest")
             self.assertTrue(diagnostic["process_group_terminated"])
             self.assertEqual(
-                [call.args[1] for call in killpg.call_args_list], [signal.SIGTERM]
+                [call.args[1] for call in killpg.call_args_list if call.args[1]],
+                [signal.SIGTERM],
             )
-            child_pid = int(child_path.read_text())
-            for _ in range(20):
-                try:
-                    os.kill(child_pid, 0)
-                except ProcessLookupError:
-                    break
-                time.sleep(0.02)
-            else:
-                self.fail("review child process survived process-group timeout")
+            for pid_path in (child_path, grandchild_path):
+                child_pid = int(pid_path.read_text())
+                for _ in range(20):
+                    try:
+                        os.kill(child_pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail(
+                        f"review descendant {child_pid} survived process-group timeout"
+                    )
 
     def test_timeout_kills_process_group_when_term_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -503,7 +512,7 @@ class AutonomousCoreTests(unittest.TestCase):
                 )
             self.assertEqual(captured.exception.diagnostic["termination"], "kill")
             self.assertEqual(
-                [call.args[1] for call in killpg.call_args_list],
+                [call.args[1] for call in killpg.call_args_list if call.args[1]],
                 [signal.SIGTERM, signal.SIGKILL],
             )
             child_pid = int(child_path.read_text())

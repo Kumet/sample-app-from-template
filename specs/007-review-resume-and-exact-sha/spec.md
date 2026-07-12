@@ -119,6 +119,7 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Tracked snapshot attribution | The log records only its watermark and digests; its commit/blob attribution lives in append-only runtime evidence. | 2026-07-13 |
 | Final validation kind | Use only `phase=post-evidence`, `kind=final-validation`; ordinary `validation` never satisfies review prerequisites. | 2026-07-13 |
 | Approved repair cycle | Human approved fixes limited to snapshot attribution, dedicated final validation, centralized redaction, and identity mutation tests. | 2026-07-13 |
+| Process-group verification cycle | Human approved verification that reviewer children and grandchildren are gone after timeout, without extending the timeout or weakening gates. | 2026-07-13 |
 
 ## Scope
 
@@ -127,7 +128,8 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - `scripts/agent/**`, `tests/**`, `Makefile`, `README.md`, `docs/**`
 - `specs/006-review-timeout-recovery/**`
 - `specs/007-review-resume-and-exact-sha/**`
-- required review schema or prompt version files
+- required review schema or prompt version files, specifically
+  `schemas/review-result.schema.json` and `prompts/review-feature.md`
 
 ### Forbidden changes
 
