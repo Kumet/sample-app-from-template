@@ -348,8 +348,16 @@ class AutonomousCoreTests(unittest.TestCase):
         shard = mock.Mock(
             sequence=2, kind="review-shard", result="PASS", head_sha="abc", data={}
         )
-        rendered = review.render_runtime_evidence([validation, shard], "abc")
+        final = mock.Mock(
+            sequence=3,
+            kind="final-validation",
+            result="PASS",
+            head_sha="abc",
+            data={"result_digest": "f" * 64},
+        )
+        rendered = review.render_runtime_evidence([validation, shard, final], "abc")
         self.assertIn('"kind":"validation"', rendered)
+        self.assertIn('"kind":"final-validation"', rendered)
         self.assertNotIn("review-shard", rendered)
 
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):

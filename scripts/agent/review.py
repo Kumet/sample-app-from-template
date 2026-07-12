@@ -441,7 +441,12 @@ def prepare_reviews(
 def render_runtime_evidence(events, head_sha: str) -> str:
     allowed = []
     for event in events:
-        if event.head_sha != head_sha or event.kind not in {"validation", "weakening"}:
+        if event.head_sha != head_sha or event.kind not in {
+            "validation",
+            "weakening",
+            "tracked-evidence-snapshot",
+            "final-validation",
+        }:
             continue
         allowed.append(
             {
