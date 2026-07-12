@@ -81,7 +81,7 @@ merge after successful CI.
 - [x] AC-009: `make build` succeeds.
 - [x] AC-010: `make validate` succeeds.
 - [x] AC-011: `make doctor` reports local work and medium delivery ready.
-- [ ] AC-012: GitHub Actions succeeds for the pull request HEAD.
+- [x] AC-012: GitHub Actions succeeds for the pull request HEAD.
 - [x] AC-013: README instructions are sufficient for setup and application startup.
 
 ## Clarifications

@@ -2,10 +2,9 @@
 
 ## Summary
 
-Local validation passed on the feature worktree based on HEAD
-`b8b3e1ae1aaf05386ae60730e671af2d517301c1`. The implementation is ready for
-commit and exact committed-HEAD validation. GitHub Actions and merge evidence
-remain pending until the branch is published.
+Local validation passed on committed implementation HEAD
+`7f172cad2d7b71667acc1d8d3d28b4600f751c28`. GitHub Actions passed for that
+exact PR HEAD. Merge evidence remains pending.
 
 ## Runs
 
@@ -25,6 +24,8 @@ remain pending until the branch is published.
 | 2 | `b8b3e1ae1aaf05386ae60730e671af2d517301c1` + worktree | `make spec-lint FEATURE=000-project-bootstrap` | Passed | Version 2 contract and traceability passed without warnings. |
 | 2 | `b8b3e1ae1aaf05386ae60730e671af2d517301c1` + worktree | Uvicorn plus `curl --fail http://127.0.0.1:8000/health` | Passed | HTTP 200 and exact body `{"status":"ok"}`; only the launched process was stopped. |
 | 2 | `b8b3e1ae1aaf05386ae60730e671af2d517301c1` + worktree | `git diff --check` | Passed | No whitespace errors. |
+| 2 | `7f172cad2d7b71667acc1d8d3d28b4600f751c28` | `make doctor`, `make validate`, spec lint | Passed | Exact committed implementation HEAD validated; readiness remained true for local work and medium delivery. |
+| 2 | `7f172cad2d7b71667acc1d8d3d28b4600f751c28` | GitHub Actions `validate` | Passed | PR #1 CI completed in 28 seconds: <https://github.com/Kumet/sample-app-from-template/actions/runs/29183584109/job/86625618743>. |
 
 ## Test counts
 
@@ -40,7 +41,7 @@ remain pending until the branch is published.
 - Doctor `medium_delivery`: `true`.
 - Doctor `low_risk_auto_merge`: `false`, as required by repository policy.
 - Package build: wheel and source distribution built successfully.
-- GitHub Actions: pending PR publication.
+- GitHub Actions: passed for implementation HEAD `7f172cad2d7b71667acc1d8d3d28b4600f751c28`.
 
 ## Repair loops
 
@@ -56,8 +57,8 @@ test was modified, skipped, deleted, or weakened.
 - [x] No tests weakened
 - [x] No secrets touched
 - [x] No unrelated files changed
-- [ ] Exact committed HEAD validated, reviewed, and recorded in PR evidence
-- [ ] GitHub Actions passed for the exact PR HEAD
+- [x] Exact committed implementation HEAD validated, reviewed, and recorded in PR evidence
+- [x] GitHub Actions passed for the exact implementation PR HEAD
 - [ ] PR merged through GitHub and local `main` synchronized
 
 ## Residual risks
