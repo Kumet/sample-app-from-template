@@ -270,6 +270,17 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertNotIn("test strength", security)
         self.assertIn("test strength", tests)
 
+    def test_runtime_review_snapshot_excludes_mutating_review_events(self):
+        validation = mock.Mock(
+            sequence=1, kind="validation", result="PASS", head_sha="abc", data={}
+        )
+        shard = mock.Mock(
+            sequence=2, kind="review-shard", result="PASS", head_sha="abc", data={}
+        )
+        rendered = review.render_runtime_evidence([validation, shard], "abc")
+        self.assertIn('"kind":"validation"', rendered)
+        self.assertNotIn("review-shard", rendered)
+
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
