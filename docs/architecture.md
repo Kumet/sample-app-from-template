@@ -1,61 +1,125 @@
 # Architecture
 
-Document the current architecture here.
+## Status
 
-## System overview
+Local Project Board is in its bootstrap stage. A minimal FastAPI process and
+health endpoint exist, while the product layers below remain an intended
+architecture rather than a current implementation. Concrete interfaces,
+transaction boundaries, and framework integration must be decided in approved
+feature specifications and technical plans.
 
-The repository separates an external fixed-format feature contract, a
-stack-independent Python orchestration core, and project-specific validation
-commands exposed through Make.
+## Intended system overview
 
-## Main components
+The application is expected to use a layered architecture in which the web UI,
+REST API, and CLI share the same application service and domain logic. SQLite
+provides local persistence. The user-facing web interface is rendered from
+templates and enhanced only where useful with HTMX or small JavaScript modules.
 
-- `scripts/agent/parser.py`: feature contract and task parsing.
-- `scripts/agent/work.py`: CLI, task loop, retries, state, and evidence.
-- `scripts/agent/codex_runner.py`: non-interactive Codex boundary.
-- `scripts/agent/validation.py`: command and changed-path gates.
-- `scripts/agent/git_utils.py`: protected branch, dirty state, diff, and commit.
-- `scripts/agent/spec_lint.py`: approved contract and traceability gate.
-- `scripts/agent/state.py`: atomic resume/abort state.
-- `scripts/agent/recovery.py`: classified bounded recovery policies.
-- `scripts/agent/weakening.py`: structured test and CI weakening evidence.
-- `scripts/agent/review.py`: independent schema-constrained Codex review.
-- `scripts/agent/delivery.py`: risk-gated PR and CI delivery orchestration.
-- `scripts/agent/worktree.py`: isolated framework-owned Git worktrees.
-- `scripts/agent/adapters.py`: declarative stack detection and proposals.
+The current runtime surface is limited to `project_board.main`, which creates
+the FastAPI application and serves `GET /health`. It has no database, domain
+model, application service, templates, CLI, or external integration.
 
-## Data flow
+```text
+Web UI / REST API       CLI
+         \               /
+          Web/API and CLI adapters
+                    |
+        Application service layer
+                    |
+               Domain layer
+                    ^
+          Repository abstractions
+                    ^
+         SQLite infrastructure
 
-Approved spec → next task → Codex → scope/security checks → named validation →
-task completion and local commit. After all tasks, project-wide validation runs
-with a bounded repair loop.
+Templates and static assets support the Web UI boundary.
+```
 
-Autonomous delivery adds spec lint, isolated work, weakening inspection,
-independent review, GitHub PR/check operations, monotonic risk escalation, and
-optional low-risk PR merge. GitHub credentials remain outside Codex.
+Dependencies should point inward: outer delivery and infrastructure layers may
+depend on application and domain abstractions, while the domain must not depend
+on FastAPI, CLI parsing, SQLAlchemy, SQLite, templates, or static assets.
+Repository interfaces are expected to be defined at an inward-facing boundary;
+their SQLite/SQLAlchemy implementations remain infrastructure concerns.
 
-Production evidence is an append-only version 1 JSONL event stream. Gate
-reduction requires validation, weakening, sharded review, and CI events to match
-the exact PR HEAD SHA. Markdown validation logs are generated views. Queue,
-approval, doctor, notifications, budgets, adapters, and release checks are
-separate standard-library modules around this core.
+## Intended layers
 
-## External dependencies
+### Web/API layer
 
-- Git
-- GNU/BSD-compatible Make
-- Python 3.11+
-- Codex CLI for `make work` only
+The planned FastAPI boundary handles HTTP input, request/response validation,
+web routes, and REST API routes. It delegates use cases to the application
+service layer and must not duplicate domain decisions. Authentication and
+authorization are out of scope.
 
-## Important constraints
+### CLI layer
 
-- No shell evaluation of external task text.
-- No push, merge, destructive Git cleanup, or secret-file reads.
-- Work begins only on a clean, non-protected feature branch.
-- Runtime evidence is local and ignored by Git.
+The planned CLI translates local commands and arguments into the same
+application service calls used by the web and API boundaries. It must not
+maintain a separate business-logic or persistence path.
 
-## Known risks
+### Application service layer
 
-- Codex CLI flags and behavior can vary by installed version.
-- Command-based checks cannot prove subjective acceptance criteria.
-- A failed attempt intentionally leaves its diff for repair or human review.
+This layer is intended to coordinate use cases, domain objects, repository
+abstractions, and transaction boundaries. Import is required to execute as one
+atomic transaction, but the concrete unit-of-work design is not yet decided.
+
+### Domain layer
+
+This is the intended home of Project, Task, status, priority, due-date, and Tag
+rules. It should be independent of delivery frameworks and storage technology.
+Undefined rules, including Project deletion behavior and user-facing timezone
+policy, must remain undecided until an Approved specification resolves them.
+
+### Repository layer
+
+Repository abstractions are intended to express the persistence operations
+needed by application services without exposing SQLite details to the domain.
+Interfaces, aggregate boundaries, query shapes, and deletion semantics are not
+yet fixed.
+
+### SQLite infrastructure
+
+The planned infrastructure uses local SQLite, likely through SQLAlchemy, to
+implement repository and transaction abstractions. Schema design, migration
+strategy, connection handling, and backup/restore mechanics are not yet fixed.
+Import/export and backup/restore may access only local files explicitly selected
+by the user.
+
+### Templates/static assets
+
+Jinja2 templates and static assets are intended to render the web UI. HTMX or a
+small amount of JavaScript may enhance interactions. Presentation code must call
+the Web/API boundary and shared services rather than recreate domain rules.
+
+## Intended dependency direction
+
+The dependency direction is from the outside toward the domain:
+
+```text
+Templates/static assets -> Web/API layer ----\
+                                             -> Application services -> Domain
+CLI layer -----------------------------------/
+SQLite infrastructure -> Repository abstractions ------------------> Domain
+```
+
+Dependency inversion should allow infrastructure implementations to satisfy
+interfaces used by inner layers. The exact interface ownership and module
+layout must be validated in a future technical plan.
+
+## Cross-cutting constraints
+
+- Web UI, REST API, and CLI operate on the same data through shared service and
+  domain layers.
+- Dates and times are stored and processed internally in UTC; presentation
+  timezone behavior remains specification-required.
+- Failed imports leave existing data unchanged, and exported data is importable.
+- Complete Task bodies are not logged unconditionally or sent externally.
+- No layer reads secrets or production configuration for application behavior.
+- Authentication, billing, external services, production deployment, and other
+  stated out-of-scope capabilities are not part of this design.
+
+## Development automation boundary
+
+The repository retains its specification-driven automation framework. Approved
+feature contracts under `specs/` drive bounded task execution, validation,
+evidence logging, review, and optional PR/CI delivery. That automation is a
+development tool around the application, not an application runtime layer.

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-project-board"
+version = "0.1.0"
+description = "A local Kanban project board for individuals and small teams"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Local Project Board contributors" }]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "httpx>=0.27,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8,<9",
+  "ruff>=0.9,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests/app"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+include = ["src/**/*.py", "tests/app/**/*.py"]
+extend-exclude = [".agent-work", ".agent-worktrees", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
+pretty = true
+show_error_codes = true
