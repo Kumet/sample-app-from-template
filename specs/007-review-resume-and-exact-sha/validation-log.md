@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:32:03.244824+00:00","included_event_sequence":42,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:33:21.396945+00:00","included_event_sequence":45,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -53,3 +53,6 @@ Final included event result: PASS.
 | 40 | review/review-shard | PASS | `ec2b6ec03429` |  |
 | 41 | clarification/human-approval | PASS | `f7fb0c747bf3` | Human approved a new repair cycle limited to four required findings: tracked snapshot attribution, dedicated post-evidence final validation, centralized review error redaction, and complete identity mutation tests. |
 | 42 | implementation/validation | PASS | `f7fb0c747bf3` | make validate passed before tracked evidence finalization |
+| 43 | evidence/tracked-evidence-snapshot | PASS | `ba57f17dd5b1` |  |
+| 44 | post-evidence/final-validation | PASS | `ba57f17dd5b1` |  |
+| 45 | implementation/validation | PASS | `8f82d9007134` | make validate passed after runtime evidence renderer repair |
