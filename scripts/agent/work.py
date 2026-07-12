@@ -19,7 +19,7 @@ if __package__ in {None, ""}:
     from agent.events import EventStore, render_validation_log
     from agent.queue import Queue
     from agent.quality import validate as validate_quality
-    from agent.scope_approval import apply as apply_scope, preview as preview_scope
+    from agent.scope_approval import apply as apply_scope, preview as preview_scope, preview_request as preview_scope_request, request as request_scope
     from agent.notifications import payload as notification_payload, write_outbox
 else:
     from . import adapters, codex_runner, contract_migration, delivery, doctor as doctor_module, git_utils, qualification, recovery, release as release_module, validation, worktree as worktree_module
@@ -32,7 +32,7 @@ else:
     from .events import EventStore, render_validation_log
     from .queue import Queue
     from .quality import validate as validate_quality
-    from .scope_approval import apply as apply_scope, preview as preview_scope
+    from .scope_approval import apply as apply_scope, preview as preview_scope, preview_request as preview_scope_request, request as request_scope
     from .notifications import payload as notification_payload, write_outbox
 
 
@@ -149,11 +149,11 @@ def work(repo: Path, feature: str, *, resume_mode: bool = False, state_root: Pat
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat()})
             write_state(state_path, failed)
             kind = "scope-request" if failure_class == "scope" else "failure"
-            scope_path = str(error).split(":", 1)[1].split(",", 1)[0].strip() if failure_class == "scope" and ":" in str(error) else ""
+            scope_paths = _scope_paths(error) if failure_class == "scope" else ()
             event_store.append(feature=feature_dir.name, repository=str(evidence_repo),
                 branch=git_utils.branch(repo), worktree=str(repo), phase="task", kind=kind,
                 result="FAIL", head_sha=git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip(),
-                detail=str(error), data={"task": task.task_id, "path": scope_path})
+                detail=str(error), data={"task": task.task_id, "paths": list(scope_paths)})
             write_outbox(evidence_repo / ".agent-work" / "outbox",
                 notification_payload("human-required", feature_dir.name, "stopped",
                                      str(error), failed.head_commit))
@@ -306,11 +306,23 @@ def _append_log(feature_dir: Path, task: str, loop: int, result: str, notes: str
         handle.write(f"| {loop} | {task} | {result} | {safe_notes} |\n")
 
 
+def _scope_paths(error: BaseException) -> tuple[str, ...]:
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, validation.ScopeViolation):
+            return current.paths
+        current = current.__cause__ or current.__context__
+    return ()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Developer automation framework")
     parser.add_argument("command", choices=("run", "dry-run", "status", "spec-lint", "resume", "abort",
                                              "deliver", "deliver-dry-run", "detect-stack", "init-stack",
                                              "cleanup-worktree", "doctor", "approve-scope", "approve-scope-dry-run",
+                                             "request-scope", "request-scope-dry-run",
                                              "migrate-contract", "migrate-contract-dry-run", "queue-add", "queue-status",
                                              "queue-cancel", "qualify-stacks", "release-check", "render-validation-log",
                                              "quality-check", "queue-run"))
@@ -321,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo = repository_root()
     try:
-        if args.command in {"run", "dry-run", "status", "spec-lint", "resume", "abort", "deliver", "deliver-dry-run", "cleanup-worktree", "approve-scope", "approve-scope-dry-run", "migrate-contract", "migrate-contract-dry-run", "queue-add", "queue-cancel", "render-validation-log"} and not args.feature:
+        if args.command in {"run", "dry-run", "status", "spec-lint", "resume", "abort", "deliver", "deliver-dry-run", "cleanup-worktree", "approve-scope", "approve-scope-dry-run", "request-scope", "request-scope-dry-run", "migrate-contract", "migrate-contract-dry-run", "queue-add", "queue-cancel", "render-validation-log"} and not args.feature:
             parser.error("--feature is required")
         if args.command == "run":
             return work(repo, args.feature)
@@ -367,6 +379,15 @@ def main(argv: list[str] | None = None) -> int:
             state_path = repo / ".agent-work" / feature_dir.name / "state.json"
             call = function(feature_dir, args.path, args.reason, store) if function is preview_scope else function(feature_dir, args.path, args.reason, store, state_path)
             print(json.dumps(call, indent=2))
+            return 0
+        if args.command in {"request-scope", "request-scope-dry-run"}:
+            if not args.path or not args.reason:
+                parser.error("--path and --reason are required")
+            feature_dir = resolve_feature(repo, args.feature)
+            store = EventStore(repo / ".agent-work" / feature_dir.name / "events.jsonl")
+            state_path = repo / ".agent-work" / feature_dir.name / "state.json"
+            function = preview_scope_request if args.command.endswith("dry-run") else request_scope
+            print(json.dumps(function(feature_dir, args.path, args.reason, store, state_path), indent=2))
             return 0
         if args.command in {"migrate-contract", "migrate-contract-dry-run"}:
             feature_dir = resolve_feature(repo, args.feature)

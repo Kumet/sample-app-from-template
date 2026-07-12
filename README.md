@@ -219,6 +219,47 @@ Push, merge, deployment, and specification changes are never implicit. Safety
 stops apply to protected branches, dirty worktrees, forbidden paths, repeated
 errors, and attempts to access secret files.
 
+Additional framework qualification commands are:
+
+```bash
+make quality-check
+make qualify-stacks
+```
+
+実行証跡は `.agent-work/<feature>/events.jsonl` が正本です。validation、review、
+CI、mergeは同一HEAD SHAに揃わない限り合格しません。
+
+```bash
+make render-validation-log FEATURE=012-feature
+```
+
+scope違反で停止したあと、エラー修正のため別のパス（例:
+`.gitignore`）が必要になった場合は、既存eventを編集せず、正式な要求を
+dry-runしてから発行します。これは承認ではなく、人間による承認待ちの
+evidenceを追加するだけです。
+
+```bash
+make request-scope-dry-run FEATURE=012-feature PATH='.gitignore' REASON='ignore generated build metadata'
+make request-scope FEATURE=012-feature PATH='.gitignore' REASON='ignore generated build metadata'
+```
+
+要求内容を人間が確認してscope拡張を承認した場合は、まず承認変更を
+previewします。
+
+```bash
+make approve-scope-dry-run FEATURE=012-feature PATH='prompts/**' REASON='review repair'
+make approve-scope FEATURE=012-feature PATH='prompts/**' REASON='review repair'
+```
+
+`request-scope` と `approve-scope` は、同じfeatureと完全一致する安全な
+repository-relative pathを要求します。絶対パス、`..`、制御文字、全体を
+許可する `*` / `**`、forbidden pathは拒否されます。承認後は表示された
+contract/state差分を確認し、停止中のworktreeを `make work-resume
+FEATURE=012-feature` で再開します。壊れた古いscope eventは監査履歴として
+保持され、新しい正規requestが追記されます。
+
+version 1契約は実行されません。安全なMakeターゲットだけをversion 2へ移行します。
+
 ## Project documentation
 
 - `docs/project-context.md`: purpose, users, workflows, rules, stack, and safety.

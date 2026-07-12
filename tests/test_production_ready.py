@@ -18,8 +18,13 @@ from agent.queue import Queue
 from agent.release import check as release_check
 from agent.review import ReviewResult
 from agent.review_shards import SHARDS, ShardResult, aggregate, split_files
-from agent.scope_approval import apply as scope_apply, preview as scope_preview
+from agent.scope_approval import (apply as scope_apply, preview as scope_preview,
+                                  preview_request as scope_request_preview,
+                                  request as scope_request)
+from agent.state import RunState, write_state
 from agent.telemetry import Limits, Usage, parse_codex_tokens
+from agent.validation import ScopeViolation
+from agent.work import _scope_paths
 from unittest import mock
 
 
@@ -149,6 +154,116 @@ class ProductionReadyTests(unittest.TestCase):
             scope_apply(feature, "prompts/**", "review", store)
             self.assertIn("prompts/**", (feature / "spec.md").read_text(encoding="utf-8"))
             self.assertIn('"prompts/**"', (feature / "validation.toml").read_text(encoding="utf-8"))
+
+    def test_scope_paths_survive_exception_wrapping(self):
+        violation = ScopeViolation("outside", ["src/pkg.egg-info/", "README.md"])
+        try:
+            try:
+                raise violation
+            except ScopeViolation as error:
+                raise RuntimeError(f"Unsafe scope failure requires human review: {error}") from error
+        except RuntimeError as wrapped:
+            self.assertEqual(_scope_paths(wrapped), ("src/pkg.egg-info", "README.md"))
+
+    def test_scope_request_is_explicit_non_approving_and_append_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature = root / "specs" / "012-x"
+            feature.mkdir(parents=True)
+            (feature / "spec.md").write_text(
+                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n",
+                encoding="utf-8")
+            (feature / "plan.md").write_text("plan\n", encoding="utf-8")
+            (feature / "tasks.md").write_text("tasks\n", encoding="utf-8")
+            (feature / "validation.toml").write_text(
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+            state_path = root / ".agent-work" / "012-x" / "state.json"
+            write_state(state_path, RunState(
+                1, "012-x", "feature/012-x", "base", "head", "digest", "T001", 1,
+                "implement", "scope", ("src/pkg.egg-info/",), "failed", "/tmp/worktree", "now"))
+            store = EventStore(root / ".agent-work" / "012-x" / "events.jsonl")
+            store.append(feature="012-x", repository=str(root), branch="feature/012-x",
+                         worktree="/tmp/worktree", phase="task", kind="scope-request",
+                         result="FAIL", head_sha="head",
+                         detail="Unsafe scope failure requires human review: Out-of-scope files changed: src/pkg.egg-info/",
+                         data={"path": "Out-of-scope files changed: src/pkg.egg-info/"})
+
+            before = store.path.read_bytes()
+            preview = scope_request_preview(feature, ".gitignore", "ignore build output", store, state_path)
+            self.assertEqual(preview["mutation"], "append scope-request event")
+            self.assertEqual(store.path.read_bytes(), before)
+            scope_request(feature, ".gitignore", "ignore build output", store, state_path)
+            request_event = store.read()[-1]
+            self.assertEqual(request_event.result, "HUMAN_REQUIRED")
+            self.assertEqual(request_event.data["paths"], [".gitignore"])
+            self.assertNotEqual(request_event.kind, "scope-approved")
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                scope_request_preview(feature, ".gitignore", "again", store, state_path)
+
+            self.assertEqual(scope_preview(feature, ".gitignore", "approved", store)["path"], ".gitignore")
+            scope_apply(feature, ".gitignore", "approved", store, state_path)
+            self.assertEqual(store.read()[-1].kind, "scope-approved")
+            self.assertIn('".gitignore"', (feature / "validation.toml").read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(ValueError, "No matching"):
+                scope_preview(feature, ".gitignore", "approve twice", store)
+
+    def test_scope_request_and_approval_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature = root / "specs" / "012-x"
+            feature.mkdir(parents=True)
+            (feature / "validation.toml").write_text(
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n', encoding="utf-8")
+            store = EventStore(root / "events.jsonl")
+            for unsafe in ("", "/tmp/x", "../x", "a\nb", "**", "*"):
+                with self.assertRaises(ValueError):
+                    scope_preview(feature, unsafe, "reason", store)
+            store.append(feature="other", repository="r", branch="b", worktree="w",
+                         phase="task", kind="scope-request", result="HUMAN_REQUIRED",
+                         head_sha="abc", data={"paths": ["README.md"]})
+            with self.assertRaisesRegex(ValueError, "No matching"):
+                scope_preview(feature, "README.md", "reason", store)
+            store.append(feature="012-x", repository="r", branch="b", worktree="w",
+                         phase="task", kind="scope-request", result="FAIL", head_sha="abc",
+                         data={"path": "Out-of-scope files changed: README.md"})
+            with self.assertRaisesRegex(ValueError, "No matching"):
+                scope_preview(feature, "README.md", "reason", store)
+
+    def test_scope_approval_synchronizes_failed_worktree_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature = root / "specs" / "012-x"
+            worktree_feature = root / "worktree" / "specs" / "012-x"
+            feature.mkdir(parents=True)
+            worktree_feature.mkdir(parents=True)
+            spec = "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n"
+            contract = 'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n'
+            for directory_path in (feature, worktree_feature):
+                (directory_path / "spec.md").write_text(spec, encoding="utf-8")
+                (directory_path / "plan.md").write_text("plan\n", encoding="utf-8")
+                (directory_path / "tasks.md").write_text("tasks\n", encoding="utf-8")
+                (directory_path / "validation.toml").write_text(contract, encoding="utf-8")
+            state_path = root / ".agent-work" / "012-x" / "state.json"
+            write_state(state_path, RunState(
+                1, "012-x", "agent/012-x", "base", "head", "old", "T001", 1,
+                "implement", "scope", ("src/generated/",), "failed",
+                str(root / "worktree"), "now"))
+            store = EventStore(root / ".agent-work" / "012-x" / "events.jsonl")
+            store.append(feature="012-x", repository=str(root), branch="agent/012-x",
+                         worktree=str(root / "worktree"), phase="approval",
+                         kind="scope-request", result="HUMAN_REQUIRED", head_sha="head",
+                         data={"paths": [".gitignore"]})
+            with mock.patch("agent.scope_approval.git_utils.changed_paths",
+                            return_value=["specs/012-x/spec.md", "specs/012-x/validation.toml", "src/generated/"]):
+                scope_apply(feature, ".gitignore", "approved", store, state_path)
+            self.assertEqual((feature / "spec.md").read_text(),
+                             (worktree_feature / "spec.md").read_text())
+            self.assertEqual((feature / "validation.toml").read_text(),
+                             (worktree_feature / "validation.toml").read_text())
+            from agent.state import contract_digest, read_state
+            state = read_state(state_path)
+            self.assertEqual(state.contract_digest, contract_digest(worktree_feature))
+            self.assertIn("specs/012-x/spec.md", state.changed_paths)
 
     def test_release_artifacts_without_git_constraints(self):
         with tempfile.TemporaryDirectory() as directory:
