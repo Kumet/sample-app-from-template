@@ -142,3 +142,18 @@ Generate and commit `validation-log.md` from pre-final events, then run full
 validation on that new HEAD and append the PASS runtime event. Do not regenerate
 tracked evidence afterward. PR summaries identify the tracked-log cutoff, final
 validation event, and validated HEAD.
+
+The runtime sequence is strictly:
+
+1. Render and commit snapshot-format validation log.
+2. Append `evidence/tracked-evidence-snapshot` with HEAD, log Git blob,
+   watermark, contract digest, and format version.
+3. Run the full command on that unchanged HEAD.
+4. Append `post-evidence/final-validation` referencing the snapshot and recording
+   command identity, timestamps, and result digest.
+5. Require a clean worktree before review.
+
+Ordinary task or pre-commit `validation` events never satisfy the final gate.
+All reviewer exceptions pass through centralized redaction before event,
+diagnostic, notification, or report persistence; EventStore recursively redacts
+again as defense in depth.

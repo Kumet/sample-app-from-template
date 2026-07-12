@@ -7,7 +7,7 @@ from . import evidence_snapshot
 from .events import Event
 from .review import ReviewIdentity
 
-REQUIRED_GATES = ("validation", "weakening", "review", "ci")
+REQUIRED_GATES = ("final-validation", "weakening", "review", "ci")
 REQUIRED_REVIEW_SHARDS = (
     "spec-scope",
     "security",

@@ -190,10 +190,15 @@ event records `PASS`. Failed, timed-out, invalid, or missing shards are rerun
 within both configured review budgets. Integration review runs only after every
 file-focused shard passes.
 
-Tracked validation evidence is finalized before exact-HEAD validation. The
-resulting commit is validated without further tracked writes, and its PASS is
-stored in `.agent-work/<feature>/events.jsonl`. The tracked log intentionally
-ends before that final runtime event, avoiding a self-referential commit loop.
+Tracked validation evidence is finalized before exact-HEAD validation. The log
+contains snapshot format and event schema versions, its included-event watermark,
+generation time, and validation-contract digest—but never its own commit SHA.
+After commit, a `tracked-evidence-snapshot` runtime event binds that HEAD to the
+log's Git blob SHA. A separate `post-evidence/final-validation` event records the
+validation result and references the snapshot. Review accepts neither ordinary
+validation events nor mismatched blob, contract, event, HEAD, or dirty-worktree
+state. This avoids a self-referential tracked commit loop while preserving exact
+attribution.
 
 ```bash
 make deliver-dry-run FEATURE=012-feature-name

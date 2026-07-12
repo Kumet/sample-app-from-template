@@ -224,7 +224,7 @@ class ProductionReadyTests(unittest.TestCase):
     def test_exact_sha_gates_fail_on_new_head(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
-            for kind in ("validation", "weakening", "review", "ci"):
+            for kind in ("final-validation", "weakening", "review", "ci"):
                 store.append(
                     feature="x",
                     repository="r",

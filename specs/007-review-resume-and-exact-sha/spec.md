@@ -102,11 +102,11 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - [x] AC-010: Merge gating rejects every validation/review/PR/CI SHA mismatch.
 - [x] AC-011: validation-log rendering terminates without a self-referential commit loop.
 - [x] AC-012: Existing framework, delivery, scope, safety, application, and build validation pass.
-- [ ] AC-013: A tracked snapshot event binds current HEAD, log blob, watermark, and contract digest.
-- [ ] AC-014: A dedicated post-evidence final-validation PASS references that exact snapshot.
-- [ ] AC-015: Review refuses ordinary validation, missing/mismatched snapshots, dirty worktrees, and changed HEADs.
-- [ ] AC-016: Every canonical identity field independently invalidates reuse; malformed identities fail closed.
-- [ ] AC-017: Timeout and non-timeout exception persistence is centrally redacted and length bounded.
+- [x] AC-013: A tracked snapshot event binds current HEAD, log blob, watermark, and contract digest.
+- [x] AC-014: A dedicated post-evidence final-validation PASS references that exact snapshot.
+- [x] AC-015: Review refuses ordinary validation, missing/mismatched snapshots, dirty worktrees, and changed HEADs.
+- [x] AC-016: Every canonical identity field independently invalidates reuse; malformed identities fail closed.
+- [x] AC-017: Timeout and non-timeout exception persistence is centrally redacted and length bounded.
 
 ## Clarifications
 

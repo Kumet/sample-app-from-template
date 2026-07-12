@@ -387,23 +387,16 @@ def deliver(
 
         def repair_review(findings):
             detail = json.dumps([finding.__dict__ for finding in findings], indent=2)
-            repaired_head = _repair_and_commit(
+            _repair_and_commit(
                 isolated.path, isolated_feature, config, "REVIEW", detail
             )
-            event_store.append(
-                feature=feature_dir.name,
-                repository=str(repo),
-                branch=isolated.branch,
-                worktree=str(isolated.path),
-                phase="delivery",
-                kind="validation",
-                result="PASS",
-                head_sha=repaired_head,
-                data={
-                    "command": list(config.commands["full"]),
-                    "tracked_changes_after": [],
-                    "log_cutoff_sequence": len(event_store.read()),
-                },
+            _finalize_delivery_evidence(
+                isolated.path,
+                isolated_feature,
+                config,
+                event_store,
+                str(repo),
+                isolated.branch,
             )
 
         review_result = review.review_with_repairs(
@@ -449,6 +442,19 @@ def deliver(
         require_pre_push(
             isolated.path, isolated_feature, event_store.read(), gated_head
         )
+        final_binding = evidence_snapshot.require_final_evidence(
+            isolated.path, isolated_feature, event_store.read(), gated_head
+        )
+        review_identity_digest = review.identity_set_digest(
+            [
+                value
+                for event in event_store.read()
+                if event.kind == "review-shard"
+                and event.result == "PASS"
+                and event.head_sha == gated_head
+                for value in ((event.data or {}).get("chunk_identities") or [])
+            ]
+        )
         paths = git_utils.run_git(
             isolated.path, ["diff", "--name-only", f"{policy.default_branch}...HEAD"]
         ).stdout.splitlines()
@@ -476,6 +482,8 @@ def deliver(
                 weakening_findings,
                 event_store.read(),
                 gated_head,
+                final_binding,
+                review_identity_digest,
             ),
             encoding="utf-8",
         )
@@ -498,6 +506,14 @@ def deliver(
             ci_repair_count += 1
             _repair_and_commit(
                 isolated.path, isolated_feature, config, "CI", redact(failure, 8000)
+            )
+            _finalize_delivery_evidence(
+                isolated.path,
+                isolated_feature,
+                config,
+                event_store,
+                str(repo),
+                isolated.branch,
             )
             github.push(isolated.branch)
 
@@ -581,33 +597,91 @@ def _pr_body(
     weakening_findings,
     events=(),
     validated_head: str = "",
+    final_binding=None,
+    review_identity_digest: str = "",
 ) -> str:
-    validation_event = next(
-        (
-            event
-            for event in reversed(events)
-            if event.kind == "validation"
-            and event.result == "PASS"
-            and event.head_sha == validated_head
-        ),
-        None,
+    validation_sequence = (
+        final_binding.final_validation_event_sequence if final_binding else "missing"
     )
-    validation_sequence = validation_event.sequence if validation_event else "missing"
-    log_cutoff = (
-        (validation_event.data or {}).get("log_cutoff_sequence", 0)
-        if validation_event
-        else 0
+    log_cutoff = final_binding.included_event_sequence if final_binding else 0
+    log_path = final_binding.log_path if final_binding else "missing"
+    log_blob = final_binding.log_blob_sha if final_binding else "missing"
+    snapshot_sequence = (
+        final_binding.snapshot_event_sequence if final_binding else "missing"
+    )
+    result_digest = (
+        final_binding.validation_result_digest if final_binding else "missing"
     )
     return (
         f"## Feature\n\n`{feature}`\n\n## Risk\n\n{assessment.effective}: "
         f"{', '.join(assessment.reasons)}\n\n## Validation\n\n"
         "Mechanical validation passed.\n\n"
         f"Tracked validation log cutoff event: {log_cutoff}. "
+        f"Tracked validation log: `{log_path}`; blob `{log_blob}`. "
+        f"Snapshot event: {snapshot_sequence}. "
         f"Final validation event: {validation_sequence}. "
+        f"Validation result digest: `{result_digest}`. "
         f"Validated HEAD: `{validated_head}`.\n\n"
         f"## Independent review\n\n{review_result.result}; "
         f"{len(review_result.findings)} findings.\n\n"
+        f"Review identity digest: `{review_identity_digest}`.\n\n"
         f"## Test weakening\n\n{len(weakening_findings)} findings.\n"
+    )
+
+
+def _finalize_delivery_evidence(
+    repo: Path,
+    feature_dir: Path,
+    config,
+    event_store: EventStore,
+    repository: str,
+    branch: str,
+):
+    (feature_dir / "validation-log.md").write_text(
+        render_validation_log(
+            event_store.read(),
+            feature_dir.name,
+            evidence_snapshot.contract_digest(feature_dir),
+            evidence_snapshot.utc_now(),
+        ),
+        encoding="utf-8",
+    )
+    paths = git_utils.changed_paths(repo)
+    validation.validate_scope(paths, config)
+    git_utils.diff_check(repo)
+    git_utils.commit(
+        repo, paths, f"docs({feature_dir.name}): finalize tracked evidence snapshot"
+    )
+    snapshot = evidence_snapshot.record_snapshot(
+        event_store,
+        repo=repo,
+        feature_dir=feature_dir,
+        repository=repository,
+        branch=branch,
+        worktree=str(repo),
+    )
+    started_at = evidence_snapshot.utc_now()
+    result = validation.run_named(repo, config, "full")
+    completed_at = evidence_snapshot.utc_now()
+    evidence_snapshot.record_final_validation(
+        event_store,
+        repo=repo,
+        feature_dir=feature_dir,
+        repository=repository,
+        branch=branch,
+        worktree=str(repo),
+        snapshot=snapshot,
+        result=result,
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    if not result.succeeded:
+        raise RuntimeError("Post-evidence final validation failed")
+    return evidence_snapshot.require_final_evidence(
+        repo,
+        feature_dir,
+        event_store.read(),
+        git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip(),
     )
 
 

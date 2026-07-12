@@ -594,6 +594,10 @@ def _digest(value: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def identity_set_digest(digests: list[str]) -> str:
+    return _digest({"review_identity_digests": sorted(digests)})
+
+
 def review_with_repairs(run_once, repair, max_attempts: int) -> ReviewResult:
     previous = None
     limit = max(1, min(max_attempts, 5))

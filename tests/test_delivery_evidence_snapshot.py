@@ -7,8 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from agent.events import EventStore, render_validation_log
-from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
-from agent.review import ReviewIdentity
 from agent.evidence_snapshot import (
     contract_digest,
     git_blob_sha,
@@ -17,6 +15,8 @@ from agent.evidence_snapshot import (
     require_final_evidence,
     utc_now,
 )
+from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
+from agent.review import ReviewIdentity
 from agent.validation import CommandResult
 
 
@@ -43,6 +43,13 @@ class EvidenceSnapshotTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _snapshot_commit(self):
+        before = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=self.repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
         log = render_validation_log(
             self.store.read(),
             self.feature.name,
@@ -52,6 +59,14 @@ class EvidenceSnapshotTests(unittest.TestCase):
         (self.feature / "validation-log.md").write_text(log, encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "evidence"], cwd=self.repo, check=True)
+        after = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        self.assertNotEqual(before, after)
         snapshot = record_snapshot(
             self.store,
             repo=self.repo,
@@ -196,3 +211,84 @@ class EvidenceSnapshotTests(unittest.TestCase):
         ).stdout.strip()
         with self.assertRaisesRegex(ValueError, "clean worktree"):
             require_final_evidence(self.repo, self.feature, self.store.read(), head)
+
+    def test_snapshot_and_final_mismatches_fail_closed(self):
+        snapshot = self._snapshot_commit()
+        result = CommandResult("full", ("make", "validate"), 0, "ok", "")
+        final = record_final_validation(
+            self.store,
+            repo=self.repo,
+            feature_dir=self.feature,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            snapshot=snapshot,
+            result=result,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        head = snapshot.head_sha
+        cases = (
+            ("snapshot reference", {"evidence_snapshot_event_sequence": 999}),
+            ("log blob", {"log_blob_sha": "0" * 40}),
+            ("contract digest", {"validation_contract_digest": "0" * 64}),
+        )
+        for label, replacement in cases:
+            with self.subTest(label=label):
+                data = dict(final.data or {})
+                data.update(replacement)
+                self.store.append(
+                    feature=self.feature.name,
+                    repository=str(self.repo),
+                    branch="test",
+                    worktree=str(self.repo),
+                    phase="post-evidence",
+                    kind="final-validation",
+                    result="PASS",
+                    head_sha=head,
+                    data=data,
+                )
+                with self.assertRaises(ValueError):
+                    require_final_evidence(
+                        self.repo, self.feature, self.store.read(), head
+                    )
+                record_final_validation(
+                    self.store,
+                    repo=self.repo,
+                    feature_dir=self.feature,
+                    repository=str(self.repo),
+                    branch="test",
+                    worktree=str(self.repo),
+                    snapshot=snapshot,
+                    result=result,
+                    started_at=utc_now(),
+                    completed_at=utc_now(),
+                )
+
+    def test_new_commit_invalidates_final_evidence(self):
+        snapshot = self._snapshot_commit()
+        result = CommandResult("full", ("make", "validate"), 0, "ok", "")
+        record_final_validation(
+            self.store,
+            repo=self.repo,
+            feature_dir=self.feature,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            snapshot=snapshot,
+            result=result,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        (self.repo / "later.txt").write_text("later", encoding="utf-8")
+        subprocess.run(["git", "add", "later.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "later"], cwd=self.repo, check=True)
+        new_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        with self.assertRaisesRegex(ValueError, "Missing tracked-evidence-snapshot"):
+            require_final_evidence(self.repo, self.feature, self.store.read(), new_head)

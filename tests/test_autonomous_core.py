@@ -13,8 +13,8 @@ from unittest import mock
 
 from agent import adapters, recovery, review, weakening
 from agent.budget import Budget
-from agent.evidence import redact
 from agent.events import Event
+from agent.evidence import redact
 from agent.policy import RepositoryPolicy, validation_commands
 from agent.review import ReviewResult, parse_review, review_with_repairs
 from agent.review_shards import reusable_event

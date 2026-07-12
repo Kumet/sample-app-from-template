@@ -26,6 +26,6 @@
 - [x] T008: Centralize review exception redaction at persistence boundaries
   - Requirements: REQ-036
   - Validation: unit
-- [ ] T009: Complete mutation, evidence, redaction, and regression tests
+- [x] T009: Complete mutation, evidence, redaction, and regression tests
   - Requirements: REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036
   - Validation: unit, integration, full
