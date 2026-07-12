@@ -119,6 +119,7 @@ def prepare_review(
     feature_dir: Path,
     review_focus: str = "complete",
     review_paths: tuple[str, ...] | None = None,
+    runtime_evidence_text: str = "[]",
 ) -> PreparedReview:
     template = (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
     base = subprocess.run(
@@ -177,6 +178,7 @@ def prepare_review(
         "validation_contract_text": (feature_dir / "validation.toml").read_text(
             encoding="utf-8"
         ),
+        "runtime_evidence_text": runtime_evidence_text,
         "diff_text": patch.stdout,
     }
     input_size = sum(len(value) for value in inputs.values())
@@ -275,7 +277,10 @@ def _review_guidance(focus: str) -> str:
 
 
 def prepare_reviews(
-    repo: Path, feature_dir: Path, review_focus: str = "complete"
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    runtime_evidence_text: str = "[]",
 ) -> tuple[PreparedReview, ...]:
     base = subprocess.run(
         ["git", "merge-base", "main", "HEAD"],
@@ -330,9 +335,37 @@ def prepare_reviews(
         chunks.append(tuple(current))
     total = len(chunks)
     return tuple(
-        prepare_review(repo, feature_dir, f"{review_focus} [{index}/{total}]", chunk)
+        prepare_review(
+            repo,
+            feature_dir,
+            f"{review_focus} [{index}/{total}]",
+            chunk,
+            runtime_evidence_text,
+        )
         for index, chunk in enumerate(chunks, 1)
     )
+
+
+def render_runtime_evidence(events, head_sha: str) -> str:
+    allowed = []
+    for event in events:
+        if event.head_sha != head_sha or event.kind not in {
+            "validation",
+            "weakening",
+            "review-shard",
+            "review-reused",
+        }:
+            continue
+        allowed.append(
+            {
+                "sequence": event.sequence,
+                "kind": event.kind,
+                "result": event.result,
+                "head_sha": event.head_sha,
+                "data": event.data,
+            }
+        )
+    return json.dumps(allowed, sort_keys=True, separators=(",", ":"))
 
 
 def _paths_for_focus(paths: list[str], focus: str) -> list[str]:

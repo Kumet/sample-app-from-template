@@ -26,6 +26,10 @@ other repository files; evaluate only this bounded input.
 {validation_contract_text}
 </validation-contract>
 
+<runtime-evidence>
+{runtime_evidence_text}
+</runtime-evidence>
+
 <git-diff>
 {diff_text}
 </git-diff>

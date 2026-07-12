@@ -24,7 +24,7 @@ from agent.notifications import github_comment, payload, stdout_json, write_outb
 from agent.quality import validate as validate_quality
 from agent.queue import Queue
 from agent.release import check as release_check
-from agent.review import ReviewResult
+from agent.review import ReviewIdentity, ReviewResult
 from agent.review_shards import (
     SHARDS,
     ShardResult,
@@ -70,13 +70,41 @@ class ProductionReadyTests(unittest.TestCase):
                 head_sha="abc",
             )
             for shard in REQUIRED_REVIEW_SHARDS:
+                identity = ReviewIdentity(
+                    "007-x",
+                    "abc",
+                    shard,
+                    "1",
+                    "2",
+                    ("model=test",),
+                    ("codex", "exec"),
+                    ("file.py",),
+                    f"input-{shard}",
+                )
                 store.append(
                     **common,
                     phase="review",
                     kind="review-shard",
                     result="PASS",
                     head_sha="abc",
-                    data={"shard": shard, "aggregate": True},
+                    data={
+                        "shard": shard,
+                        "identity_digest": identity.digest,
+                        "identity": identity.payload(),
+                        "findings": [],
+                    },
+                )
+                store.append(
+                    **common,
+                    phase="review",
+                    kind="review-shard",
+                    result="PASS",
+                    head_sha="abc",
+                    data={
+                        "shard": shard,
+                        "aggregate": True,
+                        "chunk_identities": [identity.digest],
+                    },
                 )
             self.assertEqual(
                 require_exact_validation(store.read(), "abc").head_sha, "abc"

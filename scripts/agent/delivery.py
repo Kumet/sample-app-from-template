@@ -283,7 +283,10 @@ def deliver(
 
             def obtain(shard, context=None):
                 prepared_items = review.prepare_reviews(
-                    isolated.path, isolated_feature, shard
+                    isolated.path,
+                    isolated_feature,
+                    shard,
+                    review.render_runtime_evidence(event_store.read(), head),
                 )
                 if context is not None:
                     prepared_items = tuple(

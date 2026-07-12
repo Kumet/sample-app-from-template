@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from .events import Event
@@ -72,16 +74,46 @@ def require_pre_push(events: list[Event], head_sha: str) -> None:
     )
     if weakening is None or weakening.result != "PASS":
         raise ValueError("No weakening PASS event for current HEAD")
-    passed = {
-        (event.data or {}).get("shard")
-        for event in events
-        if event.kind == "review-shard"
-        and event.result == "PASS"
-        and event.head_sha == head_sha
-        and (event.data or {}).get("aggregate") is True
-    }
+    aggregates = {}
+    for event in events:
+        data = event.data or {}
+        if (
+            event.kind == "review-shard"
+            and event.result == "PASS"
+            and event.head_sha == head_sha
+            and data.get("aggregate") is True
+        ):
+            aggregates[data.get("shard")] = event
+    passed = set()
+    for shard, aggregate in aggregates.items():
+        identities = (aggregate.data or {}).get("chunk_identities") or []
+        if identities and all(
+            _valid_identity_pass(events, head_sha, value) for value in identities
+        ):
+            passed.add(shard)
     missing = set(REQUIRED_REVIEW_SHARDS) - passed
     if missing:
         raise ValueError(
             "Missing exact-HEAD review shards: " + ", ".join(sorted(missing))
         )
+
+
+def _valid_identity_pass(events: list[Event], head_sha: str, digest: str) -> bool:
+    for event in reversed(events):
+        data = event.data or {}
+        identity = data.get("identity")
+        if (
+            event.kind == "review-shard"
+            and event.result == "PASS"
+            and event.head_sha == head_sha
+            and data.get("identity_digest") == digest
+            and isinstance(identity, dict)
+            and _identity_digest(identity) == digest
+        ):
+            return True
+    return False
+
+
+def _identity_digest(identity: dict) -> str:
+    payload = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()

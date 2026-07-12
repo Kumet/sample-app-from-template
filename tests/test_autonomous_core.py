@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -279,7 +280,10 @@ class AutonomousCoreTests(unittest.TestCase):
                 f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
             command = (sys.executable, "-c", program)
-            with self.assertRaises(review.ReviewTimeout) as captured:
+            with (
+                mock.patch("agent.review.os.killpg", wraps=os.killpg) as killpg,
+                self.assertRaises(review.ReviewTimeout) as captured,
+            ):
                 review.run_process_group(
                     command,
                     "",
@@ -299,6 +303,9 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(diagnostic["attempt"], 1)
             self.assertEqual(diagnostic["input_digest"], "digest")
             self.assertTrue(diagnostic["process_group_terminated"])
+            self.assertEqual(
+                [call.args[1] for call in killpg.call_args_list], [signal.SIGTERM]
+            )
             child_pid = int(child_path.read_text())
             for _ in range(20):
                 try:
@@ -319,7 +326,10 @@ class AutonomousCoreTests(unittest.TestCase):
                 f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
                 f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
-            with self.assertRaises(review.ReviewTimeout) as captured:
+            with (
+                mock.patch("agent.review.os.killpg", wraps=os.killpg) as killpg,
+                self.assertRaises(review.ReviewTimeout) as captured,
+            ):
                 review.run_process_group(
                     (sys.executable, "-c", program),
                     "",
@@ -334,6 +344,10 @@ class AutonomousCoreTests(unittest.TestCase):
                     term_grace_seconds=0.1,
                 )
             self.assertEqual(captured.exception.diagnostic["termination"], "kill")
+            self.assertEqual(
+                [call.args[1] for call in killpg.call_args_list],
+                [signal.SIGTERM, signal.SIGKILL],
+            )
             child_pid = int(child_path.read_text())
             for _ in range(20):
                 try:
