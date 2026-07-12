@@ -418,12 +418,18 @@ class AutonomousCoreTests(unittest.TestCase):
             kind="final-validation",
             result="PASS",
             head_sha="abc",
-            data={"result_digest": "f" * 64},
+            data={
+                "result_digest": "token=secret-value",
+                "unapproved_detail": "password=hunter2",
+            },
         )
         rendered = review.render_runtime_evidence([validation, shard, final], "abc")
         self.assertIn('"kind":"validation"', rendered)
         self.assertIn('"kind":"final-validation"', rendered)
         self.assertNotIn("review-shard", rendered)
+        self.assertNotIn("unapproved_detail", rendered)
+        self.assertNotIn("secret-value", rendered)
+        self.assertNotIn("hunter2", rendered)
 
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -462,6 +468,15 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(diagnostic["head_sha"], "abc")
             self.assertEqual(diagnostic["attempt"], 1)
             self.assertEqual(diagnostic["input_digest"], "digest")
+            self.assertEqual(diagnostic["configured_timeout"], 0.2)
+            self.assertGreaterEqual(diagnostic["elapsed_seconds"], 0.2)
+            self.assertEqual(diagnostic["command_id"], Path(command[0]).name + " -c")
+            self.assertEqual(diagnostic["prompt_chars"], 0)
+            self.assertEqual(diagnostic["prompt_bytes"], 0)
+            self.assertIsInstance(diagnostic["pid"], int)
+            self.assertEqual(diagnostic["process_status"], "timeout")
+            self.assertEqual(diagnostic["termination"], "term")
+            self.assertNotIn("token-value", diagnostic["stderr_tail"])
             self.assertTrue(diagnostic["process_group_terminated"])
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],

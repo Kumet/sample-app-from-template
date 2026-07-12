@@ -2,6 +2,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -242,33 +243,16 @@ class EvidenceSnapshotTests(unittest.TestCase):
             with self.subTest(label=label):
                 data = dict(final.data or {})
                 data.update(replacement)
-                self.store.append(
-                    feature=self.feature.name,
-                    repository=str(self.repo),
-                    branch="test",
-                    worktree=str(self.repo),
-                    phase="post-evidence",
-                    kind="final-validation",
-                    result="PASS",
-                    head_sha=head,
-                    data=data,
-                )
+                malformed = replace(final, sequence=final.sequence + 1, data=data)
+                isolated_events = [
+                    event
+                    for event in self.store.read()
+                    if event.sequence != final.sequence
+                ] + [malformed]
                 with self.assertRaises(ValueError):
                     require_final_evidence(
-                        self.repo, self.feature, self.store.read(), head
+                        self.repo, self.feature, isolated_events, head
                     )
-                record_final_validation(
-                    self.store,
-                    repo=self.repo,
-                    feature_dir=self.feature,
-                    repository=str(self.repo),
-                    branch="test",
-                    worktree=str(self.repo),
-                    snapshot=snapshot,
-                    result=result,
-                    started_at=utc_now(),
-                    completed_at=utc_now(),
-                )
 
     def test_new_commit_invalidates_final_evidence(self):
         snapshot = self._snapshot_commit()

@@ -204,6 +204,10 @@ class ProductionReadyTests(unittest.TestCase):
                 values = dict(identity.__dict__)
                 value = values[field]
                 if field == "identity_schema_version":
+                    payload = identity.payload()
+                    payload[field] = "unknown"
+                    with self.assertRaises(ValueError):
+                        ReviewIdentity.from_payload(payload)
                     continue
                 values[field] = (
                     value + 1
@@ -215,6 +219,14 @@ class ProductionReadyTests(unittest.TestCase):
                 changed = ReviewIdentity(**values)
                 with self.subTest(field=field):
                     self.assertIsNone(reusable_event(store.read(), changed.digest))
+            incomplete = identity.payload()
+            incomplete.pop("head_sha")
+            with self.assertRaises(ValueError):
+                ReviewIdentity.from_payload(incomplete)
+            malformed = identity.payload()
+            malformed["reviewed_files"] = "file.py"
+            with self.assertRaises((TypeError, ValueError)):
+                ReviewIdentity.from_payload(malformed)
             self.assertIsNone(reusable_event(store.read(), "timeout"))
 
     def test_events_recover_truncated_tail_and_render_all_history(self):

@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .evidence import redact
+from .evidence import redact, redact_value
 from .weakening import Finding
 
 MAX_REVIEW_INPUT_CHARS = 100_000
@@ -136,6 +136,10 @@ class ReviewIdentity:
         if set(payload) != set(REVIEW_IDENTITY_FIELDS):
             raise ValueError("Review identity fields are incomplete or unknown")
         values = dict(payload)
+        if not isinstance(values["review_settings"], (list, tuple)) or not isinstance(
+            values["reviewed_files"], (list, tuple)
+        ):
+            raise ValueError("Review identity list fields have invalid types")
         values["review_settings"] = tuple(values["review_settings"])
         values["reviewed_files"] = tuple(values["reviewed_files"])
         return cls(**values)
@@ -439,22 +443,44 @@ def prepare_reviews(
 
 
 def render_runtime_evidence(events, head_sha: str) -> str:
+    data_allowlist = {
+        "validation": {"command_identity", "result_digest"},
+        "weakening": {"findings"},
+        "tracked-evidence-snapshot": {
+            "log_path",
+            "log_blob_sha",
+            "included_event_sequence",
+            "validation_contract_digest",
+            "snapshot_format_version",
+        },
+        "final-validation": {
+            "evidence_snapshot_event_sequence",
+            "log_blob_sha",
+            "validation_contract_digest",
+            "command_identity",
+            "started_at",
+            "completed_at",
+            "result_digest",
+        },
+    }
     allowed = []
     for event in events:
-        if event.head_sha != head_sha or event.kind not in {
-            "validation",
-            "weakening",
-            "tracked-evidence-snapshot",
-            "final-validation",
-        }:
+        if event.head_sha != head_sha or event.kind not in data_allowlist:
             continue
+        source = event.data or {}
         allowed.append(
             {
                 "sequence": event.sequence,
                 "kind": event.kind,
                 "result": event.result,
                 "head_sha": event.head_sha,
-                "data": event.data,
+                "data": redact_value(
+                    {
+                        key: source[key]
+                        for key in data_allowlist[event.kind]
+                        if key in source
+                    }
+                ),
             }
         )
     return json.dumps(allowed, sort_keys=True, separators=(",", ":"))
@@ -585,7 +611,7 @@ def run_process_group(
             "termination": termination,
             "process_group_terminated": group_terminated,
         }
-        raise ReviewTimeout(diagnostic) from error
+        raise ReviewTimeout(diagnostic) from None
 
 
 def _process_group_exists(process_group: int) -> bool:

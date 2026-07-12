@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:54:26.006251+00:00","included_event_sequence":82,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:59:35.979954+00:00","included_event_sequence":95,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -93,3 +93,16 @@ Final included event result: PASS.
 | 80 | review/review-shard | PASS | `33657fec0c1d` |  |
 | 81 | clarification/human-approval | PASS | `33657fec0c1d` | Human approved a new repair cycle for full reviewer process-group descendant termination verification and REQ-017 tests |
 | 82 | review-remediation/process-group-and-test-closure | PASS | `33657fec0c1d` | Loop 3: verify process-group disappearance after TERM/KILL, test child and grandchild exit, require dedicated exact validation, strengthen canonical cache and SHA gate tests; make validate passed |
+| 83 | evidence/tracked-evidence-snapshot | PASS | `828c5629d9de` |  |
+| 84 | post-evidence/final-validation | PASS | `828c5629d9de` |  |
+| 85 | review/review-shard | PASS | `828c5629d9de` |  |
+| 86 | review/review-shard | PASS | `828c5629d9de` |  |
+| 87 | review/review-shard | PASS | `828c5629d9de` |  |
+| 88 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 89 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 90 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 91 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 92 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 93 | review/review-shard | FAIL | `828c5629d9de` |  |
+| 94 | review/review-shard | PASS | `828c5629d9de` |  |
+| 95 | review-remediation/runtime-redaction-and-test-isolation | PASS | `828c5629d9de` | Loop 4: suppress raw timeout exception chaining, allowlist and redact runtime evidence prompt data, isolate mismatch tests, and complete diagnostic and malformed identity coverage; make validate passed |
