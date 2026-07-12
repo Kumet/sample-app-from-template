@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from agent import git_utils
 from agent.parser import WorkConfig
-from agent.validation import validate_scope
+from agent.validation import ScopeViolation, validate_scope
 
 
 class SafetyTests(unittest.TestCase):
@@ -41,6 +41,13 @@ class SafetyTests(unittest.TestCase):
             validate_scope(["src/signing.key"], config)
         with self.assertRaisesRegex(ValueError, "Out-of-scope"):
             validate_scope(["README.md"], config)
+
+    def test_scope_violation_preserves_multiple_normalized_paths(self):
+        config = WorkConfig(1, 20, 3, 3, {}, ("src/**",), ("**/*.key",))
+        with self.assertRaises(ScopeViolation) as raised:
+            validate_scope(["build/one/", "build/two.txt"], config)
+        self.assertEqual(raised.exception.category, "outside")
+        self.assertEqual(raised.exception.paths, ("build/one", "build/two.txt"))
 
     def test_agent_work_runtime_state_does_not_make_tree_dirty(self):
         subprocess.run(["git", "switch", "-q", "-c", "feature/test"], cwd=self.repo, check=True)
