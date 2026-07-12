@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -36,6 +38,41 @@ def test_schema_initialization_is_explicit(isolated_engine: Engine) -> None:
         ]
     finally:
         Base.metadata.remove(table)
+
+
+def test_schema_initialization_registers_models_in_fresh_interpreter(
+    tmp_path: Path,
+) -> None:
+    source_root = Path(__file__).parents[3] / "src"
+    database_url = f"sqlite:///{tmp_path / 'standalone.sqlite3'}"
+    script = """
+sys.path.insert(0, sys.argv[1])
+
+from sqlalchemy import inspect
+from project_board.infrastructure import create_database_engine, initialize_schema
+
+engine = create_database_engine(sys.argv[2])
+try:
+    initialize_schema(engine)
+    print(*inspect(engine).get_table_names(), sep="\\n")
+finally:
+    engine.dispose()
+"""
+
+    result = subprocess.run(  # noqa: B603 - command and script are test constants
+        [
+            sys.executable,
+            "-c",
+            "import sys\n" + script,
+            str(source_root),
+            database_url,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.splitlines() == ["projects"]
 
 
 def test_session_factory_uses_only_its_configured_database(tmp_path: Path) -> None:

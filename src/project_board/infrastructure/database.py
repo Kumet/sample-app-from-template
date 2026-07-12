@@ -5,6 +5,7 @@ module, creating an engine, or creating a session factory does not modify the
 database.
 """
 
+from importlib import import_module
 from typing import TypeAlias
 
 from sqlalchemy import Engine, create_engine
@@ -34,4 +35,5 @@ def create_session_factory(engine: Engine) -> SessionFactory:
 
 def initialize_schema(engine: Engine) -> None:
     """Explicitly create all tables registered in application metadata."""
+    import_module("project_board.infrastructure.models")
     Base.metadata.create_all(engine)
