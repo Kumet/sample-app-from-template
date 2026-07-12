@@ -269,6 +269,7 @@ def prepare_reviews(
         for path in changed.stdout.splitlines()
         if not path.startswith(feature_prefix)
     ]
+    paths = _paths_for_focus(paths, review_focus)
     chunks: list[tuple[str, ...]] = []
     current: list[str] = []
     size = 0
@@ -300,6 +301,34 @@ def prepare_reviews(
         prepare_review(repo, feature_dir, f"{review_focus} [{index}/{total}]", chunk)
         for index, chunk in enumerate(chunks, 1)
     )
+
+
+def _paths_for_focus(paths: list[str], focus: str) -> list[str]:
+    tests = [path for path in paths if path.startswith("tests/")]
+    security_names = {
+        "scripts/agent/review.py",
+        "scripts/agent/delivery.py",
+        "scripts/agent/gates.py",
+        "scripts/agent/events.py",
+    }
+    security = [path for path in paths if path in security_names]
+    maintainability_names = {
+        "scripts/agent/work.py",
+        "scripts/agent/review_shards.py",
+        "README.md",
+        "docs/ai-operation.md",
+    }
+    maintainability = [path for path in paths if path in maintainability_names]
+    assigned = set(tests + security + maintainability)
+    if focus == "tests":
+        return tests
+    if focus == "security":
+        return security
+    if focus == "maintainability":
+        return maintainability
+    if focus == "spec-scope":
+        return [path for path in paths if path not in assigned]
+    return [path for path in paths if path.startswith("scripts/agent/")]
 
 
 def run_review(

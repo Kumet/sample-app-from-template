@@ -247,6 +247,20 @@ class AutonomousCoreTests(unittest.TestCase):
         second = review.bind_context(prepared, {"security": "fail"})
         self.assertNotEqual(first.identity.digest, second.identity.digest)
 
+    def test_file_focus_partition_covers_every_changed_path(self):
+        paths = [
+            "scripts/agent/review.py",
+            "scripts/agent/work.py",
+            "tests/test_review.py",
+            "prompts/review-feature.md",
+        ]
+        selected = set()
+        for focus in ("spec-scope", "security", "tests", "maintainability"):
+            group = review._paths_for_focus(paths, focus)
+            self.assertFalse(selected.intersection(group))
+            selected.update(group)
+        self.assertEqual(selected, set(paths))
+
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
