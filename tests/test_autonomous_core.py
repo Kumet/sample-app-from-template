@@ -336,6 +336,11 @@ class AutonomousCoreTests(unittest.TestCase):
             else:
                 self.fail("SIGKILL did not remove review child process")
 
+    def test_timeout_output_normalizes_wrapped_bytes(self):
+        self.assertEqual(review._output_text(b"partial\xff"), "partial\ufffd")
+        self.assertEqual(review._output_text("text"), "text")
+        self.assertEqual(review._output_text(None), "")
+
     def test_risk_only_escalates_and_merge_is_fully_gated(self):
         medium = assess("low", [".github/workflows/ci.yml"], [], POLICY)
         self.assertEqual(medium.effective, "medium")

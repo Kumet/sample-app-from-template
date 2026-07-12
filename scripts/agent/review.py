@@ -388,8 +388,8 @@ def run_process_group(
         stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
-        stdout = error.output or ""
-        stderr = error.stderr or ""
+        stdout = _output_text(error.output)
+        stderr = _output_text(error.stderr)
         termination = "term"
         os.killpg(process.pid, signal.SIGTERM)
         try:
@@ -405,14 +405,22 @@ def run_process_group(
             "command_id": Path(command[0]).name + " " + command[1],
             "prompt_chars": len(input_text),
             "prompt_bytes": len(input_text.encode("utf-8")),
-            "stdout_tail": redact((stdout + (tail_out or ""))[-2000:]),
-            "stderr_tail": redact((stderr + (tail_err or ""))[-2000:]),
+            "stdout_tail": redact((stdout + _output_text(tail_out))[-2000:]),
+            "stderr_tail": redact((stderr + _output_text(tail_err))[-2000:]),
             "process_status": "timeout",
             "pid": process.pid,
             "termination": termination,
             "process_group_terminated": process.poll() is not None,
         }
         raise ReviewTimeout(diagnostic) from error
+
+
+def _output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:
