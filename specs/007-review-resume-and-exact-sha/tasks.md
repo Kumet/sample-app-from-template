@@ -11,7 +11,7 @@
 - [x] T003: Add timeout diagnostics and process-group termination
   - Requirements: REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
   - Validation: unit, integration
-- [ ] T004: Implement exact-HEAD validation finalization and delivery gates
+- [x] T004: Implement exact-HEAD validation finalization and delivery gates
   - Requirements: REQ-021, REQ-022, REQ-023, REQ-024, REQ-025, REQ-026, REQ-027, REQ-028, REQ-029
   - Validation: unit, integration
 - [ ] T005: Complete regression tests, documentation, and final validation

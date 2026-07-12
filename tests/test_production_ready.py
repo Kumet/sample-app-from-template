@@ -1,4 +1,3 @@
-import json
 import subprocess
 import sys
 import tempfile
@@ -7,32 +6,110 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
+from unittest import mock
+
 from agent.ci_tracking import WorkflowRun, normalize_status, require_log_sha, select_run
-from agent.contract_migration import preview as migration_preview, render_v2
+from agent.contract_migration import preview as migration_preview
+from agent.contract_migration import render_v2
 from agent.doctor import Check, readiness
 from agent.events import EventStore, render_validation_log
-from agent.gates import evaluate_gates, require_mergeable
+from agent.gates import (
+    REQUIRED_REVIEW_SHARDS,
+    evaluate_gates,
+    require_exact_validation,
+    require_mergeable,
+    require_pre_push,
+)
 from agent.notifications import github_comment, payload, stdout_json, write_outbox
 from agent.quality import validate as validate_quality
 from agent.queue import Queue
 from agent.release import check as release_check
 from agent.review import ReviewResult
-from agent.review_shards import SHARDS, ShardResult, aggregate, split_files
-from agent.review_shards import reusable_event
+from agent.review_shards import (
+    SHARDS,
+    ShardResult,
+    aggregate,
+    reusable_event,
+    split_files,
+)
 from agent.scope_approval import (
     apply as scope_apply,
+)
+from agent.scope_approval import (
     preview as scope_preview,
+)
+from agent.scope_approval import (
     preview_request as scope_request_preview,
+)
+from agent.scope_approval import (
     request as scope_request,
 )
 from agent.state import RunState, write_state
 from agent.telemetry import Limits, Usage, parse_codex_tokens
 from agent.validation import ScopeViolation
 from agent.work import _scope_paths
-from unittest import mock
 
 
 class ProductionReadyTests(unittest.TestCase):
+    def test_exact_validation_and_review_shards_share_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            common = dict(feature="007-x", repository="repo", branch="b", worktree="w")
+            store.append(
+                **common,
+                phase="final",
+                kind="validation",
+                result="PASS",
+                head_sha="abc",
+            )
+            store.append(
+                **common,
+                phase="delivery",
+                kind="weakening",
+                result="PASS",
+                head_sha="abc",
+            )
+            for shard in REQUIRED_REVIEW_SHARDS:
+                store.append(
+                    **common,
+                    phase="review",
+                    kind="review-shard",
+                    result="PASS",
+                    head_sha="abc",
+                    data={"shard": shard},
+                )
+            self.assertEqual(
+                require_exact_validation(store.read(), "abc").head_sha, "abc"
+            )
+            require_pre_push(store.read(), "abc")
+            with self.assertRaisesRegex(ValueError, "No validation PASS"):
+                require_exact_validation(store.read(), "def")
+            with self.assertRaisesRegex(ValueError, "Missing exact-HEAD review"):
+                require_pre_push(store.read()[:-1], "abc")
+
+    def test_validation_log_render_does_not_copy_future_final_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            common = dict(feature="007-x", repository="repo", branch="b", worktree="w")
+            before = store.append(
+                **common,
+                phase="task",
+                kind="task-complete",
+                result="PASS",
+                head_sha="parent",
+            )
+            rendered = render_validation_log(store.read(), "007-x")
+            final = store.append(
+                **common,
+                phase="final",
+                kind="validation",
+                result="PASS",
+                head_sha="exact",
+            )
+            self.assertIn(f"| {before.sequence} |", rendered)
+            self.assertNotIn(f"| {final.sequence} |", rendered)
+            self.assertEqual(store.read()[-1].head_sha, "exact")
+
     def test_review_cache_reuses_only_matching_pass_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
@@ -223,7 +300,8 @@ class ProductionReadyTests(unittest.TestCase):
             feature = root / "specs" / "012-x"
             feature.mkdir(parents=True)
             (feature / "spec.md").write_text(
-                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n",
+                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n"
+                "### Forbidden changes\n\n- secrets\n",
                 encoding="utf-8",
             )
             (feature / "validation.toml").write_text(
@@ -273,7 +351,8 @@ class ProductionReadyTests(unittest.TestCase):
             feature = root / "specs" / "012-x"
             feature.mkdir(parents=True)
             (feature / "spec.md").write_text(
-                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n",
+                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n"
+                "### Forbidden changes\n\n- secrets\n",
                 encoding="utf-8",
             )
             (feature / "plan.md").write_text("plan\n", encoding="utf-8")
@@ -312,7 +391,10 @@ class ProductionReadyTests(unittest.TestCase):
                 kind="scope-request",
                 result="FAIL",
                 head_sha="head",
-                detail="Unsafe scope failure requires human review: Out-of-scope files changed: src/pkg.egg-info/",
+                detail=(
+                    "Unsafe scope failure requires human review: "
+                    "Out-of-scope files changed: src/pkg.egg-info/"
+                ),
                 data={"path": "Out-of-scope files changed: src/pkg.egg-info/"},
             )
 
@@ -392,7 +474,10 @@ class ProductionReadyTests(unittest.TestCase):
             worktree_feature = root / "worktree" / "specs" / "012-x"
             feature.mkdir(parents=True)
             worktree_feature.mkdir(parents=True)
-            spec = "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n### Forbidden changes\n\n- secrets\n"
+            spec = (
+                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n"
+                "### Forbidden changes\n\n- secrets\n"
+            )
             contract = (
                 'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n'
             )

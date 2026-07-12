@@ -16,7 +16,7 @@ from . import (
 )
 from .events import EventStore
 from .evidence import redact
-from .gates import require_mergeable
+from .gates import require_exact_validation, require_mergeable, require_pre_push
 from .github_delivery import GitHubDelivery, checks_with_repairs
 from .notifications import payload as notification_payload
 from .notifications import write_outbox
@@ -113,6 +113,53 @@ def deliver(
         weakening_findings = weakening.inspect_patch(patch)
         if any(f.required for f in weakening_findings):
             raise RuntimeError("High-confidence test weakening detected")
+        head_before_validation = git_utils.run_git(
+            isolated.path, ["rev-parse", "HEAD"]
+        ).stdout.strip()
+        try:
+            require_exact_validation(event_store.read(), head_before_validation)
+        except ValueError:
+            check = validation.run_named(isolated.path, config, "full")
+            if not check.succeeded:
+                raise RuntimeError(
+                    "Exact-HEAD delivery validation failed: "
+                    f"{(check.stderr or check.stdout)[-4000:]}"
+                ) from None
+            if git_utils.changed_paths(isolated.path):
+                raise RuntimeError(
+                    "Delivery validation changed tracked contents"
+                ) from None
+            current = git_utils.run_git(
+                isolated.path, ["rev-parse", "HEAD"]
+            ).stdout.strip()
+            if current != head_before_validation:
+                raise RuntimeError("HEAD changed during delivery validation") from None
+            event_store.append(
+                feature=feature_dir.name,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                phase="delivery",
+                kind="validation",
+                result="PASS",
+                head_sha=current,
+                data={
+                    "command": list(config.commands["full"]),
+                    "tracked_changes_after": [],
+                    "log_cutoff_sequence": len(event_store.read()),
+                },
+            )
+        event_store.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+            phase="delivery",
+            kind="weakening",
+            result="PASS",
+            head_sha=head_before_validation,
+            data={"findings": [f.__dict__ for f in weakening_findings]},
+        )
         evidence = repo / ".agent-work" / feature_dir.name / "delivery"
         evidence.mkdir(parents=True, exist_ok=True)
         review_counter = 0
@@ -123,6 +170,7 @@ def deliver(
             head = git_utils.run_git(
                 isolated.path, ["rev-parse", "HEAD"]
             ).stdout.strip()
+            require_exact_validation(event_store.read(), head)
             shard_results = []
 
             def obtain(shard, context=None):
@@ -264,8 +312,23 @@ def deliver(
 
         def repair_review(findings):
             detail = json.dumps([finding.__dict__ for finding in findings], indent=2)
-            _repair_and_commit(
+            repaired_head = _repair_and_commit(
                 isolated.path, isolated_feature, config, "REVIEW", detail
+            )
+            event_store.append(
+                feature=feature_dir.name,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                phase="delivery",
+                kind="validation",
+                result="PASS",
+                head_sha=repaired_head,
+                data={
+                    "command": list(config.commands["full"]),
+                    "tracked_changes_after": [],
+                    "log_cutoff_sequence": len(event_store.read()),
+                },
             )
 
         review_result = review.review_with_repairs(
@@ -294,6 +357,21 @@ def deliver(
             raise RuntimeError(
                 "High-confidence test weakening detected after review repair"
             )
+        gated_head = git_utils.run_git(
+            isolated.path, ["rev-parse", "HEAD"]
+        ).stdout.strip()
+        event_store.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+            phase="delivery",
+            kind="weakening",
+            result="PASS",
+            head_sha=gated_head,
+            data={"findings": [f.__dict__ for f in weakening_findings]},
+        )
+        require_pre_push(event_store.read(), gated_head)
         paths = git_utils.run_git(
             isolated.path, ["diff", "--name-only", f"{policy.default_branch}...HEAD"]
         ).stdout.splitlines()
@@ -314,7 +392,14 @@ def deliver(
         github.push(isolated.branch)
         body = evidence / "pr-body.md"
         body.write_text(
-            _pr_body(feature_dir.name, assessment, review_result, weakening_findings),
+            _pr_body(
+                feature_dir.name,
+                assessment,
+                review_result,
+                weakening_findings,
+                event_store.read(),
+                gated_head,
+            ),
             encoding="utf-8",
         )
         pr = github.ensure_pr(isolated.branch, f"Deliver {feature_dir.name}", body)
@@ -354,17 +439,17 @@ def deliver(
         gated_sha = git_utils.run_git(
             isolated.path, ["rev-parse", "HEAD"]
         ).stdout.strip()
-        for kind in ("validation", "weakening", "review"):
-            event_store.append(
-                feature=feature_dir.name,
-                repository=str(repo),
-                branch=isolated.branch,
-                worktree=str(isolated.path),
-                phase="delivery",
-                kind=kind,
-                result="PASS",
-                head_sha=gated_sha,
-            )
+        event_store.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+            phase="delivery",
+            kind="review",
+            result="PASS",
+            head_sha=gated_sha,
+            data={"shards": list(review_shards.SHARDS) + ["integration"]},
+        )
         event_store.append(
             feature=feature_dir.name,
             repository=str(repo),
@@ -412,11 +497,37 @@ def deliver(
         pass
 
 
-def _pr_body(feature: str, assessment, review_result, weakening_findings) -> str:
+def _pr_body(
+    feature: str,
+    assessment,
+    review_result,
+    weakening_findings,
+    events=(),
+    validated_head: str = "",
+) -> str:
+    validation_event = next(
+        (
+            event
+            for event in reversed(events)
+            if event.kind == "validation"
+            and event.result == "PASS"
+            and event.head_sha == validated_head
+        ),
+        None,
+    )
+    validation_sequence = validation_event.sequence if validation_event else "missing"
+    log_cutoff = (
+        (validation_event.data or {}).get("log_cutoff_sequence", 0)
+        if validation_event
+        else 0
+    )
     return (
         f"## Feature\n\n`{feature}`\n\n## Risk\n\n{assessment.effective}: "
         f"{', '.join(assessment.reasons)}\n\n## Validation\n\n"
         "Mechanical validation passed.\n\n"
+        f"Tracked validation log cutoff event: {log_cutoff}. "
+        f"Final validation event: {validation_sequence}. "
+        f"Validated HEAD: `{validated_head}`.\n\n"
         f"## Independent review\n\n{review_result.result}; "
         f"{len(review_result.findings)} findings.\n\n"
         f"## Test weakening\n\n{len(weakening_findings)} findings.\n"
@@ -425,7 +536,7 @@ def _pr_body(feature: str, assessment, review_result, weakening_findings) -> str
 
 def _repair_and_commit(
     repo: Path, feature_dir: Path, config, repair_id: str, failure: str
-) -> None:
+) -> str:
     task = Task(repair_id, f"Repair {repair_id} findings", False, (), ("full",), -1)
     prompt = codex_runner.render_prompt(repo, feature_dir, task, failure)
     result = codex_runner.run(repo, prompt)
@@ -443,6 +554,18 @@ def _repair_and_commit(
             f"{(check.stderr or check.stdout)[-4000:]}"
         )
     git_utils.commit(repo, paths, f"fix: address {repair_id.lower()} findings")
+    head = git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip()
+    exact = validation.run_named(repo, config, "full")
+    if not exact.succeeded:
+        raise RuntimeError(
+            f"{repair_id} post-commit exact-HEAD validation failed: "
+            f"{(exact.stderr or exact.stdout)[-4000:]}"
+        )
+    if git_utils.changed_paths(repo):
+        raise RuntimeError(f"{repair_id} validation changed tracked contents")
+    if git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip() != head:
+        raise RuntimeError(f"{repair_id} HEAD changed during validation")
+    return head
 
 
 def _record_delivery_evidence(
