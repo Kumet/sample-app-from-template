@@ -261,6 +261,13 @@ class AutonomousCoreTests(unittest.TestCase):
             selected.update(group)
         self.assertEqual(selected, set(paths))
 
+    def test_review_guidance_is_focus_specific(self):
+        security = review._review_guidance("security [1/1]")
+        tests = review._review_guidance("tests [1/1]")
+        self.assertIn("secret exposure", security)
+        self.assertNotIn("test strength", security)
+        self.assertIn("test strength", tests)
+
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"

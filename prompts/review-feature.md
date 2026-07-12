@@ -1,5 +1,8 @@
 Independently review the supplied approved feature artifacts and Git diff.
 Review shard: {review_focus}.
+Shard responsibility: {review_guidance}
+Review only this assigned responsibility. Do not repeat checks assigned to other
+shards.
 All required review inputs are embedded below. Do not run commands or inspect
 other repository files; evaluate only this bounded input.
 
@@ -27,8 +30,7 @@ other repository files; evaluate only this bounded input.
 {diff_text}
 </git-diff>
 
-Focus on specification compliance, scope, regressions, security, test quality,
-test weakening, maintainability, and missing documentation. Do not edit files.
+Do not edit files.
 This is the pre-push review phase: push, PR creation, CI monitoring, merge-state,
 and cleanup happen only after this review passes. Do not report missing evidence
 for those future phases as a finding. Review whether the implementation and

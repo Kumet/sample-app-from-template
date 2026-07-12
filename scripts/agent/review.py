@@ -15,7 +15,7 @@ from .weakening import Finding
 MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
-REVIEW_PROMPT_VERSION = "1"
+REVIEW_PROMPT_VERSION = "2"
 MODEL_SETTINGS = (
     "approval_policy=never",
     "model_reasoning_effort=low",
@@ -188,6 +188,7 @@ def prepare_review(
         plan_path=feature_dir.relative_to(repo) / "plan.md",
         tasks_path=feature_dir.relative_to(repo) / "tasks.md",
         review_focus=review_focus,
+        review_guidance=_review_guidance(review_focus),
         **inputs,
     )
     command = (
@@ -240,6 +241,33 @@ def prepare_review(
         ).hexdigest(),
     )
     return PreparedReview(identity, prompt, command)
+
+
+def _review_guidance(focus: str) -> str:
+    name = focus.split(" ", 1)[0]
+    guidance = {
+        "spec-scope": (
+            "Check only specification compliance, approved scope, traceability, "
+            "and whether the supplied evidence is attributable to this HEAD."
+        ),
+        "security": (
+            "Check only security, privacy, secret exposure, process isolation, "
+            "redaction, and fail-closed approval behavior."
+        ),
+        "tests": (
+            "Check only test strength, missing required cases, test weakening, "
+            "and whether assertions prove the stated behavior."
+        ),
+        "maintainability": (
+            "Check only maintainability, bounded complexity, diagnostics, "
+            "documentation, and operational recovery behavior."
+        ),
+        "integration": (
+            "Check only cross-file integration, ordering, identity/SHA consistency, "
+            "and end-to-end gate composition."
+        ),
+    }
+    return guidance.get(name, "Check only the named review focus.")
 
 
 def prepare_reviews(
