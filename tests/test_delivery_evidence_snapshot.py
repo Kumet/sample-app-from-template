@@ -7,6 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from agent.events import EventStore, render_validation_log
+from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
+from agent.review import ReviewIdentity
 from agent.evidence_snapshot import (
     contract_digest,
     git_blob_sha,
@@ -91,6 +93,61 @@ class EvidenceSnapshotTests(unittest.TestCase):
             binding.log_blob_sha,
             git_blob_sha(self.repo, "specs/007-test/validation-log.md"),
         )
+        common = dict(
+            feature=self.feature.name,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            phase="review",
+            head_sha=head,
+        )
+        self.store.append(
+            **common, kind="weakening", result="PASS", data={"findings": []}
+        )
+        for shard in REQUIRED_REVIEW_SHARDS:
+            identity = ReviewIdentity(
+                identity_schema_version="2",
+                feature=self.feature.name,
+                head_sha=head,
+                shard=shard,
+                review_schema_version="1",
+                prompt_version="2",
+                reviewer_model="gpt-5.4-mini",
+                reviewer_command_identity="c" * 64,
+                review_settings=("model=gpt-5.4-mini",),
+                reviewed_files=("file.py",),
+                spec_digest="1" * 64,
+                plan_digest="2" * 64,
+                tasks_digest="3" * 64,
+                validation_contract_digest=binding.validation_contract_digest,
+                diff_input_digest="4" * 64,
+                tracked_snapshot_event_sequence=binding.snapshot_event_sequence,
+                validation_log_blob_sha=binding.log_blob_sha,
+                final_validation_event_sequence=binding.final_validation_event_sequence,
+                final_validation_result_digest=binding.validation_result_digest,
+            )
+            self.store.append(
+                **common,
+                kind="review-shard",
+                result="PASS",
+                data={
+                    "shard": shard,
+                    "identity_digest": identity.digest,
+                    "identity": identity.payload(),
+                    "findings": [],
+                },
+            )
+            self.store.append(
+                **common,
+                kind="review-shard",
+                result="PASS",
+                data={
+                    "shard": shard,
+                    "aggregate": True,
+                    "chunk_identities": [identity.digest],
+                },
+            )
+        require_pre_push(self.repo, self.feature, self.store.read(), head)
 
     def test_ordinary_validation_does_not_satisfy_final_evidence(self):
         self._snapshot_commit()

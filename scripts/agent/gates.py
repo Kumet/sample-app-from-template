@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
+from pathlib import Path
 
+from . import evidence_snapshot
 from .events import Event
+from .review import ReviewIdentity
 
 REQUIRED_GATES = ("validation", "weakening", "review", "ci")
 REQUIRED_REVIEW_SHARDS = (
@@ -62,8 +63,10 @@ def require_exact_validation(events: list[Event], head_sha: str) -> Event:
     raise ValueError(f"No validation PASS event for current HEAD {head_sha}")
 
 
-def require_pre_push(events: list[Event], head_sha: str) -> None:
-    require_exact_validation(events, head_sha)
+def require_pre_push(
+    repo: Path, feature_dir: Path, events: list[Event], head_sha: str
+) -> None:
+    evidence_snapshot.require_final_evidence(repo, feature_dir, events, head_sha)
     weakening = next(
         (
             event
@@ -108,12 +111,7 @@ def _valid_identity_pass(events: list[Event], head_sha: str, digest: str) -> boo
             and event.head_sha == head_sha
             and data.get("identity_digest") == digest
             and isinstance(identity, dict)
-            and _identity_digest(identity) == digest
+            and ReviewIdentity.from_payload(identity).digest == digest
         ):
             return True
     return False
-
-
-def _identity_digest(identity: dict) -> str:
-    payload = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(payload).hexdigest()

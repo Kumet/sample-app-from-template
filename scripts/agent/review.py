@@ -17,6 +17,28 @@ REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
 REVIEW_PROMPT_VERSION = "2"
 REVIEW_MODEL = "gpt-5.4-mini"
+REVIEW_IDENTITY_SCHEMA_VERSION = "2"
+REVIEW_IDENTITY_FIELDS = (
+    "identity_schema_version",
+    "feature",
+    "head_sha",
+    "shard",
+    "review_schema_version",
+    "prompt_version",
+    "reviewer_model",
+    "reviewer_command_identity",
+    "review_settings",
+    "reviewed_files",
+    "spec_digest",
+    "plan_digest",
+    "tasks_digest",
+    "validation_contract_digest",
+    "diff_input_digest",
+    "tracked_snapshot_event_sequence",
+    "validation_log_blob_sha",
+    "final_validation_event_sequence",
+    "final_validation_result_digest",
+)
 MODEL_SETTINGS = (
     f"model={REVIEW_MODEL}",
     "approval_policy=never",
@@ -40,28 +62,83 @@ class ReviewResult:
 
 @dataclass(frozen=True)
 class ReviewIdentity:
+    identity_schema_version: str
     feature: str
     head_sha: str
     shard: str
-    schema_version: str
+    review_schema_version: str
     prompt_version: str
-    model_settings: tuple[str, ...]
-    command: tuple[str, ...]
+    reviewer_model: str
+    reviewer_command_identity: str
+    review_settings: tuple[str, ...]
     reviewed_files: tuple[str, ...]
-    input_digest: str
+    spec_digest: str
+    plan_digest: str
+    tasks_digest: str
+    validation_contract_digest: str
+    diff_input_digest: str
+    tracked_snapshot_event_sequence: int
+    validation_log_blob_sha: str
+    final_validation_event_sequence: int
+    final_validation_result_digest: str
+
+    def __post_init__(self):
+        if self.identity_schema_version != REVIEW_IDENTITY_SCHEMA_VERSION:
+            raise ValueError("Unknown review identity schema version")
+        object.__setattr__(self, "reviewed_files", tuple(sorted(self.reviewed_files)))
+        if not all(
+            isinstance(value, str) and value
+            for key, value in self.payload().items()
+            if key
+            not in {
+                "review_settings",
+                "reviewed_files",
+                "tracked_snapshot_event_sequence",
+                "final_validation_event_sequence",
+            }
+        ):
+            raise ValueError("Review identity text fields must be non-empty strings")
+        if not all(isinstance(value, str) for value in self.review_settings):
+            raise ValueError("Review settings must be strings")
+        if not all(isinstance(value, str) for value in self.reviewed_files):
+            raise ValueError("Reviewed files must be strings")
+        if (
+            self.tracked_snapshot_event_sequence < 1
+            or self.final_validation_event_sequence < 1
+        ):
+            raise ValueError("Review evidence sequences must be positive integers")
 
     def payload(self) -> dict:
         return {
+            "identity_schema_version": self.identity_schema_version,
             "feature": self.feature,
             "head_sha": self.head_sha,
             "shard": self.shard,
-            "schema_version": self.schema_version,
+            "review_schema_version": self.review_schema_version,
             "prompt_version": self.prompt_version,
-            "model_settings": list(self.model_settings),
-            "command": list(self.command),
+            "reviewer_model": self.reviewer_model,
+            "reviewer_command_identity": self.reviewer_command_identity,
+            "review_settings": list(self.review_settings),
             "reviewed_files": list(self.reviewed_files),
-            "input_digest": self.input_digest,
+            "spec_digest": self.spec_digest,
+            "plan_digest": self.plan_digest,
+            "tasks_digest": self.tasks_digest,
+            "validation_contract_digest": self.validation_contract_digest,
+            "diff_input_digest": self.diff_input_digest,
+            "tracked_snapshot_event_sequence": self.tracked_snapshot_event_sequence,
+            "validation_log_blob_sha": self.validation_log_blob_sha,
+            "final_validation_event_sequence": self.final_validation_event_sequence,
+            "final_validation_result_digest": self.final_validation_result_digest,
         }
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> ReviewIdentity:
+        if set(payload) != set(REVIEW_IDENTITY_FIELDS):
+            raise ValueError("Review identity fields are incomplete or unknown")
+        values = dict(payload)
+        values["review_settings"] = tuple(values["review_settings"])
+        values["reviewed_files"] = tuple(values["reviewed_files"])
+        return cls(**values)
 
     @property
     def digest(self) -> str:
@@ -120,7 +197,10 @@ def prepare_review(
     review_focus: str = "complete",
     review_paths: tuple[str, ...] | None = None,
     runtime_evidence_text: str = "[]",
+    evidence_fields: dict | None = None,
 ) -> PreparedReview:
+    if evidence_fields is None:
+        raise ValueError("Review requires validated evidence identity fields")
     template = (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
     base = subprocess.run(
         ["git", "merge-base", "main", "HEAD"],
@@ -233,18 +313,28 @@ def prepare_review(
         )
     )
     identity = ReviewIdentity(
+        REVIEW_IDENTITY_SCHEMA_VERSION,
         feature_dir.name,
         head.stdout.strip(),
         review_focus,
         REVIEW_SCHEMA_VERSION,
         REVIEW_PROMPT_VERSION,
+        REVIEW_MODEL,
+        _digest({"command": list(command)}),
         MODEL_SETTINGS,
-        command,
         reviewed_files,
+        hashlib.sha256(inputs["spec_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["plan_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["tasks_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["validation_contract_text"].encode()).hexdigest(),
         hashlib.sha256(
             prompt.encode("utf-8")
             + (repo / "schemas" / "review-result.schema.json").read_bytes()
         ).hexdigest(),
+        int(evidence_fields["tracked_snapshot_event_sequence"]),
+        str(evidence_fields["validation_log_blob_sha"]),
+        int(evidence_fields["final_validation_event_sequence"]),
+        str(evidence_fields["final_validation_result_digest"]),
     )
     return PreparedReview(identity, prompt, command)
 
@@ -281,6 +371,7 @@ def prepare_reviews(
     feature_dir: Path,
     review_focus: str = "complete",
     runtime_evidence_text: str = "[]",
+    evidence_fields: dict | None = None,
 ) -> tuple[PreparedReview, ...]:
     base = subprocess.run(
         ["git", "merge-base", "main", "HEAD"],
@@ -341,6 +432,7 @@ def prepare_reviews(
             f"{review_focus} [{index}/{total}]",
             chunk,
             runtime_evidence_text,
+            evidence_fields,
         )
         for index, chunk in enumerate(chunks, 1)
     )
@@ -392,9 +484,14 @@ def _paths_for_focus(paths: list[str], focus: str) -> list[str]:
 
 
 def run_review(
-    repo: Path, feature_dir: Path, review_focus: str = "complete"
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    evidence_fields: dict | None = None,
 ) -> tuple[ReviewResult, str, str]:
-    prepared = prepare_review(repo, feature_dir, review_focus)
+    prepared = prepare_review(
+        repo, feature_dir, review_focus, evidence_fields=evidence_fields
+    )
     result, stderr = run_prepared(repo, prepared)
     return result, prepared.prompt, stderr
 
@@ -417,7 +514,7 @@ def run_prepared(
             "shard": prepared.identity.shard,
             "head_sha": prepared.identity.head_sha,
             "attempt": attempt,
-            "input_digest": prepared.identity.input_digest,
+            "input_digest": prepared.identity.diff_input_digest,
         },
     )
     if completed.returncode:
@@ -485,9 +582,11 @@ def _output_text(value: str | bytes | None) -> str:
 
 def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:
     combined = hashlib.sha256(
-        (prepared.identity.input_digest + _digest(context)).encode("utf-8")
+        (prepared.identity.diff_input_digest + _digest(context)).encode("utf-8")
     ).hexdigest()
-    return replace(prepared, identity=replace(prepared.identity, input_digest=combined))
+    return replace(
+        prepared, identity=replace(prepared.identity, diff_input_digest=combined)
+    )
 
 
 def _digest(value: dict) -> str:

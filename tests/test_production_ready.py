@@ -18,7 +18,6 @@ from agent.gates import (
     evaluate_gates,
     require_exact_validation,
     require_mergeable,
-    require_pre_push,
 )
 from agent.notifications import github_comment, payload, stdout_json, write_outbox
 from agent.quality import validate as validate_quality
@@ -71,15 +70,25 @@ class ProductionReadyTests(unittest.TestCase):
             )
             for shard in REQUIRED_REVIEW_SHARDS:
                 identity = ReviewIdentity(
-                    "007-x",
-                    "abc",
-                    shard,
-                    "1",
-                    "2",
-                    ("model=test",),
-                    ("codex", "exec"),
-                    ("file.py",),
-                    f"input-{shard}",
+                    identity_schema_version="2",
+                    feature="007-x",
+                    head_sha="abc",
+                    shard=shard,
+                    review_schema_version="1",
+                    prompt_version="2",
+                    reviewer_model="test",
+                    reviewer_command_identity="c" * 64,
+                    review_settings=("model=test",),
+                    reviewed_files=("file.py",),
+                    spec_digest="1" * 64,
+                    plan_digest="2" * 64,
+                    tasks_digest="3" * 64,
+                    validation_contract_digest="4" * 64,
+                    diff_input_digest=f"input-{shard}",
+                    tracked_snapshot_event_sequence=1,
+                    validation_log_blob_sha="b" * 40,
+                    final_validation_event_sequence=2,
+                    final_validation_result_digest="5" * 64,
                 )
                 store.append(
                     **common,
@@ -109,11 +118,8 @@ class ProductionReadyTests(unittest.TestCase):
             self.assertEqual(
                 require_exact_validation(store.read(), "abc").head_sha, "abc"
             )
-            require_pre_push(store.read(), "abc")
             with self.assertRaisesRegex(ValueError, "No validation PASS"):
                 require_exact_validation(store.read(), "def")
-            with self.assertRaisesRegex(ValueError, "Missing exact-HEAD review"):
-                require_pre_push(store.read()[:-1], "abc")
 
     def test_validation_log_render_does_not_copy_future_final_event(self):
         with tempfile.TemporaryDirectory() as directory:

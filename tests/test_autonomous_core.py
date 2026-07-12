@@ -14,8 +14,10 @@ from unittest import mock
 from agent import adapters, recovery, review, weakening
 from agent.budget import Budget
 from agent.evidence import redact
+from agent.events import Event
 from agent.policy import RepositoryPolicy, validation_commands
 from agent.review import ReviewResult, parse_review, review_with_repairs
+from agent.review_shards import reusable_event
 from agent.risk import assess, merge_allowed
 from agent.state import RunState, abort, read_state, verify_resume, write_state
 
@@ -31,6 +33,39 @@ POLICY = RepositoryPolicy(
     ("auth/**",),
     (".github/**",),
 )
+
+EVIDENCE_FIELDS = {
+    "tracked_snapshot_event_sequence": 10,
+    "validation_log_blob_sha": "b" * 40,
+    "final_validation_event_sequence": 11,
+    "final_validation_result_digest": "f" * 64,
+}
+
+
+def review_identity(**changes):
+    values = {
+        "identity_schema_version": review.REVIEW_IDENTITY_SCHEMA_VERSION,
+        "feature": "007-x",
+        "head_sha": "abc",
+        "shard": "security",
+        "review_schema_version": review.REVIEW_SCHEMA_VERSION,
+        "prompt_version": review.REVIEW_PROMPT_VERSION,
+        "reviewer_model": review.REVIEW_MODEL,
+        "reviewer_command_identity": "c" * 64,
+        "review_settings": review.MODEL_SETTINGS,
+        "reviewed_files": ("a.py",),
+        "spec_digest": "1" * 64,
+        "plan_digest": "2" * 64,
+        "tasks_digest": "3" * 64,
+        "validation_contract_digest": "4" * 64,
+        "diff_input_digest": "5" * 64,
+        "tracked_snapshot_event_sequence": 10,
+        "validation_log_blob_sha": "b" * 40,
+        "final_validation_event_sequence": 11,
+        "final_validation_result_digest": "6" * 64,
+    }
+    values.update(changes)
+    return review.ReviewIdentity(**values)
 
 
 class AutonomousCoreTests(unittest.TestCase):
@@ -159,7 +194,9 @@ class AutonomousCoreTests(unittest.TestCase):
                     "agent.review.run_process_group", return_value=completed
                 ) as process_group,
             ):
-                result, prompt, _ = review.run_review(repo, feature)
+                result, prompt, _ = review.run_review(
+                    repo, feature, evidence_fields=EVIDENCE_FIELDS
+                )
             self.assertEqual(result.result, "pass")
             for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
                 self.assertIn(f"{name}-start", prompt)
@@ -208,42 +245,76 @@ class AutonomousCoreTests(unittest.TestCase):
                     RuntimeError, "refusing to review truncated content"
                 ),
             ):
-                review.run_review(repo, feature)
+                review.run_review(repo, feature, evidence_fields=EVIDENCE_FIELDS)
             self.assertEqual(run.call_count, 4)
 
     def test_review_identity_changes_with_head_and_complete_input(self):
-        identity = review.ReviewIdentity(
-            "007-x",
-            "abc",
-            "security",
-            "1",
-            "1",
-            ("model=low",),
-            ("codex", "exec"),
-            ("a.py",),
-            "input-a",
-        )
+        identity = review_identity()
         same = review.ReviewIdentity(**identity.__dict__)
         changed_head = review.ReviewIdentity(**{**identity.__dict__, "head_sha": "def"})
         changed_input = review.ReviewIdentity(
-            **{**identity.__dict__, "input_digest": "input-b"}
+            **{**identity.__dict__, "diff_input_digest": "input-b"}
         )
         self.assertEqual(identity.digest, same.digest)
         self.assertNotEqual(identity.digest, changed_head.digest)
         self.assertNotEqual(identity.digest, changed_input.digest)
 
-    def test_integration_context_invalidates_prepared_identity(self):
-        identity = review.ReviewIdentity(
+    def test_every_canonical_identity_field_invalidates_cached_pass(self):
+        identity = review_identity(reviewed_files=("b.py", "a.py"))
+        event = Event(
+            1,
+            1,
+            "now",
             "007-x",
+            "repo",
+            "branch",
+            "worktree",
+            "review",
+            "review-shard",
+            "PASS",
             "abc",
-            "integration",
-            "1",
-            "1",
-            ("model=low",),
-            ("codex", "exec"),
-            ("a.py",),
-            "input-a",
+            data={"identity_digest": identity.digest},
         )
+        self.assertIs(reusable_event([event], identity.digest), event)
+        for field in review.REVIEW_IDENTITY_FIELDS:
+            with self.subTest(field=field):
+                values = dict(identity.__dict__)
+                value = values[field]
+                if field == "identity_schema_version":
+                    values[field] = "unknown"
+                    with self.assertRaises(ValueError):
+                        review.ReviewIdentity(**values)
+                    continue
+                if isinstance(value, int):
+                    values[field] = value + 1
+                elif isinstance(value, tuple):
+                    values[field] = value + ("changed",)
+                else:
+                    values[field] = value + "-changed"
+                changed = review.ReviewIdentity(**values)
+                self.assertNotEqual(identity.digest, changed.digest)
+                self.assertIsNone(reusable_event([event], changed.digest))
+
+    def test_identity_payload_validation_and_file_order_are_fail_closed(self):
+        identity = review_identity(reviewed_files=("b.py", "a.py"))
+        payload = identity.payload()
+        reversed_files = dict(payload, reviewed_files=["b.py", "a.py"])
+        self.assertEqual(
+            review.ReviewIdentity.from_payload(reversed_files).digest, identity.digest
+        )
+        missing = dict(payload)
+        missing.pop("feature")
+        with self.assertRaises(ValueError):
+            review.ReviewIdentity.from_payload(missing)
+        with self.assertRaises(ValueError):
+            review.ReviewIdentity.from_payload(
+                dict(payload, identity_schema_version="unknown")
+            )
+        with self.assertRaises((TypeError, ValueError)):
+            review.ReviewIdentity.from_payload(dict(payload, reviewed_files=1))
+
+    def test_integration_context_invalidates_prepared_identity(self):
+        identity = review_identity(shard="integration")
         prepared = review.PreparedReview(identity, "prompt", ("codex", "exec"))
         first = review.bind_context(prepared, {"security": "pass"})
         second = review.bind_context(prepared, {"security": "fail"})
@@ -330,7 +401,10 @@ class AutonomousCoreTests(unittest.TestCase):
     def test_timeout_kills_process_group_when_term_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
-            child = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+            child = (
+                "import signal,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+            )
             program = (
                 "import signal,subprocess,sys,time; "
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); "

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import (
     codex_runner,
+    evidence_snapshot,
     git_utils,
     review,
     review_shards,
@@ -14,9 +15,9 @@ from . import (
     weakening,
     worktree,
 )
-from .events import EventStore
+from .events import EventStore, render_validation_log
 from .evidence import redact
-from .gates import require_exact_validation, require_mergeable, require_pre_push
+from .gates import require_mergeable, require_pre_push
 from .github_delivery import GitHubDelivery, checks_with_repairs
 from .notifications import payload as notification_payload
 from .notifications import write_outbox
@@ -117,38 +118,66 @@ def deliver(
             isolated.path, ["rev-parse", "HEAD"]
         ).stdout.strip()
         try:
-            require_exact_validation(event_store.read(), head_before_validation)
+            binding = evidence_snapshot.require_final_evidence(
+                isolated.path,
+                isolated_feature,
+                event_store.read(),
+                head_before_validation,
+            )
         except ValueError:
+            (isolated_feature / "validation-log.md").write_text(
+                render_validation_log(
+                    event_store.read(),
+                    isolated_feature.name,
+                    evidence_snapshot.contract_digest(isolated_feature),
+                    evidence_snapshot.utc_now(),
+                ),
+                encoding="utf-8",
+            )
+            paths = git_utils.changed_paths(isolated.path)
+            validation.validate_scope(paths, config)
+            git_utils.diff_check(isolated.path)
+            git_utils.commit(
+                isolated.path,
+                paths,
+                f"docs({feature_dir.name}): finalize tracked evidence snapshot",
+            )
+            snapshot = evidence_snapshot.record_snapshot(
+                event_store,
+                repo=isolated.path,
+                feature_dir=isolated_feature,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+            )
+            started_at = evidence_snapshot.utc_now()
             check = validation.run_named(isolated.path, config, "full")
+            completed_at = evidence_snapshot.utc_now()
+            evidence_snapshot.record_final_validation(
+                event_store,
+                repo=isolated.path,
+                feature_dir=isolated_feature,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                result=check,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
             if not check.succeeded:
-                raise RuntimeError(
-                    "Exact-HEAD delivery validation failed: "
-                    f"{(check.stderr or check.stdout)[-4000:]}"
-                ) from None
+                raise RuntimeError("Post-evidence final validation failed") from None
             if git_utils.changed_paths(isolated.path):
                 raise RuntimeError(
-                    "Delivery validation changed tracked contents"
+                    "Post-evidence validation changed tracked contents"
                 ) from None
             current = git_utils.run_git(
                 isolated.path, ["rev-parse", "HEAD"]
             ).stdout.strip()
-            if current != head_before_validation:
-                raise RuntimeError("HEAD changed during delivery validation") from None
-            event_store.append(
-                feature=feature_dir.name,
-                repository=str(repo),
-                branch=isolated.branch,
-                worktree=str(isolated.path),
-                phase="delivery",
-                kind="validation",
-                result="PASS",
-                head_sha=current,
-                data={
-                    "command": list(config.commands["full"]),
-                    "tracked_changes_after": [],
-                    "log_cutoff_sequence": len(event_store.read()),
-                },
+            binding = evidence_snapshot.require_final_evidence(
+                isolated.path, isolated_feature, event_store.read(), current
             )
+        head_before_validation = binding.head_sha
         event_store.append(
             feature=feature_dir.name,
             repository=str(repo),
@@ -170,7 +199,9 @@ def deliver(
             head = git_utils.run_git(
                 isolated.path, ["rev-parse", "HEAD"]
             ).stdout.strip()
-            require_exact_validation(event_store.read(), head)
+            current_binding = evidence_snapshot.require_final_evidence(
+                isolated.path, isolated_feature, event_store.read(), head
+            )
             shard_results = []
 
             def obtain_prepared(shard, prepared):
@@ -287,6 +318,7 @@ def deliver(
                     isolated_feature,
                     shard,
                     review.render_runtime_evidence(event_store.read(), head),
+                    current_binding.identity_fields(),
                 )
                 if context is not None:
                     prepared_items = tuple(
@@ -410,7 +442,9 @@ def deliver(
             head_sha=gated_head,
             data={"findings": [f.__dict__ for f in weakening_findings]},
         )
-        require_pre_push(event_store.read(), gated_head)
+        require_pre_push(
+            isolated.path, isolated_feature, event_store.read(), gated_head
+        )
         paths = git_utils.run_git(
             isolated.path, ["diff", "--name-only", f"{policy.default_branch}...HEAD"]
         ).stdout.splitlines()

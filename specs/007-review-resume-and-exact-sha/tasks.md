@@ -20,7 +20,7 @@
 - [x] T006: Implement tracked evidence snapshot and dedicated final-validation events
   - Requirements: REQ-030, REQ-031, REQ-032, REQ-033, REQ-034
   - Validation: unit, integration
-- [ ] T007: Extend canonical review identity and fail-closed prerequisite checks
+- [x] T007: Extend canonical review identity and fail-closed prerequisite checks
   - Requirements: REQ-034, REQ-035
   - Validation: unit, integration
 - [ ] T008: Centralize review exception redaction at persistence boundaries
