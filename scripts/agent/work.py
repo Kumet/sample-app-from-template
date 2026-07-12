@@ -14,6 +14,7 @@ if __package__ in {None, ""}:
         codex_runner,
         contract_migration,
         delivery,
+        evidence_snapshot,
         git_utils,
         qualification,
         recovery,
@@ -73,6 +74,7 @@ else:
         codex_runner,
         contract_migration,
         delivery,
+        evidence_snapshot,
         git_utils,
         qualification,
         recovery,
@@ -317,21 +319,8 @@ def work(
             )
             raise
         tasks = parse_tasks(feature_dir / "tasks.md", set(config.commands))
-    validated_head = _final_validation(repo, feature_dir, config, tasks, run_dir)
-    event_store.append(
-        feature=feature_dir.name,
-        repository=str(evidence_repo),
-        branch=git_utils.branch(repo),
-        worktree=str(repo),
-        phase="final",
-        kind="validation",
-        result="PASS",
-        head_sha=validated_head,
-        data={
-            "command": list(config.commands["full"]),
-            "tracked_changes_after": [],
-            "log_cutoff_sequence": len(event_store.read()),
-        },
+    _final_validation(
+        repo, feature_dir, config, tasks, run_dir, event_store, evidence_repo
     )
     budget.check()
     completed = RunState(
@@ -467,7 +456,13 @@ def _execute_task(
 
 
 def _final_validation(
-    repo: Path, feature_dir: Path, config, tasks: list[Task], run_dir: Path
+    repo: Path,
+    feature_dir: Path,
+    config,
+    tasks: list[Task],
+    run_dir: Path,
+    event_store: EventStore | None = None,
+    evidence_repo: Path | None = None,
 ) -> str:
     if any(not task.completed for task in tasks):
         raise RuntimeError("Final validation requires all tasks to be complete")
@@ -488,6 +483,16 @@ def _final_validation(
             (result.stderr or result.stdout)[-4000:],
         )
         if result.succeeded:
+            if event_store is not None:
+                (feature_dir / "validation-log.md").write_text(
+                    render_validation_log(
+                        event_store.read(),
+                        feature_dir.name,
+                        evidence_snapshot.contract_digest(feature_dir),
+                        evidence_snapshot.utc_now(),
+                    ),
+                    encoding="utf-8",
+                )
             paths = git_utils.changed_paths(repo)
             if paths:
                 validation.validate_scope(paths, config)
@@ -500,8 +505,33 @@ def _final_validation(
             validated_head = git_utils.run_git(
                 repo, ["rev-parse", "HEAD"]
             ).stdout.strip()
+            snapshot = None
+            if event_store is not None:
+                snapshot = evidence_snapshot.record_snapshot(
+                    event_store,
+                    repo=repo,
+                    feature_dir=feature_dir,
+                    repository=str(evidence_repo or repo),
+                    branch=git_utils.branch(repo),
+                    worktree=str(repo),
+                )
+            started_at = evidence_snapshot.utc_now()
             exact = validation.run_named(repo, config, "full")
+            completed_at = evidence_snapshot.utc_now()
             _write_validation(final_dir, [exact])
+            if event_store is not None and snapshot is not None:
+                evidence_snapshot.record_final_validation(
+                    event_store,
+                    repo=repo,
+                    feature_dir=feature_dir,
+                    repository=str(evidence_repo or repo),
+                    branch=git_utils.branch(repo),
+                    worktree=str(repo),
+                    snapshot=snapshot,
+                    result=exact,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                )
             if not exact.succeeded:
                 raise RuntimeError(
                     "Post-evidence exact-HEAD validation failed: "

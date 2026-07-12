@@ -17,7 +17,7 @@
 - [x] T005: Complete regression tests, documentation, and final validation
   - Requirements: REQ-001, REQ-029
   - Validation: unit, integration, full
-- [ ] T006: Implement tracked evidence snapshot and dedicated final-validation events
+- [x] T006: Implement tracked evidence snapshot and dedicated final-validation events
   - Requirements: REQ-030, REQ-031, REQ-032, REQ-033, REQ-034
   - Validation: unit, integration
 - [ ] T007: Extend canonical review identity and fail-closed prerequisite checks
