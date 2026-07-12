@@ -49,7 +49,7 @@ def aggregate(results: list[ShardResult], head_sha: str) -> ReviewResult:
     missing = required - seen
     if missing:
         raise ValueError("Missing review shards: " + ", ".join(sorted(missing)))
-    failed = any(f.required and f.severity == "high" for f in findings)
+    failed = any(f.required for f in findings)
     return ReviewResult("fail" if failed else "pass", tuple(findings))
 
 

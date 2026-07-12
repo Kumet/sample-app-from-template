@@ -11,9 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from unittest import mock
 
-from agent import adapters, recovery, review, weakening
+from agent import adapters, delivery, recovery, review, weakening
 from agent.budget import Budget
-from agent.events import Event
+from agent.events import Event, EventStore
 from agent.evidence import redact
 from agent.policy import RepositoryPolicy, validation_commands
 from agent.review import ReviewResult, parse_review, review_with_repairs
@@ -63,6 +63,7 @@ def review_identity(**changes):
         "tasks_digest": "3" * 64,
         "validation_contract_digest": "4" * 64,
         "diff_input_digest": "5" * 64,
+        "runtime_evidence_digest": "7" * 64,
         "tracked_snapshot_event_sequence": 10,
         "validation_log_blob_sha": "b" * 40,
         "final_validation_event_sequence": 11,
@@ -542,6 +543,46 @@ class AutonomousCoreTests(unittest.TestCase):
 
     def test_timeout_output_normalizes_wrapped_bytes(self):
         self.assertEqual(review._output_text(b"partial\xff"), "partial\ufffd")
+
+    def test_timeout_termination_diagnostic_is_persisted_append_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            diagnostic = {
+                "shard": "security",
+                "head_sha": "abc",
+                "attempt": 1,
+                "configured_timeout": 1,
+                "elapsed_seconds": 1.1,
+                "command_id": "codex exec",
+                "prompt_chars": 10,
+                "prompt_bytes": 10,
+                "input_digest": "digest",
+                "stdout_tail": "",
+                "stderr_tail": "token=secret-value",
+                "process_status": "timeout",
+                "pid": 123,
+                "termination": "kill",
+                "process_group_terminated": True,
+                "tracked_descendant_pids": [124, 125],
+            }
+            event = delivery.record_review_failure_event(
+                store,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity=review_identity(),
+                attempt=1,
+                error=review.ReviewTimeout(diagnostic),
+            )
+            persisted = store.read()[0]
+            self.assertEqual(event.sequence, persisted.sequence)
+            self.assertEqual(persisted.result, "TIMEOUT")
+            self.assertEqual(persisted.data["diagnostic"]["termination"], "kill")
+            self.assertTrue(persisted.data["diagnostic"]["process_group_terminated"])
+            self.assertNotIn("secret-value", str(persisted.data))
         self.assertEqual(review._output_text("text"), "text")
         self.assertEqual(review._output_text(None), "")
 

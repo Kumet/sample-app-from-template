@@ -31,7 +31,7 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 
 - REQ-001: Review identity binds feature, exact HEAD, shard, schema version,
   prompt/reviewer version, command/model settings, reviewed files, and complete
-  input digest.
+  input digest, plus a distinct digest of the allowlisted runtime evidence.
 - REQ-002: A PASS shard is reusable only when its complete identity matches.
 - REQ-003: HEAD, diff, specification artifacts, contract, prompt, schema, model,
   or command changes invalidate reuse.
@@ -120,6 +120,7 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Final validation kind | Use only `phase=post-evidence`, `kind=final-validation`; ordinary `validation` never satisfies review prerequisites. | 2026-07-13 |
 | Approved repair cycle | Human approved fixes limited to snapshot attribution, dedicated final validation, centralized redaction, and identity mutation tests. | 2026-07-13 |
 | Process-group verification cycle | Human approved verification that reviewer children and grandchildren are gone after timeout, without extending the timeout or weakening gates. | 2026-07-13 |
+| Escaped-descendant recovery cycle | Human approved retained PID tracking for descendants that leave the original process group, explicit runtime-evidence identity binding, separated snapshot/finalization phases, and append-only diagnostic persistence tests. | 2026-07-13 |
 
 ## Scope
 

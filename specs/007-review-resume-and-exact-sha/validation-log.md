@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:03:29.994416+00:00","included_event_sequence":108,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:46:42.504743+00:00","included_event_sequence":122,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -119,3 +119,17 @@ Final included event result: PASS.
 | 106 | review/review-shard | PASS | `22bf9425f670` |  |
 | 107 | review/review-shard | PASS | `22bf9425f670` |  |
 | 108 | review-remediation/production-ready-regression-coverage | PASS | `22bf9425f670` | Loop 5: prove child and grandchild timeout cleanup and source-linked cache reuse in the production-ready suite; make validate passed |
+| 109 | evidence/tracked-evidence-snapshot | PASS | `7f65f02c2f55` |  |
+| 110 | post-evidence/final-validation | PASS | `7f65f02c2f55` |  |
+| 111 | review/review-shard | PASS | `7f65f02c2f55` |  |
+| 112 | review/review-shard | PASS | `7f65f02c2f55` |  |
+| 113 | review/review-shard | PASS | `7f65f02c2f55` |  |
+| 114 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 115 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 116 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 117 | review/review-shard | PASS | `7f65f02c2f55` |  |
+| 118 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 119 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 120 | review/review-shard | FAIL | `7f65f02c2f55` |  |
+| 121 | clarification/human-approval | PASS | `7f65f02c2f55` | Human approved a new bounded repair cycle for escaped descendants, runtime evidence identity, separated finalization phases, and persistence tests |
+| 122 | review-remediation/escaped-process-and-evidence-identity | PASS | `7f65f02c2f55` | New cycle loop 1: track descendants across process-group escape, bind runtime evidence digest, split snapshot/final validation helpers, persist timeout diagnostics, and fail every required finding; make validate passed |

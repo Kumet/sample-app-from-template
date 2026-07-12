@@ -83,7 +83,7 @@ class ProductionReadyTests(unittest.TestCase):
             )
             for shard in REQUIRED_REVIEW_SHARDS:
                 identity = ReviewIdentity(
-                    identity_schema_version="2",
+                    identity_schema_version="3",
                     feature="007-x",
                     head_sha="abc",
                     shard=shard,
@@ -98,6 +98,7 @@ class ProductionReadyTests(unittest.TestCase):
                     tasks_digest="3" * 64,
                     validation_contract_digest="4" * 64,
                     diff_input_digest=f"input-{shard}",
+                    runtime_evidence_digest="7" * 64,
                     tracked_snapshot_event_sequence=1,
                     validation_log_blob_sha="b" * 40,
                     final_validation_event_sequence=2,
@@ -161,7 +162,7 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             identity = ReviewIdentity(
-                identity_schema_version="2",
+                identity_schema_version="3",
                 feature="007-x",
                 head_sha="abc",
                 shard="security",
@@ -176,6 +177,7 @@ class ProductionReadyTests(unittest.TestCase):
                 tasks_digest="3" * 64,
                 validation_contract_digest="4" * 64,
                 diff_input_digest="5" * 64,
+                runtime_evidence_digest="7" * 64,
                 tracked_snapshot_event_sequence=1,
                 validation_log_blob_sha="b" * 40,
                 final_validation_event_sequence=2,
@@ -251,7 +253,7 @@ class ProductionReadyTests(unittest.TestCase):
             child_path = Path(directory) / "child.pid"
             grandchild_path = Path(directory) / "grandchild.pid"
             child_program = (
-                "import subprocess,sys,time; "
+                "import os,subprocess,sys,time; time.sleep(0.05); os.setsid(); "
                 "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
                 f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
@@ -276,8 +278,10 @@ class ProductionReadyTests(unittest.TestCase):
                 )
             self.assertTrue(raised.exception.diagnostic["process_group_terminated"])
             self.assertIn(raised.exception.diagnostic["termination"], {"term", "kill"})
+            tracked = set(raised.exception.diagnostic["tracked_descendant_pids"])
             for path in (child_path, grandchild_path):
                 pid = int(path.read_text())
+                self.assertIn(pid, tracked)
                 for _ in range(20):
                     try:
                         os.kill(pid, 0)

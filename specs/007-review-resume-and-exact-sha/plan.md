@@ -35,10 +35,15 @@ identity and result data; reuse requires a complete match and emits a new
 `review-reused` decision referencing the source sequence. File shards run first;
 integration is evaluated only after them. Timeout execution starts a new process
 session, terminates its group with TERM/KILL, and returns structured diagnostics.
+Descendant PIDs are retained while the reviewer runs so processes that later
+leave the group can also be terminated. Runtime evidence has its own canonical
+identity digest rather than relying only on the complete prompt digest.
 
 Tracked evidence is finalized and committed first. The resulting HEAD is
 validated without tracked writes, producing a runtime PASS event. Review then
 requires that event. Subsequent tracked changes fail the SHA gates.
+Snapshot commit and post-evidence validation use separate helpers so interrupted
+runs have an explicit recovery boundary.
 
 The tracked log is rendered as snapshot format version 2 with an included-event
 watermark and contract digest. After its commit, Git object identity is captured

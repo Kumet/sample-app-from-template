@@ -127,7 +127,7 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 ):
                     require_pre_push(self.repo, self.feature, self.store.read(), head)
             identity = ReviewIdentity(
-                identity_schema_version="2",
+                identity_schema_version="3",
                 feature=self.feature.name,
                 head_sha=head,
                 shard=shard,
@@ -142,6 +142,7 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 tasks_digest="3" * 64,
                 validation_contract_digest=binding.validation_contract_digest,
                 diff_input_digest="4" * 64,
+                runtime_evidence_digest="7" * 64,
                 tracked_snapshot_event_sequence=binding.snapshot_event_sequence,
                 validation_log_blob_sha=binding.log_blob_sha,
                 final_validation_event_sequence=binding.final_validation_event_sequence,
@@ -169,6 +170,22 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 },
             )
         require_pre_push(self.repo, self.feature, self.store.read(), head)
+        (self.repo / "post-review.txt").write_text("changed", encoding="utf-8")
+        subprocess.run(["git", "add", "post-review.txt"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "post-review change"],
+            cwd=self.repo,
+            check=True,
+        )
+        new_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        with self.assertRaisesRegex(ValueError, "tracked-evidence-snapshot"):
+            require_pre_push(self.repo, self.feature, self.store.read(), new_head)
 
     def test_ordinary_validation_does_not_satisfy_final_evidence(self):
         self._snapshot_commit()

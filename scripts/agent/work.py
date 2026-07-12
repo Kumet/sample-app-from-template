@@ -483,70 +483,24 @@ def _final_validation(
             (result.stderr or result.stdout)[-4000:],
         )
         if result.succeeded:
-            if event_store is not None:
-                (feature_dir / "validation-log.md").write_text(
-                    render_validation_log(
-                        event_store.read(),
-                        feature_dir.name,
-                        evidence_snapshot.contract_digest(feature_dir),
-                        evidence_snapshot.utc_now(),
-                    ),
-                    encoding="utf-8",
-                )
-            paths = git_utils.changed_paths(repo)
-            if paths:
-                validation.validate_scope(paths, config)
-                commit_hash = git_utils.commit(
-                    repo, paths, f"fix({feature_dir.name}): pass final validation"
-                )
-                (final_dir / "commit-hash.txt").write_text(
-                    commit_hash + "\n", encoding="utf-8"
-                )
-            validated_head = git_utils.run_git(
-                repo, ["rev-parse", "HEAD"]
-            ).stdout.strip()
-            snapshot = None
-            if event_store is not None:
-                snapshot = evidence_snapshot.record_snapshot(
-                    event_store,
-                    repo=repo,
-                    feature_dir=feature_dir,
-                    repository=str(evidence_repo or repo),
-                    branch=git_utils.branch(repo),
-                    worktree=str(repo),
-                )
-            started_at = evidence_snapshot.utc_now()
-            exact = validation.run_named(repo, config, "full")
-            completed_at = evidence_snapshot.utc_now()
-            _write_validation(final_dir, [exact])
-            if event_store is not None and snapshot is not None:
-                evidence_snapshot.record_final_validation(
-                    event_store,
-                    repo=repo,
-                    feature_dir=feature_dir,
-                    repository=str(evidence_repo or repo),
-                    branch=git_utils.branch(repo),
-                    worktree=str(repo),
-                    snapshot=snapshot,
-                    result=exact,
-                    started_at=started_at,
-                    completed_at=completed_at,
-                )
-            if not exact.succeeded:
-                raise RuntimeError(
-                    "Post-evidence exact-HEAD validation failed: "
-                    f"{(exact.stderr or exact.stdout)[-4000:]}"
-                )
-            if git_utils.changed_paths(repo):
-                raise RuntimeError(
-                    "Final validation changed tracked repository contents"
-                )
-            if (
-                git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip()
-                != validated_head
-            ):
-                raise RuntimeError("HEAD changed during final validation")
-            return validated_head
+            validated_head, snapshot = _commit_tracked_evidence_snapshot(
+                repo,
+                feature_dir,
+                config,
+                final_dir,
+                event_store,
+                evidence_repo,
+            )
+            return _run_post_evidence_validation(
+                repo,
+                feature_dir,
+                config,
+                final_dir,
+                validated_head,
+                snapshot,
+                event_store,
+                evidence_repo,
+            )
         signature = result.signature()
         if signature == previous_signature:
             raise RuntimeError("Identical final validation failure repeated")
@@ -577,6 +531,84 @@ def _final_validation(
                     f"Final repair Codex invocation failed: {repair.stderr[-4000:]}"
                 )
     raise RuntimeError("Final validation failed; human review is required")
+
+
+def _commit_tracked_evidence_snapshot(
+    repo: Path,
+    feature_dir: Path,
+    config,
+    final_dir: Path,
+    event_store: EventStore | None,
+    evidence_repo: Path | None,
+):
+    if event_store is not None:
+        (feature_dir / "validation-log.md").write_text(
+            render_validation_log(
+                event_store.read(),
+                feature_dir.name,
+                evidence_snapshot.contract_digest(feature_dir),
+                evidence_snapshot.utc_now(),
+            ),
+            encoding="utf-8",
+        )
+    paths = git_utils.changed_paths(repo)
+    if paths:
+        validation.validate_scope(paths, config)
+        commit_hash = git_utils.commit(
+            repo, paths, f"fix({feature_dir.name}): pass final validation"
+        )
+        (final_dir / "commit-hash.txt").write_text(commit_hash + "\n", encoding="utf-8")
+    validated_head = git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip()
+    snapshot = None
+    if event_store is not None:
+        snapshot = evidence_snapshot.record_snapshot(
+            event_store,
+            repo=repo,
+            feature_dir=feature_dir,
+            repository=str(evidence_repo or repo),
+            branch=git_utils.branch(repo),
+            worktree=str(repo),
+        )
+    return validated_head, snapshot
+
+
+def _run_post_evidence_validation(
+    repo: Path,
+    feature_dir: Path,
+    config,
+    final_dir: Path,
+    validated_head: str,
+    snapshot,
+    event_store: EventStore | None,
+    evidence_repo: Path | None,
+) -> str:
+    started_at = evidence_snapshot.utc_now()
+    exact = validation.run_named(repo, config, "full")
+    completed_at = evidence_snapshot.utc_now()
+    _write_validation(final_dir, [exact])
+    if event_store is not None and snapshot is not None:
+        evidence_snapshot.record_final_validation(
+            event_store,
+            repo=repo,
+            feature_dir=feature_dir,
+            repository=str(evidence_repo or repo),
+            branch=git_utils.branch(repo),
+            worktree=str(repo),
+            snapshot=snapshot,
+            result=exact,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+    if not exact.succeeded:
+        raise RuntimeError(
+            "Post-evidence exact-HEAD validation failed: "
+            f"{(exact.stderr or exact.stdout)[-4000:]}"
+        )
+    if git_utils.changed_paths(repo):
+        raise RuntimeError("Final validation changed tracked repository contents")
+    if git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip() != validated_head:
+        raise RuntimeError("HEAD changed during final validation")
+    return validated_head
 
 
 def _new_run_dir(repo: Path, feature: str) -> Path:

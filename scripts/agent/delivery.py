@@ -235,33 +235,19 @@ def deliver(
                         break
                     except Exception as error:
                         last_error = error
-                        safe_error = safe_error_detail(error)
-                        signature = safe_error[-1000:]
-                        diagnostic = (
-                            redact_value(error.diagnostic)
-                            if isinstance(error, review.ReviewTimeout)
-                            else {}
-                        )
-                        event_store.append(
+                        failure_event = record_review_failure_event(
+                            event_store,
                             feature=feature_dir.name,
                             repository=str(repo),
                             branch=isolated.branch,
                             worktree=str(isolated.path),
-                            phase="review",
-                            kind="review-shard",
-                            result="TIMEOUT" if diagnostic else "INVALID",
                             head_sha=head,
-                            detail=safe_error,
-                            data={
-                                "shard": shard,
-                                "identity_digest": prepared.identity.digest,
-                                "identity": prepared.identity.payload(),
-                                "failure_signature": signature,
-                                "attempt": shard_attempt,
-                                "diagnostic": diagnostic,
-                                "error": safe_error,
-                            },
+                            shard=shard,
+                            identity=prepared.identity,
+                            attempt=shard_attempt,
+                            error=error,
                         )
+                        signature = (failure_event.data or {})["failure_signature"]
                         if (
                             review_shards.matching_failure_count(
                                 event_store.read(), prepared.identity, signature
@@ -330,10 +316,7 @@ def deliver(
                 findings = tuple(
                     finding for item in chunk_results for finding in item.findings
                 )
-                failed = any(
-                    finding.required and finding.severity == "high"
-                    for finding in findings
-                )
+                failed = any(finding.required for finding in findings)
                 result = review.ReviewResult("fail" if failed else "pass", findings)
                 event_store.append(
                     feature=feature_dir.name,
@@ -361,7 +344,7 @@ def deliver(
             file_findings = tuple(
                 finding for item in shard_results for finding in item.result.findings
             )
-            if any(f.required and f.severity == "high" for f in file_findings):
+            if any(f.required for f in file_findings):
                 return review.ReviewResult("fail", file_findings)
             integration = obtain(
                 "integration",
@@ -759,3 +742,45 @@ def _validate_delivery_evidence(repo: Path, feature_dir: Path, config) -> None:
 def _safe_command_failure(label: str, output: str) -> RuntimeError:
     """Build a diagnostic exception without exposing command output secrets."""
     return RuntimeError(f"{label}: {redact(output, 4000)}")
+
+
+def record_review_failure_event(
+    event_store: EventStore,
+    *,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+    shard: str,
+    identity,
+    attempt: int,
+    error: Exception,
+):
+    safe_error = safe_error_detail(error)
+    signature = safe_error[-1000:]
+    diagnostic = (
+        redact_value(error.diagnostic)
+        if isinstance(error, review.ReviewTimeout)
+        else {}
+    )
+    return event_store.append(
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        phase="review",
+        kind="review-shard",
+        result="TIMEOUT" if diagnostic else "INVALID",
+        head_sha=head_sha,
+        detail=safe_error,
+        data={
+            "shard": shard,
+            "identity_digest": identity.digest,
+            "identity": identity.payload(),
+            "failure_signature": signature,
+            "attempt": attempt,
+            "diagnostic": diagnostic,
+            "error": safe_error,
+        },
+    )

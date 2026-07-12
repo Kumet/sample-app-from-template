@@ -5,6 +5,7 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -17,7 +18,7 @@ REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
 REVIEW_PROMPT_VERSION = "2"
 REVIEW_MODEL = "gpt-5.4-mini"
-REVIEW_IDENTITY_SCHEMA_VERSION = "2"
+REVIEW_IDENTITY_SCHEMA_VERSION = "3"
 REVIEW_IDENTITY_FIELDS = (
     "identity_schema_version",
     "feature",
@@ -34,6 +35,7 @@ REVIEW_IDENTITY_FIELDS = (
     "tasks_digest",
     "validation_contract_digest",
     "diff_input_digest",
+    "runtime_evidence_digest",
     "tracked_snapshot_event_sequence",
     "validation_log_blob_sha",
     "final_validation_event_sequence",
@@ -54,7 +56,7 @@ class ReviewResult:
 
     @property
     def required_findings(self) -> tuple[Finding, ...]:
-        return tuple(f for f in self.findings if f.required and f.severity == "high")
+        return tuple(f for f in self.findings if f.required)
 
     def signature(self) -> str:
         return json.dumps([f.__dict__ for f in self.required_findings], sort_keys=True)
@@ -77,6 +79,7 @@ class ReviewIdentity:
     tasks_digest: str
     validation_contract_digest: str
     diff_input_digest: str
+    runtime_evidence_digest: str
     tracked_snapshot_event_sequence: int
     validation_log_blob_sha: str
     final_validation_event_sequence: int
@@ -125,6 +128,7 @@ class ReviewIdentity:
             "tasks_digest": self.tasks_digest,
             "validation_contract_digest": self.validation_contract_digest,
             "diff_input_digest": self.diff_input_digest,
+            "runtime_evidence_digest": self.runtime_evidence_digest,
             "tracked_snapshot_event_sequence": self.tracked_snapshot_event_sequence,
             "validation_log_blob_sha": self.validation_log_blob_sha,
             "final_validation_event_sequence": self.final_validation_event_sequence,
@@ -335,6 +339,7 @@ def prepare_review(
             prompt.encode("utf-8")
             + (repo / "schemas" / "review-result.schema.json").read_bytes()
         ).hexdigest(),
+        hashlib.sha256(runtime_evidence_text.encode("utf-8")).hexdigest(),
         int(evidence_fields["tracked_snapshot_event_sequence"]),
         str(evidence_fields["validation_log_blob_sha"]),
         int(evidence_fields["final_validation_event_sequence"]),
@@ -572,31 +577,39 @@ def run_process_group(
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    tracker = _DescendantTracker(process.pid)
+    tracker.start()
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
+        tracker.stop()
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
+        descendants = tracker.stop()
         stdout = _output_text(error.output)
         stderr = _output_text(error.stderr)
         termination = "term"
         process_group = process.pid
-        os.killpg(process_group, signal.SIGTERM)
+        _signal_process_group(process_group, signal.SIGTERM)
+        _signal_processes(descendants, signal.SIGTERM)
         try:
             tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
         except subprocess.TimeoutExpired:
             tail_out, tail_err = "", ""
-        if not _wait_for_process_group_exit(process_group, term_grace_seconds):
+        if not _wait_for_targets_exit(process_group, descendants, term_grace_seconds):
             termination = "kill"
-            os.killpg(process_group, signal.SIGKILL)
+            _signal_process_group(process_group, signal.SIGKILL)
+            _signal_processes(descendants, signal.SIGKILL)
             more_out, more_err = process.communicate()
             tail_out += _output_text(more_out)
             tail_err += _output_text(more_err)
-            _wait_for_process_group_exit(process_group, term_grace_seconds)
+            _wait_for_targets_exit(process_group, descendants, term_grace_seconds)
         elif process.poll() is None:
             more_out, more_err = process.communicate()
             tail_out += _output_text(more_out)
             tail_err += _output_text(more_err)
-        group_terminated = not _process_group_exists(process_group)
+        group_terminated = not _process_group_exists(process_group) and not any(
+            _process_exists(pid) for pid in descendants
+        )
         diagnostic = {
             **identity,
             "configured_timeout": timeout_seconds,
@@ -610,6 +623,7 @@ def run_process_group(
             "pid": process.pid,
             "termination": termination,
             "process_group_terminated": group_terminated,
+            "tracked_descendant_pids": sorted(descendants),
         }
         raise ReviewTimeout(diagnostic) from None
 
@@ -624,6 +638,31 @@ def _process_group_exists(process_group: int) -> bool:
     return True
 
 
+def _signal_process_group(process_group: int, signal_value: signal.Signals) -> None:
+    try:
+        os.killpg(process_group, signal_value)
+    except ProcessLookupError:
+        return
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _signal_processes(pids: set[int], signal_value: signal.Signals) -> None:
+    for pid in sorted(pids, reverse=True):
+        try:
+            os.kill(pid, signal_value)
+        except ProcessLookupError:
+            continue
+
+
 def _wait_for_process_group_exit(process_group: int, timeout_seconds: float) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while _process_group_exists(process_group):
@@ -631,6 +670,69 @@ def _wait_for_process_group_exit(process_group: int, timeout_seconds: float) -> 
             return False
         time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
     return True
+
+
+def _wait_for_targets_exit(
+    process_group: int, descendants: set[int], timeout_seconds: float
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group) or any(
+        _process_exists(pid) for pid in descendants
+    ):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+    return True
+
+
+class _DescendantTracker:
+    """Best-effort PID tracking that retains children even after re-parenting."""
+
+    def __init__(self, root_pid: int):
+        self.root_pid = root_pid
+        self.seen: set[int] = set()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._sample()
+        self._thread.start()
+
+    def stop(self) -> set[int]:
+        self._sample()
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self._sample()
+        return set(self.seen)
+
+    def _run(self) -> None:
+        while not self._stop.wait(0.01):
+            self._sample()
+
+    def _sample(self) -> None:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid="],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=2,
+        )
+        if result.returncode:
+            return
+        parents: dict[int, int] = {}
+        for line in result.stdout.splitlines():
+            values = line.split()
+            if len(values) == 2 and all(value.isdigit() for value in values):
+                parents[int(values[0])] = int(values[1])
+        roots = {self.root_pid, *self.seen}
+        changed = True
+        while changed:
+            changed = False
+            for pid, parent in parents.items():
+                if pid != self.root_pid and parent in roots and pid not in self.seen:
+                    self.seen.add(pid)
+                    roots.add(pid)
+                    changed = True
 
 
 def _output_text(value: str | bytes | None) -> str:
