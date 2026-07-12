@@ -25,7 +25,7 @@
 - [x] T004: Implement the Project application service.
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-013, REQ-016, REQ-019
   - Validation: unit
-- [ ] T005: Implement API schemas, dependencies, routes, and error mapping while preserving health.
+- [x] T005: Implement API schemas, dependencies, routes, and error mapping while preserving health.
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-014, REQ-018
   - Validation: integration
 - [ ] T006: Complete unit, repository, and API integration coverage with isolated databases.
