@@ -30,7 +30,10 @@ def test_schema_initialization_is_explicit(isolated_engine: Engine) -> None:
 
         initialize_schema(isolated_engine)
 
-        assert inspect(isolated_engine).get_table_names() == ["schema_probe"]
+        assert inspect(isolated_engine).get_table_names() == [
+            "projects",
+            "schema_probe",
+        ]
     finally:
         Base.metadata.remove(table)
 

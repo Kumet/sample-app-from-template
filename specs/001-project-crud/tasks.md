@@ -19,7 +19,7 @@
 - [x] T002: Implement the Project domain model and domain errors.
   - Requirements: REQ-002, REQ-003, REQ-004, REQ-015, REQ-019
   - Validation: unit
-- [ ] T003: Implement the repository interface, SQLAlchemy model, and transactional repository.
+- [x] T003: Implement the repository interface, SQLAlchemy model, and transactional repository.
   - Requirements: REQ-002, REQ-006, REQ-013, REQ-015, REQ-016, REQ-017, REQ-019
   - Validation: unit, integration
 - [ ] T004: Implement the Project application service.
