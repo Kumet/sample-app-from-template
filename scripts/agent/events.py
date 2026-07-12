@@ -7,7 +7,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .evidence import redact
+from .evidence import redact, redact_value
 
 
 @dataclass(frozen=True)
@@ -151,7 +151,4 @@ def render_validation_log(
 def _redact_data(data: dict | None) -> dict | None:
     if data is None:
         return None
-    return {
-        str(key): redact(value) if isinstance(value, str) else value
-        for key, value in data.items()
-    }
+    return redact_value(data, 4000)

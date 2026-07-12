@@ -23,7 +23,7 @@
 - [x] T007: Extend canonical review identity and fail-closed prerequisite checks
   - Requirements: REQ-034, REQ-035
   - Validation: unit, integration
-- [ ] T008: Centralize review exception redaction at persistence boundaries
+- [x] T008: Centralize review exception redaction at persistence boundaries
   - Requirements: REQ-036
   - Validation: unit
 - [ ] T009: Complete mutation, evidence, redaction, and regression tests

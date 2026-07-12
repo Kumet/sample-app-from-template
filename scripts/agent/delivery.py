@@ -16,7 +16,7 @@ from . import (
     worktree,
 )
 from .events import EventStore, render_validation_log
-from .evidence import redact
+from .evidence import redact, redact_value, safe_error_detail
 from .gates import require_mergeable, require_pre_push
 from .github_delivery import GitHubDelivery, checks_with_repairs
 from .notifications import payload as notification_payload
@@ -239,9 +239,10 @@ def deliver(
                         break
                     except Exception as error:
                         last_error = error
-                        signature = f"{type(error).__name__}:{str(error)[-1000:]}"
+                        safe_error = safe_error_detail(error)
+                        signature = safe_error[-1000:]
                         diagnostic = (
-                            error.diagnostic
+                            redact_value(error.diagnostic)
                             if isinstance(error, review.ReviewTimeout)
                             else {}
                         )
@@ -254,7 +255,7 @@ def deliver(
                             kind="review-shard",
                             result="TIMEOUT" if diagnostic else "INVALID",
                             head_sha=head,
-                            detail=str(error),
+                            detail=safe_error,
                             data={
                                 "shard": shard,
                                 "identity_digest": prepared.identity.digest,
@@ -262,6 +263,7 @@ def deliver(
                                 "failure_signature": signature,
                                 "attempt": shard_attempt,
                                 "diagnostic": diagnostic,
+                                "error": safe_error,
                             },
                         )
                         if (
@@ -285,13 +287,15 @@ def deliver(
                 (evidence / f"{prefix}-stderr.txt").write_text(
                     redact(stderr, 4000), encoding="utf-8"
                 )
-                payload = {
-                    "head_sha": head,
-                    "shard": shard,
-                    "identity_digest": prepared.identity.digest,
-                    "result": result.result,
-                    "findings": [f.__dict__ for f in result.findings],
-                }
+                payload = redact_value(
+                    {
+                        "head_sha": head,
+                        "shard": shard,
+                        "identity_digest": prepared.identity.digest,
+                        "result": result.result,
+                        "findings": [f.__dict__ for f in result.findings],
+                    }
+                )
                 (evidence / f"{prefix}.json").write_text(
                     json.dumps(payload, indent=2) + "\n", encoding="utf-8"
                 )

@@ -1,11 +1,13 @@
 import subprocess
+import sys
 import tempfile
 import unittest
-import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from agent import git_utils
+from agent.events import EventStore
+from agent.evidence import redact_value, safe_error_detail
 from agent.parser import WorkConfig
 from agent.validation import ScopeViolation, validate_scope
 
@@ -15,8 +17,14 @@ class SafetyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.repo = Path(self.temp.name)
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=self.repo, check=True)
-        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=self.repo, check=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.invalid"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"], cwd=self.repo, check=True
+        )
         (self.repo / "tracked.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=self.repo, check=True)
@@ -29,7 +37,9 @@ class SafetyTests(unittest.TestCase):
             git_utils.ensure_safe_start(self.repo)
 
     def test_dirty_feature_branch_is_rejected(self):
-        subprocess.run(["git", "switch", "-q", "-c", "feature/test"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "switch", "-q", "-c", "feature/test"], cwd=self.repo, check=True
+        )
         (self.repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
         with self.assertRaises(git_utils.GitError):
             git_utils.ensure_safe_start(self.repo)
@@ -50,7 +60,43 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(raised.exception.paths, ("build/one", "build/two.txt"))
 
     def test_agent_work_runtime_state_does_not_make_tree_dirty(self):
-        subprocess.run(["git", "switch", "-q", "-c", "feature/test"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "switch", "-q", "-c", "feature/test"], cwd=self.repo, check=True
+        )
         (self.repo / ".agent-work" / "run").mkdir(parents=True)
         (self.repo / ".agent-work" / "run" / "log").write_text("x", encoding="utf-8")
         self.assertEqual(git_utils.changed_paths(self.repo), [])
+
+    def test_review_exception_secrets_are_redacted_at_persistence_boundary(self):
+        secrets = (
+            "token=token-value-123 password=hunter2 "
+            "Authorization: Bearer bearer-value-456 sk-abcdefghijklmnopqrstuv"
+        )
+        safe = safe_error_detail(RuntimeError(secrets + "\x01"))
+        for value in ("token-value-123", "hunter2", "bearer-value-456", "sk-"):
+            self.assertNotIn(value, safe)
+        self.assertIn("RuntimeError", safe)
+
+        path = self.repo / ".agent-work" / "007" / "events.jsonl"
+        store = EventStore(path)
+        store.append(
+            feature="007",
+            repository=str(self.repo),
+            branch="feature/test",
+            worktree=str(self.repo),
+            phase="review",
+            kind="review-shard",
+            result="INVALID",
+            head_sha="abc",
+            detail=secrets,
+            data={"error": secrets, "diagnostic": {"stderr_tail": secrets}},
+        )
+        persisted = path.read_text(encoding="utf-8")
+        for value in ("token-value-123", "hunter2", "bearer-value-456", "sk-"):
+            self.assertNotIn(value, persisted)
+
+    def test_timeout_diagnostic_uses_same_recursive_redaction(self):
+        value = redact_value(
+            {"stderr_tail": "password=hidden", "nested": ["token=hidden-token"]}
+        )
+        self.assertNotIn("hidden", str(value))
