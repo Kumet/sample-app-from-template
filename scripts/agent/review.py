@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .weakening import Finding
@@ -226,6 +226,11 @@ def run_review(
     repo: Path, feature_dir: Path, review_focus: str = "complete"
 ) -> tuple[ReviewResult, str, str]:
     prepared = prepare_review(repo, feature_dir, review_focus)
+    result, stderr = run_prepared(repo, prepared)
+    return result, prepared.prompt, stderr
+
+
+def run_prepared(repo: Path, prepared: PreparedReview) -> tuple[ReviewResult, str]:
     try:
         completed = subprocess.run(
             prepared.command,
@@ -242,7 +247,14 @@ def run_review(
         ) from error
     if completed.returncode:
         raise RuntimeError(f"Review Codex failed: {completed.stderr[-4000:]}")
-    return parse_review(completed.stdout), prepared.prompt, completed.stderr
+    return parse_review(completed.stdout), completed.stderr
+
+
+def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:
+    combined = hashlib.sha256(
+        (prepared.identity.input_digest + _digest(context)).encode("utf-8")
+    ).hexdigest()
+    return replace(prepared, identity=replace(prepared.identity, input_digest=combined))
 
 
 def _digest(value: dict) -> str:

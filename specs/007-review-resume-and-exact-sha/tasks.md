@@ -5,7 +5,7 @@
 - [x] T001: Define canonical review identity and event-backed reuse
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-011, REQ-012, REQ-019, REQ-020
   - Validation: unit
-- [ ] T002: Implement bounded shard retry and integration ordering
+- [x] T002: Implement bounded shard retry and integration ordering
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010
   - Validation: unit
 - [ ] T003: Add timeout diagnostics and process-group termination

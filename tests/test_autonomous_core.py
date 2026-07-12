@@ -213,6 +213,23 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertNotEqual(identity.digest, changed_head.digest)
         self.assertNotEqual(identity.digest, changed_input.digest)
 
+    def test_integration_context_invalidates_prepared_identity(self):
+        identity = review.ReviewIdentity(
+            "007-x",
+            "abc",
+            "integration",
+            "1",
+            "1",
+            ("model=low",),
+            ("codex", "exec"),
+            ("a.py",),
+            "input-a",
+        )
+        prepared = review.PreparedReview(identity, "prompt", ("codex", "exec"))
+        first = review.bind_context(prepared, {"security": "pass"})
+        second = review.bind_context(prepared, {"security": "fail"})
+        self.assertNotEqual(first.identity.digest, second.identity.digest)
+
     def test_risk_only_escalates_and_merge_is_fully_gated(self):
         medium = assess("low", [".github/workflows/ci.yml"], [], POLICY)
         self.assertEqual(medium.effective, "medium")

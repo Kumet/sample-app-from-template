@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .review import ReviewResult
+from .review import ReviewIdentity, ReviewResult
 from .events import Event
 from .weakening import Finding
 
@@ -64,3 +64,22 @@ def reusable_event(events: list[Event], identity_digest: str) -> Event | None:
         ):
             return event
     return None
+
+
+def result_from_event(event: Event) -> ReviewResult:
+    data = event.data or {}
+    findings = tuple(Finding(**value) for value in data.get("findings", []))
+    return ReviewResult("pass" if event.result == "PASS" else "fail", findings)
+
+
+def matching_failure_count(
+    events: list[Event], identity: ReviewIdentity, signature: str
+) -> int:
+    return sum(
+        1
+        for event in events
+        if event.kind == "review-shard"
+        and event.result != "PASS"
+        and (event.data or {}).get("identity_digest") == identity.digest
+        and (event.data or {}).get("failure_signature") == signature
+    )
