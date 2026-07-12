@@ -2,87 +2,104 @@
 
 ## Status
 
-Local Project Board is in its bootstrap stage. A minimal FastAPI process and
-health endpoint exist, while the product layers below remain an intended
-architecture rather than a current implementation. Concrete interfaces,
-transaction boundaries, and framework integration must be decided in approved
-feature specifications and technical plans.
+Local Project Board implements the first vertical product slice: Project CRUD
+through FastAPI, an application service and repository abstraction, and a
+SQLAlchemy 2.x repository over local SQLite. The health endpoint remains
+independent of persistence. Task and Tag behavior, web UI, CLI, import/export,
+backup/restore, and production migration policy remain future work.
 
-## Intended system overview
+## System overview
 
 The application is expected to use a layered architecture in which the web UI,
 REST API, and CLI share the same application service and domain logic. SQLite
 provides local persistence. The user-facing web interface is rendered from
 templates and enhanced only where useful with HTMX or small JavaScript modules.
 
-The current runtime surface is limited to `project_board.main`, which creates
-the FastAPI application and serves `GET /health`. It has no database, domain
-model, application service, templates, CLI, or external integration.
+The current runtime surface is composed in `project_board.main`. It creates the
+FastAPI application, preserves `GET /health`, installs the Project API router,
+and wires a SQLite session factory into request-scoped dependencies.
 
 ```text
-Web UI / REST API       CLI
-         \               /
-          Web/API and CLI adapters
+FastAPI Project routes / Pydantic schemas
                     |
-        Application service layer
+                    v
+          Project application service
                     |
-               Domain layer
+                    v
+          ProjectRepository protocol
                     ^
-          Repository abstractions
-                    ^
-         SQLite infrastructure
-
-Templates and static assets support the Web UI boundary.
+                    |
+       SQLAlchemyProjectRepository
+                    |
+       ORM model / session / SQLite
 ```
 
-Dependencies should point inward: outer delivery and infrastructure layers may
-depend on application and domain abstractions, while the domain must not depend
-on FastAPI, CLI parsing, SQLAlchemy, SQLite, templates, or static assets.
-Repository interfaces are expected to be defined at an inward-facing boundary;
-their SQLite/SQLAlchemy implementations remain infrastructure concerns.
+Dependencies point inward. The API calls `ProjectService` and never executes
+SQL or uses ORM models. The service depends on the `ProjectRepository` protocol,
+not its SQLAlchemy implementation. Domain Project objects and errors have no
+FastAPI, SQLAlchemy, or SQLite dependency, and the ORM Project model is a
+separate persistence type.
 
-## Intended layers
+## Implemented Project layers
 
-### Web/API layer
+### API layer
 
-The planned FastAPI boundary handles HTTP input, request/response validation,
-web routes, and REST API routes. It delegates use cases to the application
-service layer and must not duplicate domain decisions. Authentication and
-authorization are out of scope.
-
-### CLI layer
-
-The planned CLI translates local commands and arguments into the same
-application service calls used by the web and API boundaries. It must not
-maintain a separate business-logic or persistence path.
+`project_board.api` contains Pydantic request/response schemas, Project routes,
+and dependency construction. Each request receives its own SQLAlchemy session;
+the dependency constructs a repository and `ProjectService`, then reliably
+closes the session. Routes call only service use cases. They map not-found and
+validation errors to 404 and 422, and expose repository failures only as a
+generic 500 response.
 
 ### Application service layer
 
-This layer is intended to coordinate use cases, domain objects, repository
-abstractions, and transaction boundaries. Import is required to execute as one
-atomic transaction, but the concrete unit-of-work design is not yet decided.
+`project_board.application` coordinates create, list, retrieve, partial update,
+and physical deletion use cases. It depends on the repository protocol and
+turns missing results into the stable `ProjectNotFound` domain error. It has no
+FastAPI, SQLAlchemy, engine, or session dependency.
 
 ### Domain layer
 
-This is the intended home of Project, Task, status, priority, due-date, and Tag
-rules. It should be independent of delivery frameworks and storage technology.
-Undefined rules, including Project deletion behavior and user-facing timezone
-policy, must remain undecided until an Approved specification resolves them.
+`project_board.domain` owns the persistence-independent Project value and its
+normalization, length, and UTC timestamp rules. It also defines stable Project
+validation, not-found, and repository errors. Task, status, priority, due-date,
+Tag, and user-facing timezone rules remain unimplemented.
 
 ### Repository layer
 
-Repository abstractions are intended to express the persistence operations
-needed by application services without exposing SQLite details to the domain.
-Interfaces, aggregate boundaries, query shapes, and deletion semantics are not
-yet fixed.
+`project_board.repositories` defines the `ProjectRepository` protocol and its
+SQLAlchemy implementation. This implementation is the only layer that queries,
+commits, or rolls back Project persistence. It maps between the ORM model and
+domain Project, orders lists by `created_at` and `id`, physically deletes rows,
+and converts unexpected database failures into a sanitized `RepositoryError`
+after rollback.
 
 ### SQLite infrastructure
 
-The planned infrastructure uses local SQLite, likely through SQLAlchemy, to
-implement repository and transaction abstractions. Schema design, migration
-strategy, connection handling, and backup/restore mechanics are not yet fixed.
-Import/export and backup/restore may access only local files explicitly selected
-by the user.
+`project_board.infrastructure` owns the SQLAlchemy declarative base, distinct
+Project ORM model, SQLite engine and session factories, and
+`initialize_schema(engine)`. Merely importing modules or constructing an engine
+does not create schema. The default development app explicitly initializes
+`project_board.sqlite3` during application startup. Production migrations,
+import/export, and backup/restore are not defined by this feature.
+
+## Test isolation and health
+
+Repository and API integration tests create a fresh SQLite file beneath each
+test's pytest temporary directory, explicitly initialize its schema, and inject
+the corresponding session factory. They never connect to the default
+development database. Engines and sessions are disposed or closed after use.
+
+`GET /health` still returns HTTP 200 with `{"status":"ok"}`. The handler does
+not consult the database or any external service.
+
+## Intended future layers
+
+The web UI and CLI will be separate delivery adapters over the same application
+service and domain layers. Jinja2/templates, HTMX or small JavaScript modules,
+Task and Tag persistence, and local import/export and backup/restore require
+their own approved specifications. Future adapters must not create parallel
+business-logic or persistence paths.
 
 ### Templates/static assets
 
@@ -90,20 +107,19 @@ Jinja2 templates and static assets are intended to render the web UI. HTMX or a
 small amount of JavaScript may enhance interactions. Presentation code must call
 the Web/API boundary and shared services rather than recreate domain rules.
 
-## Intended dependency direction
+## Dependency direction
 
 The dependency direction is from the outside toward the domain:
 
 ```text
-Templates/static assets -> Web/API layer ----\
-                                             -> Application services -> Domain
-CLI layer -----------------------------------/
-SQLite infrastructure -> Repository abstractions ------------------> Domain
+FastAPI API -> ProjectService -> ProjectRepository protocol -> Domain
+                                  ^
+                                  |
+                    SQLAlchemy repository -> ORM / SQLite
 ```
 
-Dependency inversion should allow infrastructure implementations to satisfy
-interfaces used by inner layers. The exact interface ownership and module
-layout must be validated in a future technical plan.
+Future Web UI and CLI adapters will enter through application services. They
+must not access SQLAlchemy sessions or ORM models directly.
 
 ## Cross-cutting constraints
 

@@ -11,10 +11,10 @@ and CI.
 
 ## Current status
 
-The Python 3.11+ development foundation is initialized. The only application
-capability currently implemented is `GET /health`; there are no Project or Task
-models, CRUD operations, database, Kanban UI, or CLI yet. Project CRUD is the
-next product feature and must begin with an approved specification.
+The Python 3.11+ application implements persistent Project CRUD through a REST
+API backed by local SQLite and SQLAlchemy 2.x. `GET /health` remains available
+and does not query the database. Task and Tag management, the Kanban UI, CLI,
+import/export, and backup/restore are not implemented yet.
 
 ## Requirements and setup
 
@@ -43,6 +43,13 @@ Start the development server from the repository root:
 python3 -m uvicorn project_board.main:app --reload
 ```
 
+On application startup, the development app explicitly creates the Project
+schema if needed and stores data in `project_board.sqlite3` in the current
+working directory. Schema creation is intended only for development and tests;
+this feature does not define a production migration workflow. Stop the server
+before removing the local database when a clean development database is
+needed.
+
 In another terminal, confirm health:
 
 ```bash
@@ -57,6 +64,50 @@ Expected response:
 
 The health endpoint has no database, external API, environment-variable, or
 secret dependency.
+
+## Project API
+
+Project names are required, trimmed, and limited to 100 characters.
+Descriptions are optional, trimmed, and limited to 1000 characters; a blank
+description is stored as `null`. Projects are listed by creation time and then
+by ID.
+
+```bash
+# Create a Project
+curl -X POST http://127.0.0.1:8000/api/projects \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Sample project","description":"Local planning"}'
+
+# List Projects
+curl http://127.0.0.1:8000/api/projects
+
+# Retrieve Project 1
+curl http://127.0.0.1:8000/api/projects/1
+
+# Partially update Project 1
+curl -X PATCH http://127.0.0.1:8000/api/projects/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"description":null}'
+
+# Permanently delete Project 1
+curl -X DELETE http://127.0.0.1:8000/api/projects/1
+```
+
+Create returns HTTP 201, deletion returns HTTP 204 with no body, and operations
+on a missing Project return HTTP 404. Invalid input returns HTTP 422.
+
+Tests and other callers can initialize an isolated SQLite database explicitly:
+
+```python
+from project_board.infrastructure import create_database_engine, initialize_schema
+
+engine = create_database_engine("sqlite:///test.sqlite3")
+initialize_schema(engine)
+```
+
+Application integration tests create a separate database under pytest's
+temporary directory for every test and inject its session factory into
+`create_app`; they never use or modify `project_board.sqlite3`.
 
 ## Quality commands
 
@@ -94,15 +145,15 @@ of scope.
 ## Technical stack
 
 - Python 3.11 or later
-- FastAPI and Uvicorn for the current bootstrap runtime
+- FastAPI and Uvicorn for the REST API runtime
+- SQLite and SQLAlchemy 2.x for local Project persistence
 - pytest, Ruff, and mypy
 - `pyproject.toml` package management
 - Make-based quality commands
 - GitHub Actions
 
-SQLite, SQLAlchemy, Jinja2, HTMX, and small JavaScript modules remain intended
-for later features and are deliberately not installed until an approved
-feature uses them.
+Jinja2, HTMX, and small JavaScript modules remain intended for later approved
+web UI features and are not currently installed.
 
 ## Specification-driven development flow
 
@@ -223,5 +274,5 @@ errors, and attempts to access secret files.
 
 - `docs/project-context.md`: purpose, users, workflows, rules, stack, and safety.
 - `docs/glossary.md`: domain terminology and decisions AI agents must not infer.
-- `docs/architecture.md`: intended pre-implementation architecture.
+- `docs/architecture.md`: implemented Project architecture and intended future layers.
 - `AGENTS.md`: shared operating rules for coding agents.
