@@ -102,6 +102,16 @@ def require_pre_push(
         raise ValueError(
             "Missing exact-HEAD review shards: " + ", ".join(sorted(missing))
         )
+    integration = aggregates["integration"]
+    latest_file_sequence = max(
+        aggregate.sequence
+        for shard, aggregate in aggregates.items()
+        if shard != "integration"
+    )
+    if integration.sequence <= latest_file_sequence:
+        raise ValueError(
+            "Integration review predates the latest required file-shard review"
+        )
 
 
 def _valid_identity_pass(events: list[Event], head_sha: str, digest: str) -> bool:

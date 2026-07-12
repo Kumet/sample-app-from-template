@@ -170,6 +170,20 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 },
             )
         require_pre_push(self.repo, self.feature, self.store.read(), head)
+        latest_spec_scope = next(
+            event
+            for event in reversed(self.store.read())
+            if (event.data or {}).get("shard") == "spec-scope"
+            and (event.data or {}).get("aggregate") is True
+        )
+        self.store.append(
+            **common,
+            kind="review-shard",
+            result="PASS",
+            data=latest_spec_scope.data,
+        )
+        with self.assertRaisesRegex(ValueError, "Integration review predates"):
+            require_pre_push(self.repo, self.feature, self.store.read(), head)
         (self.repo / "post-review.txt").write_text("changed", encoding="utf-8")
         subprocess.run(["git", "add", "post-review.txt"], cwd=self.repo, check=True)
         subprocess.run(

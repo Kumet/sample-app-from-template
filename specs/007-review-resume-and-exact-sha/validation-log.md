@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:46:42.504743+00:00","included_event_sequence":122,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:50:18.428162+00:00","included_event_sequence":135,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -133,3 +133,16 @@ Final included event result: PASS.
 | 120 | review/review-shard | FAIL | `7f65f02c2f55` |  |
 | 121 | clarification/human-approval | PASS | `7f65f02c2f55` | Human approved a new bounded repair cycle for escaped descendants, runtime evidence identity, separated finalization phases, and persistence tests |
 | 122 | review-remediation/escaped-process-and-evidence-identity | PASS | `7f65f02c2f55` | New cycle loop 1: track descendants across process-group escape, bind runtime evidence digest, split snapshot/final validation helpers, persist timeout diagnostics, and fail every required finding; make validate passed |
+| 123 | evidence/tracked-evidence-snapshot | PASS | `90d3a68c5dcc` |  |
+| 124 | post-evidence/final-validation | PASS | `90d3a68c5dcc` |  |
+| 125 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 126 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 127 | review/review-shard | FAIL | `90d3a68c5dcc` |  |
+| 128 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 129 | review/review-shard | FAIL | `90d3a68c5dcc` |  |
+| 130 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 131 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 132 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 133 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 134 | review/review-shard | PASS | `90d3a68c5dcc` |  |
+| 135 | review-remediation/integration-order-gate | PASS | `90d3a68c5dcc` | New cycle loop 2: pre-push requires integration aggregate to follow every latest required file-shard aggregate; regression and make validate passed |
