@@ -71,6 +71,22 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - REQ-028: A tracked change after review invalidates validation and all reviews.
 - REQ-029: Validation, weakening, all reviews, integration, PR HEAD, and CI must
   identify one SHA before push/merge gates pass.
+- REQ-030: The tracked validation log is a deterministic snapshot with feature,
+  event/snapshot schema versions, included sequence watermark, generated time,
+  and validation-contract digest; it never embeds its own commit SHA.
+- REQ-031: After the snapshot commit, a `tracked-evidence-snapshot` runtime event
+  binds the exact HEAD, validation-log Git blob SHA, watermark, contract digest,
+  and snapshot format version.
+- REQ-032: Only a dedicated `post-evidence/final-validation` PASS event may prove
+  final validation; ordinary validation events are insufficient.
+- REQ-033: Final-validation references its snapshot event and repeats the exact
+  HEAD, log blob, contract digest, command identity, timestamps, and result digest.
+- REQ-034: Review prerequisites validate the snapshot/final-validation reference,
+  current Git blob, contract digest, clean worktree, and unchanged HEAD.
+- REQ-035: Review identity has one canonical schema defining every required field,
+  including artifact digests and snapshot/final-validation evidence fields.
+- REQ-036: Every review subprocess exception crosses one centralized redaction
+  boundary before persistence; EventStore redaction remains defense in depth.
 
 ## Acceptance criteria
 
@@ -86,6 +102,11 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - [x] AC-010: Merge gating rejects every validation/review/PR/CI SHA mismatch.
 - [x] AC-011: validation-log rendering terminates without a self-referential commit loop.
 - [x] AC-012: Existing framework, delivery, scope, safety, application, and build validation pass.
+- [ ] AC-013: A tracked snapshot event binds current HEAD, log blob, watermark, and contract digest.
+- [ ] AC-014: A dedicated post-evidence final-validation PASS references that exact snapshot.
+- [ ] AC-015: Review refuses ordinary validation, missing/mismatched snapshots, dirty worktrees, and changed HEADs.
+- [ ] AC-016: Every canonical identity field independently invalidates reuse; malformed identities fail closed.
+- [ ] AC-017: Timeout and non-timeout exception persistence is centrally redacted and length bounded.
 
 ## Clarifications
 
@@ -95,6 +116,9 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Timeout | Keep 600 seconds as a hard maximum; inject shorter values only in tests. | 2026-07-13 |
 | Cache authority | Append-only runtime events, never mutable evidence files alone. | 2026-07-13 |
 | Final log | Commit deterministic pre-final history, then record final PASS only in runtime events. | 2026-07-13 |
+| Tracked snapshot attribution | The log records only its watermark and digests; its commit/blob attribution lives in append-only runtime evidence. | 2026-07-13 |
+| Final validation kind | Use only `phase=post-evidence`, `kind=final-validation`; ordinary `validation` never satisfies review prerequisites. | 2026-07-13 |
+| Approved repair cycle | Human approved fixes limited to snapshot attribution, dedicated final validation, centralized redaction, and identity mutation tests. | 2026-07-13 |
 
 ## Scope
 

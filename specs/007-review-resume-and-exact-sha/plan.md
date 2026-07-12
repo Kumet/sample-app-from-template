@@ -40,11 +40,24 @@ Tracked evidence is finalized and committed first. The resulting HEAD is
 validated without tracked writes, producing a runtime PASS event. Review then
 requires that event. Subsequent tracked changes fail the SHA gates.
 
+The tracked log is rendered as snapshot format version 2 with an included-event
+watermark and contract digest. After its commit, Git object identity is captured
+by a `tracked-evidence-snapshot` event. A separate post-evidence
+`final-validation` event references that snapshot. Review prerequisites validate
+both events against the current repository before constructing identities.
+
+Review identity uses one validated canonical field schema rather than a loose
+payload. Every artifact and evidence field has an independent digest component.
+Subprocess errors pass through `safe_error_detail` before any event, attempt log,
+notification, or report persistence.
+
 ## Test strategy
 
 - Unit: identity invalidation, cache eligibility, budgets, duplicate failures.
 - Process integration: controlled local parent/child timeout with TERM/KILL.
 - Delivery integration: evidence commit, exact validation, review ordering, SHA gates.
+- Parameterized identity mutation and malformed-payload rejection tests.
+- Fake-secret exception tests across event and diagnostic persistence.
 - Regression: complete `make validate`.
 
 ## Security considerations
