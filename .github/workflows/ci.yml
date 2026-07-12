@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -16,6 +19,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Set up project
+        run: make setup
 
       - name: Validate template files
         run: |
@@ -33,9 +43,6 @@ jobs:
           test -x scripts/init-project.sh
           test -x scripts/check-secrets.sh
           test -x scripts/validate-spec.sh
-
-      - name: Run secret check
-        run: ./scripts/check-secrets.sh
 
       - name: Run project validation
         run: make validate

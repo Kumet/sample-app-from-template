@@ -1,27 +1,45 @@
 # Project-wide validation interface.
-# Override these commands for your actual stack.
 
-PYTHON := $(shell command -v python3.11 2>/dev/null || command -v python3)
+PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif command -v python3.11 >/dev/null 2>&1; then command -v python3.11; else command -v python3; fi)
 
-.PHONY: setup lint typecheck test ci secrets validate format clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
+.PHONY: setup format format-check lint typecheck test-framework test-app test integration-test build ci secrets validate clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
 
 setup:
-	@echo "TODO: replace with project setup command, e.g. npm ci / uv sync / pip install -e ."
-
-lint:
-	@echo "TODO: replace with lint command"
+	$(PYTHON) -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ is required"'
+	$(PYTHON) -m pip install -e '.[dev]'
 
 format:
-	@echo "TODO: replace with format command"
+	$(PYTHON) -m ruff format .
+
+format-check:
+	$(PYTHON) -m ruff format --check .
+
+lint:
+	$(PYTHON) -m ruff check .
 
 typecheck:
-	@echo "TODO: replace with typecheck command"
+	$(PYTHON) -m mypy src
 
-test:
+test-framework:
 	$(PYTHON) -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ is required"'
-	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_agent_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_autonomous_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_production_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_spec_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_delivery_*.py'
 
-ci: lint typecheck test
+test-app:
+	$(PYTHON) -m pytest tests/app/unit tests/app/integration
+
+test: test-framework test-app
+
+integration-test:
+	$(PYTHON) -m pytest tests/app/integration
+
+build:
+	$(PYTHON) -m build
+
+ci: format-check lint typecheck test integration-test build
 
 secrets:
 	./scripts/check-secrets.sh
@@ -32,7 +50,7 @@ quality-check:
 validate: quality-check secrets ci
 
 clean:
-	@echo "TODO: replace with clean command"
+	@echo "Build and cache cleanup is intentionally manual to avoid broad deletion."
 
 work:
 	@test -n "$(FEATURE)" || (echo "FEATURE is required" >&2; exit 2)
