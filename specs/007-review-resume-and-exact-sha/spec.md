@@ -74,18 +74,18 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 
 ## Acceptance criteria
 
-- [ ] AC-001: Canonical review identity and digest cover every REQ-001 field.
-- [ ] AC-002: Only matching PASS shards are reused and reuse emits a source-linked event.
-- [ ] AC-003: Missing/failed shards retry within both budgets; duplicate failures stop.
-- [ ] AC-004: Integration runs last and is invalidated after any file-shard execution.
-- [ ] AC-005: Timeout diagnostics are redacted and TERM/KILL the process group without orphans.
-- [ ] AC-006: Oversized inputs fail before spawning Codex and timeout never exceeds 600 seconds.
-- [ ] AC-007: Final validation runs after evidence commit and creates an exact-HEAD PASS event.
-- [ ] AC-008: Review refuses a HEAD without matching validation PASS evidence.
-- [ ] AC-009: Tracked changes invalidate prior validation/review results.
-- [ ] AC-010: Merge gating rejects every validation/review/PR/CI SHA mismatch.
-- [ ] AC-011: validation-log rendering terminates without a self-referential commit loop.
-- [ ] AC-012: Existing framework, delivery, scope, safety, application, and build validation pass.
+- [x] AC-001: Canonical review identity and digest cover every REQ-001 field.
+- [x] AC-002: Only matching PASS shards are reused and reuse emits a source-linked event.
+- [x] AC-003: Missing/failed shards retry within both budgets; duplicate failures stop.
+- [x] AC-004: Integration runs last and is invalidated after any file-shard execution.
+- [x] AC-005: Timeout diagnostics are redacted and TERM/KILL the process group without orphans.
+- [x] AC-006: Oversized inputs fail before spawning Codex and timeout never exceeds 600 seconds.
+- [x] AC-007: Final validation runs after evidence commit and creates an exact-HEAD PASS event.
+- [x] AC-008: Review refuses a HEAD without matching validation PASS evidence.
+- [x] AC-009: Tracked changes invalidate prior validation/review results.
+- [x] AC-010: Merge gating rejects every validation/review/PR/CI SHA mismatch.
+- [x] AC-011: validation-log rendering terminates without a self-referential commit loop.
+- [x] AC-012: Existing framework, delivery, scope, safety, application, and build validation pass.
 
 ## Clarifications
 

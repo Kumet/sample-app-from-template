@@ -183,6 +183,18 @@ available for repair or human review.
 For end-to-end delivery, the framework also provides a dry run and an isolated
 delivery workflow:
 
+Independent review is resumable but fail-closed. A shard result is reusable only
+when its feature, exact HEAD, shard, prompt/schema versions, model command,
+reviewed files, and complete input digest match and the authoritative runtime
+event records `PASS`. Failed, timed-out, invalid, or missing shards are rerun
+within both configured review budgets. Integration review runs only after every
+file-focused shard passes.
+
+Tracked validation evidence is finalized before exact-HEAD validation. The
+resulting commit is validated without further tracked writes, and its PASS is
+stored in `.agent-work/<feature>/events.jsonl`. The tracked log intentionally
+ends before that final runtime event, avoiding a self-referential commit loop.
+
 ```bash
 make deliver-dry-run FEATURE=012-feature-name
 make deliver FEATURE=012-feature-name

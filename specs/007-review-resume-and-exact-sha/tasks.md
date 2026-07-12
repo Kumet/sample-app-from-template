@@ -14,6 +14,6 @@
 - [x] T004: Implement exact-HEAD validation finalization and delivery gates
   - Requirements: REQ-021, REQ-022, REQ-023, REQ-024, REQ-025, REQ-026, REQ-027, REQ-028, REQ-029
   - Validation: unit, integration
-- [ ] T005: Complete regression tests, documentation, and final validation
+- [x] T005: Complete regression tests, documentation, and final validation
   - Requirements: REQ-001, REQ-029
   - Validation: unit, integration, full

@@ -122,3 +122,19 @@ Stop if scope changes are required.
 Review the PR against AGENTS.md, spec.md, plan.md, tasks.md, and validation-log.md.
 Focus on scope, regression risk, security, and test quality.
 ```
+
+## Resumable review and exact-HEAD evidence
+
+Review reuse is an exact-identity decision backed by append-only events. Never
+edit review JSON or events to make a shard reusable. A reused PASS records a new
+decision event referencing its source sequence. Any tracked change invalidates
+validation and every review shard.
+
+Review timeouts terminate the dedicated process group with TERM and then KILL
+only when necessary. Diagnostics contain allowlisted identity metadata and
+redacted output tails. The timeout remains capped at 600 seconds.
+
+Generate and commit `validation-log.md` from pre-final events, then run full
+validation on that new HEAD and append the PASS runtime event. Do not regenerate
+tracked evidence afterward. PR summaries identify the tracked-log cutoff, final
+validation event, and validated HEAD.
