@@ -19,6 +19,10 @@ other repository files; evaluate only this bounded input.
 {validation_text}
 </validation-log>
 
+<validation-contract>
+{validation_contract_text}
+</validation-contract>
+
 <git-diff>
 {diff_text}
 </git-diff>

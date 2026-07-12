@@ -173,11 +173,8 @@ def deliver(
             require_exact_validation(event_store.read(), head)
             shard_results = []
 
-            def obtain(shard, context=None):
+            def obtain_prepared(shard, prepared):
                 nonlocal review_counter, review_calls
-                prepared = review.prepare_review(isolated.path, isolated_feature, shard)
-                if context is not None:
-                    prepared = review.bind_context(prepared, context)
                 cached = review_shards.reusable_event(
                     event_store.read(), prepared.identity.digest
                 )
@@ -280,6 +277,45 @@ def deliver(
                         **payload,
                         "identity": prepared.identity.payload(),
                         "attempt": review_calls,
+                    },
+                )
+                return result
+
+            def obtain(shard, context=None):
+                prepared_items = review.prepare_reviews(
+                    isolated.path, isolated_feature, shard
+                )
+                if context is not None:
+                    prepared_items = tuple(
+                        review.bind_context(item, context) for item in prepared_items
+                    )
+                chunk_results = [
+                    obtain_prepared(shard, item) for item in prepared_items
+                ]
+                findings = tuple(
+                    finding for item in chunk_results for finding in item.findings
+                )
+                failed = any(
+                    finding.required and finding.severity == "high"
+                    for finding in findings
+                )
+                result = review.ReviewResult("fail" if failed else "pass", findings)
+                event_store.append(
+                    feature=feature_dir.name,
+                    repository=str(repo),
+                    branch=isolated.branch,
+                    worktree=str(isolated.path),
+                    phase="review",
+                    kind="review-shard",
+                    result=result.result.upper(),
+                    head_sha=head,
+                    data={
+                        "shard": shard,
+                        "aggregate": True,
+                        "chunk_identities": [
+                            item.identity.digest for item in prepared_items
+                        ],
+                        "findings": [f.__dict__ for f in findings],
                     },
                 )
                 return result

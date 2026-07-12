@@ -128,6 +128,9 @@ class AutonomousCoreTests(unittest.TestCase):
             feature.mkdir(parents=True)
             (repo / "prompts").mkdir()
             (repo / "schemas").mkdir()
+            (repo / "schemas" / "review-result.schema.json").write_text(
+                "{}", encoding="utf-8"
+            )
             template = (
                 Path(__file__).resolve().parents[1] / "prompts" / "review-feature.md"
             )
@@ -137,6 +140,7 @@ class AutonomousCoreTests(unittest.TestCase):
             for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
                 content = f"{name}-start\n" + "a" * 13_000 + f"\n{name}-end"
                 (feature / name).write_text(content, encoding="utf-8")
+            (feature / "validation.toml").write_text("version=2\n", encoding="utf-8")
             completed = subprocess.CompletedProcess(
                 [], 0, '{"result":"pass","findings":[]}', ""
             )
@@ -176,6 +180,9 @@ class AutonomousCoreTests(unittest.TestCase):
             feature.mkdir(parents=True)
             (repo / "prompts").mkdir()
             (repo / "schemas").mkdir()
+            (repo / "schemas" / "review-result.schema.json").write_text(
+                "{}", encoding="utf-8"
+            )
             template = (
                 Path(__file__).resolve().parents[1] / "prompts" / "review-feature.md"
             )
@@ -184,6 +191,7 @@ class AutonomousCoreTests(unittest.TestCase):
             )
             for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
                 (feature / name).write_text(name, encoding="utf-8")
+            (feature / "validation.toml").write_text("version=2\n", encoding="utf-8")
             merge = subprocess.CompletedProcess([], 0, "abc\n", "")
             oversized = "material-at-start\n" + "x" * review.MAX_REVIEW_INPUT_CHARS
             diff = subprocess.CompletedProcess([], 0, oversized, "")

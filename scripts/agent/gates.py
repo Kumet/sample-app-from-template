@@ -78,6 +78,7 @@ def require_pre_push(events: list[Event], head_sha: str) -> None:
         if event.kind == "review-shard"
         and event.result == "PASS"
         and event.head_sha == head_sha
+        and (event.data or {}).get("aggregate") is True
     }
     missing = set(REQUIRED_REVIEW_SHARDS) - passed
     if missing:

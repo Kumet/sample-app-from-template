@@ -76,7 +76,7 @@ class ProductionReadyTests(unittest.TestCase):
                     kind="review-shard",
                     result="PASS",
                     head_sha="abc",
-                    data={"shard": shard},
+                    data={"shard": shard, "aggregate": True},
                 )
             self.assertEqual(
                 require_exact_validation(store.read(), "abc").head_sha, "abc"

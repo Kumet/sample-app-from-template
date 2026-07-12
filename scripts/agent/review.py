@@ -113,7 +113,10 @@ def parse_review(text: str) -> ReviewResult:
 
 
 def prepare_review(
-    repo: Path, feature_dir: Path, review_focus: str = "complete"
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    review_paths: tuple[str, ...] | None = None,
 ) -> PreparedReview:
     template = (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
     base = subprocess.run(
@@ -127,17 +130,13 @@ def prepare_review(
     if base.returncode:
         raise RuntimeError(f"Cannot determine review base: {base.stderr[-1000:]}")
     feature_path = str(feature_dir.relative_to(repo))
+    pathspec = (
+        list(review_paths)
+        if review_paths is not None
+        else [".", f":(exclude){feature_path}/**"]
+    )
     patch = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--no-ext-diff",
-            base.stdout.strip(),
-            "HEAD",
-            "--",
-            ".",
-            f":(exclude){feature_path}/**",
-        ],
+        ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", *pathspec],
         cwd=repo,
         text=True,
         capture_output=True,
@@ -173,6 +172,9 @@ def prepare_review(
         "validation_text": (feature_dir / "validation-log.md").read_text(
             encoding="utf-8"
         ),
+        "validation_contract_text": (feature_dir / "validation.toml").read_text(
+            encoding="utf-8"
+        ),
         "diff_text": patch.stdout,
     }
     input_size = sum(len(value) for value in inputs.values())
@@ -204,9 +206,12 @@ def prepare_review(
         str(repo / "schemas" / "review-result.schema.json"),
         "-",
     )
+    changed_files = (
+        review_paths if review_paths is not None else tuple(changed.stdout.splitlines())
+    )
     reviewed_files = tuple(
         sorted(
-            set(changed.stdout.splitlines())
+            set(changed_files)
             | {
                 str(feature_dir.relative_to(repo) / name)
                 for name in (
@@ -229,9 +234,72 @@ def prepare_review(
         MODEL_SETTINGS,
         command,
         reviewed_files,
-        hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        hashlib.sha256(
+            prompt.encode("utf-8")
+            + (repo / "schemas" / "review-result.schema.json").read_bytes()
+        ).hexdigest(),
     )
     return PreparedReview(identity, prompt, command)
+
+
+def prepare_reviews(
+    repo: Path, feature_dir: Path, review_focus: str = "complete"
+) -> tuple[PreparedReview, ...]:
+    base = subprocess.run(
+        ["git", "merge-base", "main", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if base.returncode:
+        raise RuntimeError(f"Cannot determine review base: {base.stderr[-1000:]}")
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", base.stdout.strip(), "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    feature_prefix = str(feature_dir.relative_to(repo)) + "/"
+    paths = [
+        path
+        for path in changed.stdout.splitlines()
+        if not path.startswith(feature_prefix)
+    ]
+    chunks: list[tuple[str, ...]] = []
+    current: list[str] = []
+    size = 0
+    max_patch_chars = 70_000
+    for path in paths:
+        item = subprocess.run(
+            ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", path],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        if item.returncode:
+            raise RuntimeError(
+                f"Cannot create review diff for {path}: {item.stderr[-1000:]}"
+            )
+        if len(item.stdout) > max_patch_chars:
+            raise RuntimeError(f"Unsplittable review input exceeds policy: {path}")
+        if current and size + len(item.stdout) > max_patch_chars:
+            chunks.append(tuple(current))
+            current, size = [], 0
+        current.append(path)
+        size += len(item.stdout)
+    if current or not chunks:
+        chunks.append(tuple(current))
+    total = len(chunks)
+    return tuple(
+        prepare_review(repo, feature_dir, f"{review_focus} [{index}/{total}]", chunk)
+        for index, chunk in enumerate(chunks, 1)
+    )
 
 
 def run_review(
