@@ -16,7 +16,7 @@
 - [x] T001: Add SQLAlchemy and implement database engine, session, and explicit schema initialization.
   - Requirements: REQ-001, REQ-015, REQ-017, REQ-020
   - Validation: integration, full
-- [ ] T002: Implement the Project domain model and domain errors.
+- [x] T002: Implement the Project domain model and domain errors.
   - Requirements: REQ-002, REQ-003, REQ-004, REQ-015, REQ-019
   - Validation: unit
 - [ ] T003: Implement the repository interface, SQLAlchemy model, and transactional repository.
