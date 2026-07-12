@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from agent import git_utils
+from agent.delivery import _safe_command_failure
 from agent.events import EventStore
 from agent.evidence import redact_value, safe_error_detail
 from agent.parser import WorkConfig
@@ -100,3 +101,13 @@ class SafetyTests(unittest.TestCase):
             {"stderr_tail": "password=hidden", "nested": ["token=hidden-token"]}
         )
         self.assertNotIn("hidden", str(value))
+
+    def test_command_failure_is_redacted_before_exception_exposure(self):
+        unsafe = (
+            "token=token-value password=hunter2 "
+            "Authorization: Bearer bearer-value sk-abcdefghijklmnopqrstuv"
+        )
+        message = str(_safe_command_failure("validation failed", unsafe))
+        for secret in ("token-value", "hunter2", "bearer-value", "sk-"):
+            self.assertNotIn(secret, message)
+        self.assertIn("validation failed", message)

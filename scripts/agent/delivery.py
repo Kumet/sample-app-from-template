@@ -692,7 +692,9 @@ def _repair_and_commit(
     prompt = codex_runner.render_prompt(repo, feature_dir, task, failure)
     result = codex_runner.run(repo, prompt)
     if result.returncode:
-        raise RuntimeError(f"{repair_id} repair Codex failed: {result.stderr[-4000:]}")
+        raise _safe_command_failure(
+            f"{repair_id} repair Codex failed", result.stderr
+        )
     paths = git_utils.changed_paths(repo)
     if not paths:
         raise RuntimeError(f"{repair_id} repair produced no changes")
@@ -700,17 +702,16 @@ def _repair_and_commit(
     git_utils.diff_check(repo)
     check = validation.run_named(repo, config, "full")
     if not check.succeeded:
-        raise RuntimeError(
-            f"{repair_id} repair validation failed: "
-            f"{(check.stderr or check.stdout)[-4000:]}"
+        raise _safe_command_failure(
+            f"{repair_id} repair validation failed", check.stderr or check.stdout
         )
     git_utils.commit(repo, paths, f"fix: address {repair_id.lower()} findings")
     head = git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip()
     exact = validation.run_named(repo, config, "full")
     if not exact.succeeded:
-        raise RuntimeError(
-            f"{repair_id} post-commit exact-HEAD validation failed: "
-            f"{(exact.stderr or exact.stdout)[-4000:]}"
+        raise _safe_command_failure(
+            f"{repair_id} post-commit exact-HEAD validation failed",
+            exact.stderr or exact.stdout,
         )
     if git_utils.changed_paths(repo):
         raise RuntimeError(f"{repair_id} validation changed tracked contents")
@@ -753,10 +754,14 @@ def _record_delivery_evidence(
 def _validate_delivery_evidence(repo: Path, feature_dir: Path, config) -> None:
     check = validation.run_named(repo, config, "full")
     if not check.succeeded:
-        raise RuntimeError(
-            "Delivery evidence validation failed: "
-            f"{(check.stderr or check.stdout)[-4000:]}"
+        raise _safe_command_failure(
+            "Delivery evidence validation failed", check.stderr or check.stdout
         )
     result, _, _ = review.run_review(repo, feature_dir)
     if result.result != "pass" or result.required_findings:
         raise RuntimeError("Delivery evidence independent review did not pass")
+
+
+def _safe_command_failure(label: str, output: str) -> RuntimeError:
+    """Build a diagnostic exception without exposing command output secrets."""
+    return RuntimeError(f"{label}: {redact(output, 4000)}")

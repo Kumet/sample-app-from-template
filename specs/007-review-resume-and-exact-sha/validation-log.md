@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:33:21.396945+00:00","included_event_sequence":45,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T22:36:29.106699+00:00","included_event_sequence":57,"snapshot_format_version":2,"validation_contract_digest":"143b5d22996eba0a86fdcc15c35b4c29ec5072a6397cadff3836e48be57734e8"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -56,3 +56,15 @@ Final included event result: PASS.
 | 43 | evidence/tracked-evidence-snapshot | PASS | `ba57f17dd5b1` |  |
 | 44 | post-evidence/final-validation | PASS | `ba57f17dd5b1` |  |
 | 45 | implementation/validation | PASS | `8f82d9007134` | make validate passed after runtime evidence renderer repair |
+| 46 | evidence/tracked-evidence-snapshot | PASS | `1c7a9bd9f3ea` |  |
+| 47 | post-evidence/final-validation | PASS | `1c7a9bd9f3ea` |  |
+| 48 | delivery/weakening | PASS | `1c7a9bd9f3ea` |  |
+| 49 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
+| 50 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
+| 51 | review/review-shard | FAIL | `1c7a9bd9f3ea` |  |
+| 52 | review/review-shard | FAIL | `1c7a9bd9f3ea` |  |
+| 53 | review/review-shard | FAIL | `1c7a9bd9f3ea` |  |
+| 54 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
+| 55 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
+| 56 | review/review-shard | PASS | `1c7a9bd9f3ea` |  |
+| 57 | review-remediation/security-redaction | PASS | `1c7a9bd9f3ea` | Loop 1: redacted raw subprocess output before RuntimeError exposure; targeted safety test and make validate passed |
