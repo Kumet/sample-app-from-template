@@ -586,8 +586,9 @@ def _run_post_evidence_validation(
     exact = validation.run_named(repo, config, "full")
     completed_at = evidence_snapshot.utc_now()
     _write_validation(final_dir, [exact])
+    attempt = None
     if event_store is not None and snapshot is not None:
-        evidence_snapshot.record_final_validation(
+        attempt = evidence_snapshot.record_final_validation_attempt(
             event_store,
             repo=repo,
             feature_dir=feature_dir,
@@ -604,7 +605,18 @@ def _run_post_evidence_validation(
             "Post-evidence exact-HEAD validation failed: "
             f"{(exact.stderr or exact.stdout)[-4000:]}"
         )
-    if git_utils.changed_paths(repo):
+    if event_store is not None and snapshot is not None and attempt is not None:
+        evidence_snapshot.record_final_validation_accepted(
+            event_store,
+            repo=repo,
+            feature_dir=feature_dir,
+            repository=str(evidence_repo or repo),
+            branch=git_utils.branch(repo),
+            worktree=str(repo),
+            snapshot=snapshot,
+            attempt=attempt,
+        )
+    elif git_utils.changed_paths(repo):
         raise RuntimeError("Final validation changed tracked repository contents")
     if git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip() != validated_head:
         raise RuntimeError("HEAD changed during final validation")

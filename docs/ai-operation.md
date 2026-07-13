@@ -131,8 +131,11 @@ decision event referencing its source sequence. Any tracked change invalidates
 validation and every review shard.
 
 Review timeouts terminate the dedicated process group with TERM and then KILL
-only when necessary. Diagnostics contain allowlisted identity metadata and
-redacted output tails. The timeout remains capped at 600 seconds.
+only when necessary, and do the same for observed controlled descendants whose
+PID start identity still matches. Known survivors require human review. Unknown
+processes that escape before observation are not claimed as a portable guarantee;
+kernel containment is a future optional adapter. Diagnostics contain allowlisted
+identity metadata and redacted output tails. The timeout remains capped at 600 seconds.
 
 The reviewer model is explicitly pinned in the review command and included in
 the identity digest. Changing that model invalidates every cached shard. The
@@ -149,9 +152,11 @@ The runtime sequence is strictly:
 2. Append `evidence/tracked-evidence-snapshot` with HEAD, log Git blob,
    watermark, contract digest, and format version.
 3. Run the full command on that unchanged HEAD.
-4. Append `post-evidence/final-validation` referencing the snapshot and recording
-   command identity, timestamps, and result digest.
-5. Require a clean worktree before review.
+4. Append `post-evidence/final-validation-attempt` for every command result.
+5. Verify HEAD, attempt, snapshot, log blob, contract, result digest, and clean state.
+6. Append `post-evidence/final-validation-accepted/PASS` only when every check
+   succeeds; otherwise append `final-validation-rejected` when attribution fails.
+7. Require the accepted PASS before review.
 
 Ordinary task or pre-commit `validation` events never satisfy the final gate.
 All reviewer exceptions pass through centralized redaction before event,

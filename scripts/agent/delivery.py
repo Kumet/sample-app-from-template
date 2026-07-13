@@ -154,7 +154,7 @@ def deliver(
             started_at = evidence_snapshot.utc_now()
             check = validation.run_named(isolated.path, config, "full")
             completed_at = evidence_snapshot.utc_now()
-            evidence_snapshot.record_final_validation(
+            attempt = evidence_snapshot.record_final_validation_attempt(
                 event_store,
                 repo=isolated.path,
                 feature_dir=isolated_feature,
@@ -168,10 +168,16 @@ def deliver(
             )
             if not check.succeeded:
                 raise RuntimeError("Post-evidence final validation failed") from None
-            if git_utils.changed_paths(isolated.path):
-                raise RuntimeError(
-                    "Post-evidence validation changed tracked contents"
-                ) from None
+            evidence_snapshot.record_final_validation_accepted(
+                event_store,
+                repo=isolated.path,
+                feature_dir=isolated_feature,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
             current = git_utils.run_git(
                 isolated.path, ["rev-parse", "HEAD"]
             ).stdout.strip()
@@ -249,6 +255,10 @@ def deliver(
                             error=error,
                         )
                         signature = (failure_event.data or {})["failure_signature"]
+                        if failure_event.result == "HUMAN_REQUIRED":
+                            raise RuntimeError(
+                                "Known reviewer processes survived timeout cleanup"
+                            ) from error
                         if (
                             review_shards.matching_failure_count(
                                 event_store.read(), prepared.identity, signature
@@ -595,7 +605,9 @@ def _pr_body(
     review_identity_digest: str = "",
 ) -> str:
     validation_sequence = (
-        final_binding.final_validation_event_sequence if final_binding else "missing"
+        final_binding.final_validation_accepted_event_sequence
+        if final_binding
+        else "missing"
     )
     log_cutoff = final_binding.included_event_sequence if final_binding else 0
     log_path = final_binding.log_path if final_binding else "missing"
@@ -657,7 +669,7 @@ def _finalize_delivery_evidence(
     started_at = evidence_snapshot.utc_now()
     result = validation.run_named(repo, config, "full")
     completed_at = evidence_snapshot.utc_now()
-    evidence_snapshot.record_final_validation(
+    attempt = evidence_snapshot.record_final_validation_attempt(
         event_store,
         repo=repo,
         feature_dir=feature_dir,
@@ -671,6 +683,16 @@ def _finalize_delivery_evidence(
     )
     if not result.succeeded:
         raise RuntimeError("Post-evidence final validation failed")
+    evidence_snapshot.record_final_validation_accepted(
+        event_store,
+        repo=repo,
+        feature_dir=feature_dir,
+        repository=repository,
+        branch=branch,
+        worktree=str(repo),
+        snapshot=snapshot,
+        attempt=attempt,
+    )
     return evidence_snapshot.require_final_evidence(
         repo,
         feature_dir,
@@ -791,9 +813,16 @@ def record_review_failure_event(
             "stderr_tail",
             "process_status",
             "pid",
+            "root_pid",
+            "process_group_id",
             "termination",
             "process_group_terminated",
             "tracked_descendant_pids",
+            "observed_descendant_pids",
+            "term_targets",
+            "kill_targets",
+            "termination_confirmed",
+            "known_survivors",
         }
         diagnostic = redact_value(
             {key: value for key, value in error.diagnostic.items() if key in allowed}
@@ -805,7 +834,13 @@ def record_review_failure_event(
         worktree=worktree,
         phase="review",
         kind="review-shard",
-        result="TIMEOUT" if is_timeout else "INVALID",
+        result=(
+            "HUMAN_REQUIRED"
+            if is_timeout and diagnostic.get("known_survivors")
+            else "TIMEOUT"
+            if is_timeout
+            else "INVALID"
+        ),
         head_sha=head_sha,
         detail=safe_error,
         data={

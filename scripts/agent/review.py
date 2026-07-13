@@ -19,7 +19,7 @@ REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
 REVIEW_PROMPT_VERSION = "2"
 REVIEW_MODEL = "gpt-5.4-mini"
-REVIEW_IDENTITY_SCHEMA_VERSION = "3"
+REVIEW_IDENTITY_SCHEMA_VERSION = "4"
 REVIEW_IDENTITY_FIELDS = (
     "identity_schema_version",
     "feature",
@@ -39,7 +39,8 @@ REVIEW_IDENTITY_FIELDS = (
     "runtime_evidence_digest",
     "tracked_snapshot_event_sequence",
     "validation_log_blob_sha",
-    "final_validation_event_sequence",
+    "final_validation_attempt_event_sequence",
+    "final_validation_accepted_event_sequence",
     "final_validation_result_digest",
 )
 MODEL_SETTINGS = (
@@ -83,7 +84,8 @@ class ReviewIdentity:
     runtime_evidence_digest: str
     tracked_snapshot_event_sequence: int
     validation_log_blob_sha: str
-    final_validation_event_sequence: int
+    final_validation_attempt_event_sequence: int
+    final_validation_accepted_event_sequence: int
     final_validation_result_digest: str
 
     def __post_init__(self):
@@ -98,7 +100,8 @@ class ReviewIdentity:
                 "review_settings",
                 "reviewed_files",
                 "tracked_snapshot_event_sequence",
-                "final_validation_event_sequence",
+                "final_validation_attempt_event_sequence",
+                "final_validation_accepted_event_sequence",
             }
         ):
             raise ValueError("Review identity text fields must be non-empty strings")
@@ -108,7 +111,8 @@ class ReviewIdentity:
             raise ValueError("Reviewed files must be strings")
         if (
             self.tracked_snapshot_event_sequence < 1
-            or self.final_validation_event_sequence < 1
+            or self.final_validation_attempt_event_sequence < 1
+            or self.final_validation_accepted_event_sequence < 1
         ):
             raise ValueError("Review evidence sequences must be positive integers")
 
@@ -132,7 +136,12 @@ class ReviewIdentity:
             "runtime_evidence_digest": self.runtime_evidence_digest,
             "tracked_snapshot_event_sequence": self.tracked_snapshot_event_sequence,
             "validation_log_blob_sha": self.validation_log_blob_sha,
-            "final_validation_event_sequence": self.final_validation_event_sequence,
+            "final_validation_attempt_event_sequence": (
+                self.final_validation_attempt_event_sequence
+            ),
+            "final_validation_accepted_event_sequence": (
+                self.final_validation_accepted_event_sequence
+            ),
             "final_validation_result_digest": self.final_validation_result_digest,
         }
 
@@ -343,7 +352,8 @@ def prepare_review(
         hashlib.sha256(runtime_evidence_text.encode("utf-8")).hexdigest(),
         int(evidence_fields["tracked_snapshot_event_sequence"]),
         str(evidence_fields["validation_log_blob_sha"]),
-        int(evidence_fields["final_validation_event_sequence"]),
+        int(evidence_fields["final_validation_attempt_event_sequence"]),
+        int(evidence_fields["final_validation_accepted_event_sequence"]),
         str(evidence_fields["final_validation_result_digest"]),
     )
     return PreparedReview(identity, prompt, command)
@@ -459,9 +469,23 @@ def render_runtime_evidence(events, head_sha: str) -> str:
             "validation_contract_digest",
             "snapshot_format_version",
         },
-        "final-validation": {
-            "evidence_snapshot_event_sequence",
-            "log_blob_sha",
+        "final-validation-attempt": {
+            "snapshot_event_sequence",
+            "exact_head_sha",
+            "validation_log_path",
+            "validation_log_blob_sha",
+            "validation_contract_digest",
+            "command_identity",
+            "started_at",
+            "completed_at",
+            "result_digest",
+        },
+        "final-validation-accepted": {
+            "attempt_event_sequence",
+            "snapshot_event_sequence",
+            "exact_head_sha",
+            "validation_log_path",
+            "validation_log_blob_sha",
             "validation_contract_digest",
             "command_identity",
             "started_at",
@@ -611,9 +635,11 @@ def run_process_group(
             _signal_processes(descendants, signal.SIGKILL)
             _wait_for_targets_exit(process_group, descendants, term_grace_seconds)
         _reap_without_pipe_wait(process, term_grace_seconds)
-        group_terminated = not _process_group_exists(process_group) and not any(
-            _process_exists(pid) for pid in descendants
-        )
+        surviving_pids = [
+            pid for pid, started in descendants.items() if _same_process(pid, started)
+        ]
+        group_survived = _process_group_exists(process_group)
+        group_terminated = not group_survived and not surviving_pids
         diagnostic = {
             **identity,
             "configured_timeout": timeout_seconds,
@@ -625,27 +651,53 @@ def run_process_group(
             "stderr_tail": _safe_stream_tail(stderr + _output_text(tail_err)),
             "process_status": "timeout",
             "pid": process.pid,
+            "root_pid": process.pid,
+            "process_group_id": process_group,
             "termination": termination,
             "process_group_terminated": group_terminated,
             "tracked_descendant_pids": sorted(descendants),
+            "observed_descendant_pids": sorted(descendants),
+            "term_targets": {
+                "process_group_id": process_group,
+                "pids": sorted(descendants),
+            },
+            "kill_targets": {
+                "process_group_id": process_group if termination == "kill" else None,
+                "pids": sorted(descendants) if termination == "kill" else [],
+            },
+            "termination_confirmed": group_terminated,
+            "known_survivors": (
+                ([f"pgid:{process_group}"] if group_survived else [])
+                + [f"pid:{pid}" for pid in surviving_pids]
+            ),
         }
         raise ReviewTimeout(diagnostic) from None
 
 
 def _process_group_exists(process_group: int) -> bool:
-    try:
-        os.killpg(process_group, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    result = subprocess.run(
+        ["ps", "-axo", "pgid=,stat="],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    for line in result.stdout.splitlines():
+        values = line.split(maxsplit=1)
+        if (
+            len(values) == 2
+            and values[0].isdigit()
+            and int(values[0]) == process_group
+            and not values[1].startswith("Z")
+        ):
+            return True
+    return False
 
 
 def _signal_process_group(process_group: int, signal_value: signal.Signals) -> None:
     try:
         os.killpg(process_group, signal_value)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return
 
 
@@ -659,11 +711,13 @@ def _process_exists(pid: int) -> bool:
     return True
 
 
-def _signal_processes(pids: set[int], signal_value: signal.Signals) -> None:
-    for pid in sorted(pids, reverse=True):
+def _signal_processes(processes: dict[int, str], signal_value: signal.Signals) -> None:
+    for pid in sorted(processes, reverse=True):
+        if not _same_process(pid, processes[pid]):
+            continue
         try:
             os.kill(pid, signal_value)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             continue
 
 
@@ -677,11 +731,11 @@ def _wait_for_process_group_exit(process_group: int, timeout_seconds: float) -> 
 
 
 def _wait_for_targets_exit(
-    process_group: int, descendants: set[int], timeout_seconds: float
+    process_group: int, descendants: dict[int, str], timeout_seconds: float
 ) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while _process_group_exists(process_group) or any(
-        _process_exists(pid) for pid in descendants
+        _same_process(pid, started) for pid, started in descendants.items()
     ):
         if time.monotonic() >= deadline:
             return False
@@ -694,7 +748,7 @@ class _DescendantTracker:
 
     def __init__(self, root_pid: int):
         self.root_pid = root_pid
-        self.seen: set[int] = set()
+        self.seen: dict[int, str] = {}
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -702,12 +756,12 @@ class _DescendantTracker:
         self._sample()
         self._thread.start()
 
-    def stop(self) -> set[int]:
+    def stop(self) -> dict[int, str]:
         self._sample()
         self._stop.set()
         self._thread.join(timeout=1.0)
         self._sample()
-        return set(self.seen)
+        return dict(self.seen)
 
     def _run(self) -> None:
         while not self._stop.wait(0.01):
@@ -715,7 +769,7 @@ class _DescendantTracker:
 
     def _sample(self) -> None:
         result = subprocess.run(
-            ["ps", "-axo", "pid=,ppid="],
+            ["ps", "-axo", "pid=,ppid=,lstart="],
             text=True,
             capture_output=True,
             check=False,
@@ -723,20 +777,46 @@ class _DescendantTracker:
         )
         if result.returncode:
             return
-        parents: dict[int, int] = {}
+        parents: dict[int, tuple[int, str]] = {}
         for line in result.stdout.splitlines():
-            values = line.split()
-            if len(values) == 2 and all(value.isdigit() for value in values):
-                parents[int(values[0])] = int(values[1])
-        roots = {self.root_pid, *self.seen}
+            values = line.split(maxsplit=2)
+            if len(values) == 3 and values[0].isdigit() and values[1].isdigit():
+                parents[int(values[0])] = (int(values[1]), values[2].strip())
+        roots = {self.root_pid, *self.seen.keys()}
         changed = True
         while changed:
             changed = False
-            for pid, parent in parents.items():
+            for pid, (parent, started) in parents.items():
                 if pid != self.root_pid and parent in roots and pid not in self.seen:
-                    self.seen.add(pid)
+                    self.seen[pid] = started
                     roots.add(pid)
                     changed = True
+
+
+def _process_start(pid: int) -> str | None:
+    result = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    value = result.stdout.strip()
+    return value or None
+
+
+def _same_process(pid: int, started: str) -> bool:
+    if _process_start(pid) != started:
+        return False
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    status = result.stdout.strip()
+    return bool(status) and not status.startswith("Z")
 
 
 def _output_text(value: str | bytes | None) -> str:

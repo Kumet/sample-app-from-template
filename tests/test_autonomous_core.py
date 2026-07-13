@@ -41,7 +41,8 @@ POLICY = RepositoryPolicy(
 EVIDENCE_FIELDS = {
     "tracked_snapshot_event_sequence": 10,
     "validation_log_blob_sha": "b" * 40,
-    "final_validation_event_sequence": 11,
+    "final_validation_attempt_event_sequence": 11,
+    "final_validation_accepted_event_sequence": 12,
     "final_validation_result_digest": "f" * 64,
 }
 
@@ -66,7 +67,8 @@ def review_identity(**changes):
         "runtime_evidence_digest": "7" * 64,
         "tracked_snapshot_event_sequence": 10,
         "validation_log_blob_sha": "b" * 40,
-        "final_validation_event_sequence": 11,
+        "final_validation_attempt_event_sequence": 11,
+        "final_validation_accepted_event_sequence": 12,
         "final_validation_result_digest": "6" * 64,
     }
     values.update(changes)
@@ -288,7 +290,8 @@ class AutonomousCoreTests(unittest.TestCase):
                 "runtime_evidence_digest",
                 "tracked_snapshot_event_sequence",
                 "validation_log_blob_sha",
-                "final_validation_event_sequence",
+                "final_validation_attempt_event_sequence",
+                "final_validation_accepted_event_sequence",
                 "final_validation_result_digest",
             },
         )
@@ -441,7 +444,7 @@ class AutonomousCoreTests(unittest.TestCase):
         )
         final = mock.Mock(
             sequence=3,
-            kind="final-validation",
+            kind="final-validation-accepted",
             result="PASS",
             head_sha="abc",
             data={
@@ -452,7 +455,7 @@ class AutonomousCoreTests(unittest.TestCase):
         )
         rendered = review.render_runtime_evidence([validation, shard, final], "abc")
         self.assertIn('"kind":"validation"', rendered)
-        self.assertIn('"kind":"final-validation"', rendered)
+        self.assertIn('"kind":"final-validation-accepted"', rendered)
         self.assertNotIn("review-shard", rendered)
         self.assertNotIn("unapproved_detail", rendered)
         self.assertNotIn("secret-value", rendered)

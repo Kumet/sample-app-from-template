@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .events import Event, EventStore
+from .evidence import redact
 from .validation import CommandResult
 
 EVENT_SCHEMA_VERSION = 1
@@ -23,7 +24,8 @@ class EvidenceBinding:
     validation_contract_digest: str
     snapshot_event_sequence: int
     included_event_sequence: int
-    final_validation_event_sequence: int
+    final_validation_attempt_event_sequence: int
+    final_validation_accepted_event_sequence: int
     validation_result_digest: str
 
     def identity_fields(self) -> dict:
@@ -31,7 +33,12 @@ class EvidenceBinding:
             "tracked_snapshot_event_sequence": self.snapshot_event_sequence,
             "validation_log_blob_sha": self.log_blob_sha,
             "validation_contract_digest": self.validation_contract_digest,
-            "final_validation_event_sequence": self.final_validation_event_sequence,
+            "final_validation_attempt_event_sequence": (
+                self.final_validation_attempt_event_sequence
+            ),
+            "final_validation_accepted_event_sequence": (
+                self.final_validation_accepted_event_sequence
+            ),
             "final_validation_result_digest": self.validation_result_digest,
         }
 
@@ -100,7 +107,7 @@ def record_snapshot(
     )
 
 
-def record_final_validation(
+def record_final_validation_attempt(
     store: EventStore,
     *,
     repo: Path,
@@ -113,29 +120,165 @@ def record_final_validation(
     started_at: str,
     completed_at: str,
 ) -> Event:
-    data = snapshot.data or {}
+    snapshot_data = snapshot.data or {}
     current_head = _head(repo)
-    if snapshot.head_sha != current_head:
-        raise ValueError("Evidence snapshot HEAD does not match final-validation HEAD")
     return store.append(
         feature=feature_dir.name,
         repository=repository,
         branch=branch,
         worktree=worktree,
         phase="post-evidence",
-        kind="final-validation",
+        kind="final-validation-attempt",
         result="PASS" if result.succeeded else "FAIL",
         head_sha=current_head,
         data={
-            "evidence_snapshot_event_sequence": snapshot.sequence,
-            "log_blob_sha": data.get("log_blob_sha"),
-            "validation_contract_digest": data.get("validation_contract_digest"),
+            "snapshot_event_sequence": snapshot.sequence,
+            "exact_head_sha": current_head,
+            "validation_log_path": snapshot_data.get("log_path"),
+            "validation_log_blob_sha": snapshot_data.get("log_blob_sha"),
+            "validation_contract_digest": snapshot_data.get(
+                "validation_contract_digest"
+            ),
             "command_identity": _digest({"command": list(result.command)}),
             "started_at": started_at,
             "completed_at": completed_at,
             "result_digest": result_digest(result),
         },
     )
+
+
+def record_final_validation_accepted(
+    store: EventStore,
+    *,
+    repo: Path,
+    feature_dir: Path,
+    repository: str,
+    branch: str,
+    worktree: str,
+    snapshot: Event,
+    attempt: Event,
+) -> Event:
+    try:
+        data = _validate_acceptance(repo, feature_dir, store.read(), snapshot, attempt)
+    except ValueError as error:
+        record_final_validation_rejected(
+            store,
+            repo=repo,
+            feature_dir=feature_dir,
+            repository=repository,
+            branch=branch,
+            worktree=worktree,
+            snapshot=snapshot,
+            attempt=attempt,
+            reason=str(error),
+        )
+        raise
+    return store.append(
+        feature=feature_dir.name,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        phase="post-evidence",
+        kind="final-validation-accepted",
+        result="PASS",
+        head_sha=data["exact_head_sha"],
+        data=data,
+    )
+
+
+def record_final_validation_rejected(
+    store: EventStore,
+    *,
+    repo: Path,
+    feature_dir: Path,
+    repository: str,
+    branch: str,
+    worktree: str,
+    snapshot: Event,
+    attempt: Event,
+    reason: str,
+    result: str = "FAIL",
+) -> Event:
+    if result not in {"FAIL", "HUMAN_REQUIRED"}:
+        raise ValueError("Rejected final validation must fail or require a human")
+    return store.append(
+        feature=feature_dir.name,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        phase="post-evidence",
+        kind="final-validation-rejected",
+        result=result,
+        head_sha=_head(repo),
+        detail=redact(reason, 2000),
+        data={
+            "attempt_event_sequence": attempt.sequence,
+            "snapshot_event_sequence": snapshot.sequence,
+        },
+    )
+
+
+def _validate_acceptance(
+    repo: Path,
+    feature_dir: Path,
+    events: list[Event],
+    snapshot: Event,
+    attempt: Event,
+) -> dict:
+    current_head = _head(repo)
+    snapshot_data = snapshot.data or {}
+    attempt_data = attempt.data or {}
+    if attempt.kind != "final-validation-attempt" or attempt.result != "PASS":
+        raise ValueError("Only a PASS final-validation-attempt can be accepted")
+    if (
+        attempt.head_sha != current_head
+        or attempt_data.get("exact_head_sha") != current_head
+    ):
+        raise ValueError("Final-validation attempt HEAD mismatch")
+    if snapshot.head_sha != current_head:
+        raise ValueError("Evidence snapshot HEAD mismatch")
+    if attempt_data.get("snapshot_event_sequence") != snapshot.sequence:
+        raise ValueError("Final-validation attempt snapshot mismatch")
+    log_path = snapshot_data.get("log_path")
+    if not isinstance(log_path, str):
+        raise ValueError("Evidence snapshot log path is invalid")
+    blob = git_blob_sha(repo, log_path)
+    digest = contract_digest(feature_dir)
+    result_value = attempt_data.get("result_digest")
+    if attempt_data.get("validation_log_path") != log_path:
+        raise ValueError("Final-validation log path mismatch")
+    if (
+        snapshot_data.get("log_blob_sha") != blob
+        or attempt_data.get("validation_log_blob_sha") != blob
+    ):
+        raise ValueError("Final-validation log blob mismatch")
+    if (
+        snapshot_data.get("validation_contract_digest") != digest
+        or attempt_data.get("validation_contract_digest") != digest
+    ):
+        raise ValueError("Final-validation contract digest mismatch")
+    if not isinstance(result_value, str) or len(result_value) != 64:
+        raise ValueError("Final-validation result digest is invalid")
+    if _changed(repo):
+        raise ValueError("Final-validation acceptance requires a clean worktree")
+    if any(
+        event.kind == "final-validation-accepted"
+        and (event.data or {}).get("attempt_event_sequence") == attempt.sequence
+        for event in events
+    ):
+        raise ValueError("Final-validation attempt was already accepted")
+    return {
+        "attempt_event_sequence": attempt.sequence,
+        "snapshot_event_sequence": snapshot.sequence,
+        "exact_head_sha": current_head,
+        "validation_log_path": log_path,
+        "validation_log_blob_sha": blob,
+        "validation_contract_digest": digest,
+        "command_identity": attempt_data.get("command_identity"),
+        "result_digest": result_value,
+        "started_at": attempt_data.get("started_at"),
+        "completed_at": attempt_data.get("completed_at"),
+    }
 
 
 def require_final_evidence(
@@ -167,29 +310,55 @@ def require_final_evidence(
         raise ValueError("Validation-log blob SHA mismatch")
     if snapshot_data.get("validation_contract_digest") != digest:
         raise ValueError("Validation contract digest mismatch")
-    final = next(
+    accepted = next(
         (
             event
             for event in reversed(events)
-            if event.kind == "final-validation"
+            if event.kind == "final-validation-accepted"
             and event.phase == "post-evidence"
             and event.result == "PASS"
             and event.head_sha == head_sha
         ),
         None,
     )
-    if final is None:
-        raise ValueError("Missing post-evidence final-validation PASS")
-    final_data = final.data or {}
-    if final_data.get("evidence_snapshot_event_sequence") != snapshot.sequence:
-        raise ValueError("Final-validation snapshot reference mismatch")
-    if final_data.get("log_blob_sha") != blob:
-        raise ValueError("Final-validation log blob mismatch")
-    if final_data.get("validation_contract_digest") != digest:
-        raise ValueError("Final-validation contract digest mismatch")
-    result_value = final_data.get("result_digest")
+    if accepted is None:
+        raise ValueError("Missing final-validation-accepted PASS")
+    accepted_data = accepted.data or {}
+    attempt_sequence = accepted_data.get("attempt_event_sequence")
+    attempt = next(
+        (
+            event
+            for event in events
+            if event.sequence == attempt_sequence
+            and event.kind == "final-validation-attempt"
+            and event.result == "PASS"
+            and event.head_sha == head_sha
+        ),
+        None,
+    )
+    if attempt is None:
+        raise ValueError("Accepted final validation attempt reference is invalid")
+    attempt_data = attempt.data or {}
+    if accepted_data.get("snapshot_event_sequence") != snapshot.sequence:
+        raise ValueError("Accepted final-validation snapshot reference mismatch")
+    if attempt_data.get("snapshot_event_sequence") != snapshot.sequence:
+        raise ValueError("Attempt final-validation snapshot reference mismatch")
+    if accepted_data.get("exact_head_sha") != head_sha:
+        raise ValueError("Accepted final-validation HEAD mismatch")
+    if accepted_data.get("validation_log_path") != log_path:
+        raise ValueError("Accepted final-validation log path mismatch")
+    if accepted_data.get("validation_log_blob_sha") != blob:
+        raise ValueError("Accepted final-validation log blob mismatch")
+    if accepted_data.get("validation_contract_digest") != digest:
+        raise ValueError("Accepted final-validation contract digest mismatch")
+    for field in ("command_identity", "started_at", "completed_at"):
+        if accepted_data.get(field) != attempt_data.get(field):
+            raise ValueError(f"Accepted final-validation {field} mismatch")
+    result_value = accepted_data.get("result_digest")
+    if result_value != attempt_data.get("result_digest"):
+        raise ValueError("Accepted final-validation result digest mismatch")
     if not isinstance(result_value, str) or len(result_value) != 64:
-        raise ValueError("Final-validation result digest is invalid")
+        raise ValueError("Accepted final-validation result digest is invalid")
     return EvidenceBinding(
         head_sha,
         log_path,
@@ -197,7 +366,8 @@ def require_final_evidence(
         digest,
         snapshot.sequence,
         int(snapshot_data.get("included_event_sequence", 0)),
-        final.sequence,
+        attempt.sequence,
+        accepted.sequence,
         result_value,
     )
 

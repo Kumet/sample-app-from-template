@@ -50,10 +50,12 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - REQ-013: Timeout diagnostics record shard, HEAD, attempt, timeout, elapsed,
   safe command identity, prompt size, input digest, redacted output tails,
   process status, PID, and termination result.
-- REQ-014: Timeout terminates the reviewer process group, including children.
+- REQ-014: Timeout terminates the framework-started process group and every
+  controlled descendant PID observed with a matching process-start identity.
 - REQ-015: Termination sends TERM, waits briefly, then sends KILL only if needed.
 - REQ-016: Process-group termination outcome is stored in an append-only event.
-- REQ-017: Tests prove no controlled child process remains after timeout.
+- REQ-017: Known survivors fail closed; OS-independent termination of unknown
+  descendants that escape before observation is not guaranteed.
 - REQ-018: 600 seconds remains the maximum; tests may inject shorter timeouts.
 - REQ-019: Oversized review input fails closed before reviewer execution.
 - REQ-020: Identity material is canonicalized once and shard prompts contain
@@ -77,16 +79,22 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - REQ-031: After the snapshot commit, a `tracked-evidence-snapshot` runtime event
   binds the exact HEAD, validation-log Git blob SHA, watermark, contract digest,
   and snapshot format version.
-- REQ-032: Only a dedicated `post-evidence/final-validation` PASS event may prove
-  final validation; ordinary validation events are insufficient.
-- REQ-033: Final-validation references its snapshot event and repeats the exact
-  HEAD, log blob, contract digest, command identity, timestamps, and result digest.
-- REQ-034: Review prerequisites validate the snapshot/final-validation reference,
+- REQ-032: Every exact-HEAD command run emits `final-validation-attempt`; only a
+  subsequent `final-validation-accepted/PASS` may prove final validation.
+- REQ-033: Accepted validation references its PASS attempt and snapshot and repeats
+  the exact HEAD, log path/blob, contract digest, command identity, timestamps,
+  and result digest. Failed or unattributable attempts remain append-only evidence.
+- REQ-034: Review prerequisites validate the snapshot/attempt/accepted references,
   current Git blob, contract digest, clean worktree, and unchanged HEAD.
 - REQ-035: Review identity has one canonical schema defining every required field,
   including artifact digests and snapshot/final-validation evidence fields.
 - REQ-036: Every review subprocess exception crosses one centralized redaction
   boundary before persistence; EventStore redaction remains defense in depth.
+- REQ-037: Process diagnostics record root PID, process-group ID, observed PID
+  identities, TERM/KILL targets, confirmation results, and known survivors;
+  survivors produce HUMAN_REQUIRED without claiming kernel containment.
+- REQ-038: Acceptance failures append `final-validation-rejected`; legacy
+  final-validation, ordinary validation, and attempt events never open gates.
 
 ## Acceptance criteria
 
@@ -94,16 +102,16 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - [x] AC-002: Only matching PASS shards are reused and reuse emits a source-linked event.
 - [x] AC-003: Missing/failed shards retry within both budgets; duplicate failures stop.
 - [x] AC-004: Integration runs last and is invalidated after any file-shard execution.
-- [x] AC-005: Timeout diagnostics are redacted and TERM/KILL the process group without orphans.
+- [x] AC-005: Timeout diagnostics are redacted; known process-group/descendant survivors fail closed.
 - [x] AC-006: Oversized inputs fail before spawning Codex and timeout never exceeds 600 seconds.
-- [x] AC-007: Final validation runs after evidence commit and creates an exact-HEAD PASS event.
+- [x] AC-007: Final validation runs after evidence commit, records every attempt, and accepts only fully attributed PASS attempts.
 - [x] AC-008: Review refuses a HEAD without matching validation PASS evidence.
 - [x] AC-009: Tracked changes invalidate prior validation/review results.
 - [x] AC-010: Merge gating rejects every validation/review/PR/CI SHA mismatch.
 - [x] AC-011: validation-log rendering terminates without a self-referential commit loop.
 - [x] AC-012: Existing framework, delivery, scope, safety, application, and build validation pass.
 - [x] AC-013: A tracked snapshot event binds current HEAD, log blob, watermark, and contract digest.
-- [x] AC-014: A dedicated post-evidence final-validation PASS references that exact snapshot.
+- [x] AC-014: A dedicated final-validation-accepted PASS references its exact attempt and snapshot.
 - [x] AC-015: Review refuses ordinary validation, missing/mismatched snapshots, dirty worktrees, and changed HEADs.
 - [x] AC-016: Every canonical identity field independently invalidates reuse; malformed identities fail closed.
 - [x] AC-017: Timeout and non-timeout exception persistence is centrally redacted and length bounded.
@@ -117,10 +125,13 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Cache authority | Append-only runtime events, never mutable evidence files alone. | 2026-07-13 |
 | Final log | Commit deterministic pre-final history, then record final PASS only in runtime events. | 2026-07-13 |
 | Tracked snapshot attribution | The log records only its watermark and digests; its commit/blob attribution lives in append-only runtime evidence. | 2026-07-13 |
-| Final validation kind | Use only `phase=post-evidence`, `kind=final-validation`; ordinary `validation` never satisfies review prerequisites. | 2026-07-13 |
+| Final validation kinds | Attempts audit every command result; only `final-validation-accepted/PASS` opens gates, while rejected and legacy events never do. | 2026-07-13 |
 | Approved repair cycle | Human approved fixes limited to snapshot attribution, dedicated final validation, centralized redaction, and identity mutation tests. | 2026-07-13 |
 | Process-group verification cycle | Human approved verification that reviewer children and grandchildren are gone after timeout, without extending the timeout or weakening gates. | 2026-07-13 |
 | Escaped-descendant recovery cycle | Human approved retained PID tracking for descendants that leave the original process group, explicit runtime-evidence identity binding, separated snapshot/finalization phases, and append-only diagnostic persistence tests. | 2026-07-13 |
+| Process isolation boundary | Guarantee the framework process group and observed controlled descendants with matching PID start identity; unknown pre-observation escapes are outside the portable guarantee and kernel containment is a future optional adapter. | 2026-07-13 |
+| Controlled descendant | A descendant PID observed by the framework and bound to its process-start identity, preventing PID-reuse termination. Known survivors require human review. | 2026-07-13 |
+| Accepted validation cycle | Human approved the attempt/accepted/rejected event model and a new bounded repair cycle after HEAD `6f97f320`; events 175 and 176 remain immutable legacy evidence. | 2026-07-13 |
 
 ## Scope
 

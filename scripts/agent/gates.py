@@ -7,7 +7,7 @@ from . import evidence_snapshot
 from .events import Event
 from .review import ReviewIdentity
 
-REQUIRED_GATES = ("final-validation", "weakening", "review", "ci")
+REQUIRED_GATES = ("final-validation-accepted", "weakening", "review", "ci")
 REQUIRED_REVIEW_SHARDS = (
     "spec-scope",
     "security",
@@ -56,14 +56,12 @@ def require_exact_validation(events: list[Event], head_sha: str) -> Event:
     for event in reversed(events):
         if (
             event.phase == "post-evidence"
-            and event.kind == "final-validation"
+            and event.kind == "final-validation-accepted"
             and event.result == "PASS"
             and event.head_sha == head_sha
         ):
             return event
-    raise ValueError(
-        f"No post-evidence final-validation PASS for current HEAD {head_sha}"
-    )
+    raise ValueError(f"No final-validation-accepted PASS for current HEAD {head_sha}")
 
 
 def require_pre_push(

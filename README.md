@@ -194,8 +194,9 @@ Tracked validation evidence is finalized before exact-HEAD validation. The log
 contains snapshot format and event schema versions, its included-event watermark,
 generation time, and validation-contract digest—but never its own commit SHA.
 After commit, a `tracked-evidence-snapshot` runtime event binds that HEAD to the
-log's Git blob SHA. A separate `post-evidence/final-validation` event records the
-validation result and references the snapshot. Review accepts neither ordinary
+log's Git blob SHA. Each command emits `final-validation-attempt`; only a fully
+attributed `final-validation-accepted/PASS` references that attempt and snapshot
+and opens gates. Review accepts neither ordinary, legacy, attempt, or rejected
 validation events nor mismatched blob, contract, event, HEAD, or dirty-worktree
 state. This avoids a self-referential tracked commit loop while preserving exact
 attribution.

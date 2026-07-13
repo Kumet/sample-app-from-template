@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:06:00.134612+00:00","included_event_sequence":174,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:31:21.231625+00:00","included_event_sequence":188,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -185,3 +185,17 @@ Final included event result: PASS.
 | 172 | review/review-shard | PASS | `2b33244c0df7` |  |
 | 173 | review/review-shard | PASS | `2b33244c0df7` |  |
 | 174 | review-remediation/timeout-classification-and-digest-enforcement | PASS | `2b33244c0df7` | New cycle loop 5: classify timeout by exception type, omit non-digest command identities, test escaped descendants, exact-HEAD review reuse invalidation, PID disappearance, and TERM ordering; make validate passed |
+| 175 | evidence/tracked-evidence-snapshot | PASS | `6f97f3200ee7` |  |
+| 176 | post-evidence/final-validation | PASS | `6f97f3200ee7` |  |
+| 177 | review/review-shard | PASS | `6f97f3200ee7` |  |
+| 178 | review/review-shard | PASS | `6f97f3200ee7` |  |
+| 179 | review/review-shard | PASS | `6f97f3200ee7` |  |
+| 180 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 181 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 182 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 183 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 184 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 185 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 186 | review/review-shard | FAIL | `6f97f3200ee7` |  |
+| 187 | clarification/human-approval | PASS | `6f97f3200ee7` | Previous cycle stopped at five loops on HEAD 6f97f320 with snapshot 175 and legacy final-validation 176; human approved the portable known-process boundary and attempt/accepted/rejected event model |
+| 188 | implementation/accepted-validation-model | PASS | `6f97f3200ee7` | New cycle loop 1: implemented PID-start-bound known process termination, HUMAN_REQUIRED survivors, attempt/accepted/rejected validation events, accepted-only gates and identity, docs and regression tests; make validate passed |

@@ -66,12 +66,12 @@ class ProductionReadyTests(unittest.TestCase):
                 result="PASS",
                 head_sha="abc",
             )
-            with self.assertRaisesRegex(ValueError, "post-evidence final-validation"):
+            with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
                 require_exact_validation(store.read(), "abc")
             store.append(
                 **common,
                 phase="post-evidence",
-                kind="final-validation",
+                kind="final-validation-accepted",
                 result="PASS",
                 head_sha="abc",
             )
@@ -84,7 +84,7 @@ class ProductionReadyTests(unittest.TestCase):
             )
             for shard in REQUIRED_REVIEW_SHARDS:
                 identity = ReviewIdentity(
-                    identity_schema_version="3",
+                    identity_schema_version="4",
                     feature="007-x",
                     head_sha="abc",
                     shard=shard,
@@ -102,7 +102,8 @@ class ProductionReadyTests(unittest.TestCase):
                     runtime_evidence_digest="7" * 64,
                     tracked_snapshot_event_sequence=1,
                     validation_log_blob_sha="b" * 40,
-                    final_validation_event_sequence=2,
+                    final_validation_attempt_event_sequence=2,
+                    final_validation_accepted_event_sequence=3,
                     final_validation_result_digest="5" * 64,
                 )
                 store.append(
@@ -133,7 +134,7 @@ class ProductionReadyTests(unittest.TestCase):
             self.assertEqual(
                 require_exact_validation(store.read(), "abc").head_sha, "abc"
             )
-            with self.assertRaisesRegex(ValueError, "post-evidence final-validation"):
+            with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
                 require_exact_validation(store.read(), "def")
 
     def test_validation_log_render_does_not_copy_future_final_event(self):
@@ -163,7 +164,7 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             identity = ReviewIdentity(
-                identity_schema_version="3",
+                identity_schema_version="4",
                 feature="007-x",
                 head_sha="abc",
                 shard="security",
@@ -181,7 +182,8 @@ class ProductionReadyTests(unittest.TestCase):
                 runtime_evidence_digest="7" * 64,
                 tracked_snapshot_event_sequence=1,
                 validation_log_blob_sha="b" * 40,
-                final_validation_event_sequence=2,
+                final_validation_attempt_event_sequence=2,
+                final_validation_accepted_event_sequence=3,
                 final_validation_result_digest="6" * 64,
             )
             passed = store.append(
@@ -368,7 +370,12 @@ class ProductionReadyTests(unittest.TestCase):
     def test_exact_sha_gates_fail_on_new_head(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
-            for kind in ("final-validation", "weakening", "review", "ci"):
+            for kind in (
+                "final-validation-accepted",
+                "weakening",
+                "review",
+                "ci",
+            ):
                 store.append(
                     feature="x",
                     repository="r",
@@ -383,7 +390,7 @@ class ProductionReadyTests(unittest.TestCase):
             report = evaluate_gates(store.read(), "def")
             self.assertEqual(
                 set(report.mismatched),
-                {"final-validation", "weakening", "review", "ci"},
+                {"final-validation-accepted", "weakening", "review", "ci"},
             )
             with self.assertRaisesRegex(ValueError, "not fully gated"):
                 require_mergeable(store.read(), "def")

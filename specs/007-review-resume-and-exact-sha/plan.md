@@ -38,12 +38,19 @@ session, terminates its group with TERM/KILL, and returns structured diagnostics
 Descendant PIDs are retained while the reviewer runs so processes that later
 leave the group can also be terminated. Runtime evidence has its own canonical
 identity digest rather than relying only on the complete prompt digest.
+The portable guarantee is limited to the framework-created process group and
+observed descendants whose PID start identity still matches. Known survivors
+fail closed; kernel containment and unknown pre-observation escapes are not
+claimed and remain a future optional-adapter concern.
 
 Tracked evidence is finalized and committed first. The resulting HEAD is
 validated without tracked writes, producing a runtime PASS event. Review then
 requires that event. Subsequent tracked changes fail the SHA gates.
 Snapshot commit and post-evidence validation use separate helpers so interrupted
 runs have an explicit recovery boundary.
+Every final command run appends an attempt event. A separate accepted PASS is
+emitted only after HEAD, snapshot, blob, contract, digest, and cleanliness checks;
+failed attribution appends a rejected event and never opens a gate.
 
 The tracked log is rendered as snapshot format version 2 with an included-event
 watermark and contract digest. After its commit, Git object identity is captured
