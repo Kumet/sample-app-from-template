@@ -155,6 +155,8 @@ def test_project_api_returns_404_for_missing_projects(
         ("/api/projects/1", {}),
         ("/api/projects/1", {"name": None}),
         ("/api/projects/1", {"name": "  "}),
+        ("/api/projects/1", {"name": "x" * 101}),
+        ("/api/projects/1", {"description": "x" * 1001}),
     ],
 )
 def test_project_api_returns_422_for_invalid_requests(
@@ -168,18 +170,30 @@ def test_project_api_returns_422_for_invalid_requests(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("method", "payload", "sql_keyword"),
+    [
+        ("get", None, "select"),
+        ("post", {"name": "Sample project"}, "insert"),
+    ],
+)
 def test_repository_failure_response_is_generic_and_sanitized(
     api_database: tuple[TestClient, Engine],
+    method: str,
+    payload: dict[str, object] | None,
+    sql_keyword: str,
 ) -> None:
     client, engine = api_database
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE projects"))
 
-    response = client.get("/api/projects")
+    request = getattr(client, method)
+    kwargs = {"json": payload} if payload is not None else {}
+    response = request("/api/projects", **kwargs)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "An unexpected persistence error occurred"}
     response_text = response.text.lower()
     assert "sqlite" not in response_text
-    assert "select" not in response_text
+    assert sql_keyword not in response_text
     assert "api.sqlite3" not in response_text
