@@ -53,6 +53,9 @@ from project_board.infrastructure import create_database_engine, initialize_sche
 
 engine = create_database_engine(sys.argv[2])
 try:
+    tables_before_initialization = inspect(engine).get_table_names()
+    assert tables_before_initialization == [], tables_before_initialization
+
     initialize_schema(engine)
     print(*inspect(engine).get_table_names(), sep="\\n")
 finally:
