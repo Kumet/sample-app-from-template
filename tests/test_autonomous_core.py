@@ -326,6 +326,140 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(run.call_count, 4)
             process_group.assert_not_called()
 
+    def test_empty_review_paths_preserve_fixed_inputs_and_execute(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"], cwd=repo, check=True
+            )
+            feature = repo / "specs" / "011-test"
+            feature.mkdir(parents=True)
+            (repo / "prompts").mkdir()
+            (repo / "schemas").mkdir()
+            template = (
+                Path(__file__).resolve().parents[1] / "prompts" / "review-feature.md"
+            )
+            (repo / "prompts" / "review-feature.md").write_text(
+                template.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            schema = (
+                Path(__file__).resolve().parents[1]
+                / "schemas"
+                / "review-result.schema.json"
+            )
+            (repo / "schemas" / "review-result.schema.json").write_text(
+                schema.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            artifacts = {
+                "spec.md": "SPEC-FIXED\n",
+                "plan.md": "PLAN-FIXED\n",
+                "tasks.md": "TASKS-FIXED\n",
+                "validation.toml": "version=2\n",
+                "validation-log.md": "VALIDATION-FIXED\n",
+            }
+            for name, value in artifacts.items():
+                (feature / name).write_text(value, encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "a.py").write_text("A-base\n", encoding="utf-8")
+            (repo / "src" / "b.py").write_text("B-base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "switch", "-qc", "feature/011-test"], cwd=repo, check=True
+            )
+            (repo / "src" / "a.py").write_text("A-change\n", encoding="utf-8")
+            (repo / "src" / "b.py").write_text("B-change\n", encoding="utf-8")
+            subprocess.run(["git", "add", "src"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "change"], cwd=repo, check=True)
+
+            runtime = '[{"kind":"final-validation-accepted"}]'
+            with mock.patch(
+                "agent.review.subprocess.run", wraps=subprocess.run
+            ) as git_run:
+                empty = review.prepare_review(
+                    repo,
+                    feature,
+                    "security [1/1]",
+                    (),
+                    runtime,
+                    EVIDENCE_FIELDS,
+                )
+            diff_commands = [
+                call.args[0]
+                for call in git_run.call_args_list
+                if call.args and call.args[0][:2] == ["git", "diff"]
+            ]
+            self.assertEqual(len(diff_commands), 1)
+            self.assertEqual(diff_commands[0][2], "--name-only")
+            self.assertNotIn("--", diff_commands[0])
+            self.assertNotIn("--no-ext-diff", diff_commands[0])
+            self.assertIn("<git-diff>\n\n</git-diff>", empty.prompt)
+            self.assertNotIn("A-change", empty.prompt)
+            self.assertNotIn("B-change", empty.prompt)
+            for marker in (*artifacts.values(), runtime):
+                self.assertIn(marker.strip(), empty.prompt)
+            fixed_files = {
+                f"specs/011-test/{name}" for name in artifacts
+            } | {"prompts/review-feature.md", "schemas/review-result.schema.json"}
+            self.assertEqual(set(empty.identity.reviewed_files), fixed_files)
+
+            focused = review.prepare_reviews(
+                repo,
+                feature,
+                "security",
+                runtime,
+                EVIDENCE_FIELDS,
+            )
+            self.assertEqual(len(focused), 1)
+            self.assertIn("<git-diff>\n\n</git-diff>", focused[0].prompt)
+
+            selected = review.prepare_review(
+                repo,
+                feature,
+                review_paths=("src/a.py",),
+                runtime_evidence_text=runtime,
+                evidence_fields=EVIDENCE_FIELDS,
+            )
+            self.assertIn("A-change", selected.prompt)
+            self.assertNotIn("B-change", selected.prompt)
+            self.assertIn("src/a.py", selected.identity.reviewed_files)
+
+            complete = review.prepare_review(
+                repo,
+                feature,
+                review_paths=None,
+                runtime_evidence_text=runtime,
+                evidence_fields=EVIDENCE_FIELDS,
+            )
+            self.assertIn("A-change", complete.prompt)
+            self.assertIn("B-change", complete.prompt)
+
+            completed = subprocess.CompletedProcess(
+                [], 0, '{"result":"pass","findings":[]}', ""
+            )
+            budget = delivery.ReviewCallBudget(1)
+            with mock.patch(
+                "agent.review.run_process_group", return_value=completed
+            ) as process_group:
+                result, _ = budget.run(lambda: review.run_prepared(repo, empty))
+            self.assertEqual(result.result, "pass")
+            self.assertEqual(budget.used, 1)
+            process_group.assert_called_once()
+
+            (feature / "spec.md").write_text(
+                "x" * review.MAX_REVIEW_INPUT_CHARS, encoding="utf-8"
+            )
+            with self.assertRaisesRegex(RuntimeError, "Fixed independent review input"):
+                review.prepare_reviews(
+                    repo, feature, "security", runtime, EVIDENCE_FIELDS
+                )
+
     def test_review_identity_changes_with_head_and_complete_input(self):
         identity = review_identity()
         same = review.ReviewIdentity(**identity.__dict__)
