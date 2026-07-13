@@ -1,14 +1,54 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
+import signal
 import subprocess
-from dataclasses import dataclass
+import threading
+import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .evidence import redact, redact_value
 from .weakening import Finding
 
-
 MAX_REVIEW_INPUT_CHARS = 100_000
+REVIEW_TIMEOUT_SECONDS = 600
+REVIEW_SCHEMA_VERSION = "1"
+REVIEW_PROMPT_VERSION = "2"
+REVIEW_MODEL = "gpt-5.4-mini"
+REVIEW_IDENTITY_SCHEMA_VERSION = "4"
+REVIEW_IDENTITY_FIELDS = (
+    "identity_schema_version",
+    "feature",
+    "head_sha",
+    "shard",
+    "review_schema_version",
+    "prompt_version",
+    "reviewer_model",
+    "reviewer_command_identity",
+    "review_settings",
+    "reviewed_files",
+    "spec_digest",
+    "plan_digest",
+    "tasks_digest",
+    "validation_contract_digest",
+    "diff_input_digest",
+    "runtime_evidence_digest",
+    "tracked_snapshot_event_sequence",
+    "validation_log_blob_sha",
+    "final_validation_attempt_event_sequence",
+    "final_validation_accepted_event_sequence",
+    "final_validation_result_digest",
+)
+MODEL_SETTINGS = (
+    f"model={REVIEW_MODEL}",
+    "approval_policy=never",
+    "model_reasoning_effort=low",
+    "sandbox=read-only",
+)
 
 
 @dataclass(frozen=True)
@@ -18,10 +58,125 @@ class ReviewResult:
 
     @property
     def required_findings(self) -> tuple[Finding, ...]:
-        return tuple(f for f in self.findings if f.required and f.severity == "high")
+        return tuple(f for f in self.findings if f.required)
 
     def signature(self) -> str:
         return json.dumps([f.__dict__ for f in self.required_findings], sort_keys=True)
+
+
+@dataclass(frozen=True)
+class ReviewIdentity:
+    identity_schema_version: str
+    feature: str
+    head_sha: str
+    shard: str
+    review_schema_version: str
+    prompt_version: str
+    reviewer_model: str
+    reviewer_command_identity: str
+    review_settings: tuple[str, ...]
+    reviewed_files: tuple[str, ...]
+    spec_digest: str
+    plan_digest: str
+    tasks_digest: str
+    validation_contract_digest: str
+    diff_input_digest: str
+    runtime_evidence_digest: str
+    tracked_snapshot_event_sequence: int
+    validation_log_blob_sha: str
+    final_validation_attempt_event_sequence: int
+    final_validation_accepted_event_sequence: int
+    final_validation_result_digest: str
+
+    def __post_init__(self):
+        if self.identity_schema_version != REVIEW_IDENTITY_SCHEMA_VERSION:
+            raise ValueError("Unknown review identity schema version")
+        object.__setattr__(self, "reviewed_files", tuple(sorted(self.reviewed_files)))
+        if not all(
+            isinstance(value, str) and value
+            for key, value in self.payload().items()
+            if key
+            not in {
+                "review_settings",
+                "reviewed_files",
+                "tracked_snapshot_event_sequence",
+                "final_validation_attempt_event_sequence",
+                "final_validation_accepted_event_sequence",
+            }
+        ):
+            raise ValueError("Review identity text fields must be non-empty strings")
+        if not all(isinstance(value, str) for value in self.review_settings):
+            raise ValueError("Review settings must be strings")
+        if not all(isinstance(value, str) for value in self.reviewed_files):
+            raise ValueError("Reviewed files must be strings")
+        if (
+            self.tracked_snapshot_event_sequence < 1
+            or self.final_validation_attempt_event_sequence < 1
+            or self.final_validation_accepted_event_sequence < 1
+        ):
+            raise ValueError("Review evidence sequences must be positive integers")
+
+    def payload(self) -> dict:
+        return {
+            "identity_schema_version": self.identity_schema_version,
+            "feature": self.feature,
+            "head_sha": self.head_sha,
+            "shard": self.shard,
+            "review_schema_version": self.review_schema_version,
+            "prompt_version": self.prompt_version,
+            "reviewer_model": self.reviewer_model,
+            "reviewer_command_identity": self.reviewer_command_identity,
+            "review_settings": list(self.review_settings),
+            "reviewed_files": list(self.reviewed_files),
+            "spec_digest": self.spec_digest,
+            "plan_digest": self.plan_digest,
+            "tasks_digest": self.tasks_digest,
+            "validation_contract_digest": self.validation_contract_digest,
+            "diff_input_digest": self.diff_input_digest,
+            "runtime_evidence_digest": self.runtime_evidence_digest,
+            "tracked_snapshot_event_sequence": self.tracked_snapshot_event_sequence,
+            "validation_log_blob_sha": self.validation_log_blob_sha,
+            "final_validation_attempt_event_sequence": (
+                self.final_validation_attempt_event_sequence
+            ),
+            "final_validation_accepted_event_sequence": (
+                self.final_validation_accepted_event_sequence
+            ),
+            "final_validation_result_digest": self.final_validation_result_digest,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> ReviewIdentity:
+        if set(payload) != set(REVIEW_IDENTITY_FIELDS):
+            raise ValueError("Review identity fields are incomplete or unknown")
+        values = dict(payload)
+        if not isinstance(values["review_settings"], (list, tuple)) or not isinstance(
+            values["reviewed_files"], (list, tuple)
+        ):
+            raise ValueError("Review identity list fields have invalid types")
+        values["review_settings"] = tuple(values["review_settings"])
+        values["reviewed_files"] = tuple(values["reviewed_files"])
+        return cls(**values)
+
+    @property
+    def digest(self) -> str:
+        return _digest(self.payload())
+
+
+@dataclass(frozen=True)
+class PreparedReview:
+    identity: ReviewIdentity
+    prompt: str
+    command: tuple[str, ...]
+
+
+class ReviewTimeout(RuntimeError):
+    def __init__(self, diagnostic: dict):
+        self.diagnostic = diagnostic
+        super().__init__(
+            f"Independent review shard {diagnostic['shard']} timed out after "
+            f"{diagnostic['configured_timeout']} seconds"
+        )
 
 
 def parse_review(text: str) -> ReviewResult:
@@ -41,7 +196,9 @@ def parse_review(text: str) -> ReviewResult:
             raise ValueError("Review finding has invalid fields")
         if value["severity"] not in {"low", "medium", "high"}:
             raise ValueError("Review finding has invalid severity")
-        if not all(isinstance(value[k], str) for k in ("category", "file", "description")):
+        if not all(
+            isinstance(value[k], str) for k in ("category", "file", "description")
+        ):
             raise ValueError("Review finding text fields are invalid")
         if not isinstance(value["required"], bool):
             raise ValueError("Review required field must be boolean")
@@ -52,23 +209,74 @@ def parse_review(text: str) -> ReviewResult:
     return result
 
 
-def run_review(repo: Path, feature_dir: Path, review_focus: str = "complete") -> tuple[ReviewResult, str, str]:
+def prepare_review(
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    review_paths: tuple[str, ...] | None = None,
+    runtime_evidence_text: str = "[]",
+    evidence_fields: dict | None = None,
+) -> PreparedReview:
+    if evidence_fields is None:
+        raise ValueError("Review requires validated evidence identity fields")
     template = (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
-    base = subprocess.run(["git", "merge-base", "main", "HEAD"], cwd=repo, text=True,
-                          capture_output=True, check=False, timeout=30)
+    base = subprocess.run(
+        ["git", "merge-base", "main", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
     if base.returncode:
         raise RuntimeError(f"Cannot determine review base: {base.stderr[-1000:]}")
     feature_path = str(feature_dir.relative_to(repo))
-    patch = subprocess.run(["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD",
-                            "--", ".", f":(exclude){feature_path}/**"],
-                           cwd=repo, text=True, capture_output=True, check=False, timeout=60)
+    pathspec = (
+        list(review_paths)
+        if review_paths is not None
+        else [".", f":(exclude){feature_path}/**"]
+    )
+    patch = subprocess.run(
+        ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", *pathspec],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
     if patch.returncode:
         raise RuntimeError(f"Cannot create review diff: {patch.stderr[-1000:]}")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if head.returncode:
+        raise RuntimeError(f"Cannot determine review HEAD: {head.stderr[-1000:]}")
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", base.stdout.strip(), "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    if changed.returncode:
+        raise RuntimeError(f"Cannot determine reviewed files: {changed.stderr[-1000:]}")
     inputs = {
         "spec_text": (feature_dir / "spec.md").read_text(encoding="utf-8"),
         "plan_text": (feature_dir / "plan.md").read_text(encoding="utf-8"),
         "tasks_text": (feature_dir / "tasks.md").read_text(encoding="utf-8"),
-        "validation_text": (feature_dir / "validation-log.md").read_text(encoding="utf-8"),
+        "validation_text": (feature_dir / "validation-log.md").read_text(
+            encoding="utf-8"
+        ),
+        "validation_contract_text": (feature_dir / "validation.toml").read_text(
+            encoding="utf-8"
+        ),
+        "runtime_evidence_text": runtime_evidence_text,
         "diff_text": patch.stdout,
     }
     input_size = sum(len(value) for value in inputs.values())
@@ -82,20 +290,593 @@ def run_review(repo: Path, feature_dir: Path, review_focus: str = "complete") ->
         plan_path=feature_dir.relative_to(repo) / "plan.md",
         tasks_path=feature_dir.relative_to(repo) / "tasks.md",
         review_focus=review_focus,
+        review_guidance=_review_guidance(review_focus),
         **inputs,
     )
-    command = ["codex", "exec", "--sandbox", "read-only", "-c", 'approval_policy="never"',
-               "-c", 'model_reasoning_effort="low"',
-               "--ephemeral", "--cd", str(repo), "--output-schema",
-               str(repo / "schemas" / "review-result.schema.json"), "-"]
-    try:
-        completed = subprocess.run(command, input=prompt, cwd=repo, text=True,
-                                   capture_output=True, check=False, timeout=300)
-    except subprocess.TimeoutExpired as error:
-        raise RuntimeError("Independent review timed out after 300 seconds") from error
+    command = (
+        "codex",
+        "exec",
+        "--model",
+        REVIEW_MODEL,
+        "--sandbox",
+        "read-only",
+        "-c",
+        'approval_policy="never"',
+        "-c",
+        'model_reasoning_effort="low"',
+        "--ephemeral",
+        "--cd",
+        str(repo),
+        "--output-schema",
+        str(repo / "schemas" / "review-result.schema.json"),
+        "-",
+    )
+    changed_files = (
+        review_paths if review_paths is not None else tuple(changed.stdout.splitlines())
+    )
+    reviewed_files = tuple(
+        sorted(
+            set(changed_files)
+            | {
+                str(feature_dir.relative_to(repo) / name)
+                for name in (
+                    "spec.md",
+                    "plan.md",
+                    "tasks.md",
+                    "validation.toml",
+                    "validation-log.md",
+                )
+            }
+            | {"prompts/review-feature.md", "schemas/review-result.schema.json"}
+        )
+    )
+    identity = ReviewIdentity(
+        REVIEW_IDENTITY_SCHEMA_VERSION,
+        feature_dir.name,
+        head.stdout.strip(),
+        review_focus,
+        REVIEW_SCHEMA_VERSION,
+        REVIEW_PROMPT_VERSION,
+        REVIEW_MODEL,
+        _digest({"command": list(command)}),
+        MODEL_SETTINGS,
+        reviewed_files,
+        hashlib.sha256(inputs["spec_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["plan_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["tasks_text"].encode()).hexdigest(),
+        hashlib.sha256(inputs["validation_contract_text"].encode()).hexdigest(),
+        hashlib.sha256(
+            prompt.encode("utf-8")
+            + (repo / "schemas" / "review-result.schema.json").read_bytes()
+        ).hexdigest(),
+        hashlib.sha256(runtime_evidence_text.encode("utf-8")).hexdigest(),
+        int(evidence_fields["tracked_snapshot_event_sequence"]),
+        str(evidence_fields["validation_log_blob_sha"]),
+        int(evidence_fields["final_validation_attempt_event_sequence"]),
+        int(evidence_fields["final_validation_accepted_event_sequence"]),
+        str(evidence_fields["final_validation_result_digest"]),
+    )
+    return PreparedReview(identity, prompt, command)
+
+
+def _review_guidance(focus: str) -> str:
+    name = focus.split(" ", 1)[0]
+    guidance = {
+        "spec-scope": (
+            "Check only specification compliance, approved scope, traceability, "
+            "and whether the supplied evidence is attributable to this HEAD."
+        ),
+        "security": (
+            "Check only security, privacy, secret exposure, process isolation, "
+            "redaction, and fail-closed approval behavior."
+        ),
+        "tests": (
+            "Check only test strength, missing required cases, test weakening, "
+            "and whether assertions prove the stated behavior."
+        ),
+        "maintainability": (
+            "Check only maintainability, bounded complexity, diagnostics, "
+            "documentation, and operational recovery behavior."
+        ),
+        "integration": (
+            "Check only cross-file integration, ordering, identity/SHA consistency, "
+            "and end-to-end gate composition."
+        ),
+    }
+    return guidance.get(name, "Check only the named review focus.")
+
+
+def prepare_reviews(
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    runtime_evidence_text: str = "[]",
+    evidence_fields: dict | None = None,
+) -> tuple[PreparedReview, ...]:
+    fixed_input_chars = sum(
+        len((feature_dir / name).read_text(encoding="utf-8"))
+        for name in (
+            "spec.md",
+            "plan.md",
+            "tasks.md",
+            "validation.toml",
+            "validation-log.md",
+        )
+    )
+    fixed_input_chars += len(runtime_evidence_text)
+    fixed_input_chars += len(
+        (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
+    )
+    fixed_input_chars += (repo / "schemas" / "review-result.schema.json").stat().st_size
+    max_patch_chars = MAX_REVIEW_INPUT_CHARS - fixed_input_chars - 8_000
+    if max_patch_chars < 10_000:
+        raise RuntimeError("Fixed independent review input exceeds size policy")
+    base = subprocess.run(
+        ["git", "merge-base", "main", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if base.returncode:
+        raise RuntimeError(f"Cannot determine review base: {base.stderr[-1000:]}")
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", base.stdout.strip(), "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    feature_prefix = str(feature_dir.relative_to(repo)) + "/"
+    paths = [
+        path
+        for path in changed.stdout.splitlines()
+        if not path.startswith(feature_prefix)
+    ]
+    paths = _paths_for_focus(paths, review_focus)
+    chunks: list[tuple[str, ...]] = []
+    current: list[str] = []
+    size = 0
+    for path in paths:
+        item = subprocess.run(
+            ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", path],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        if item.returncode:
+            raise RuntimeError(
+                f"Cannot create review diff for {path}: {item.stderr[-1000:]}"
+            )
+        if len(item.stdout) > max_patch_chars:
+            raise RuntimeError(f"Unsplittable review input exceeds policy: {path}")
+        if current and size + len(item.stdout) > max_patch_chars:
+            chunks.append(tuple(current))
+            current, size = [], 0
+        current.append(path)
+        size += len(item.stdout)
+    if current or not chunks:
+        chunks.append(tuple(current))
+    total = len(chunks)
+    return tuple(
+        prepare_review(
+            repo,
+            feature_dir,
+            f"{review_focus} [{index}/{total}]",
+            chunk,
+            runtime_evidence_text,
+            evidence_fields,
+        )
+        for index, chunk in enumerate(chunks, 1)
+    )
+
+
+def render_runtime_evidence(events, head_sha: str) -> str:
+    data_allowlist = {
+        "validation": {"command_identity", "result_digest"},
+        "weakening": {"findings"},
+        "tracked-evidence-snapshot": {
+            "log_path",
+            "log_blob_sha",
+            "included_event_sequence",
+            "validation_contract_digest",
+            "snapshot_format_version",
+        },
+        "final-validation-attempt": {
+            "snapshot_event_sequence",
+            "exact_head_sha",
+            "validation_log_path",
+            "validation_log_blob_sha",
+            "validation_contract_digest",
+            "command_identity",
+            "started_at",
+            "completed_at",
+            "result_digest",
+        },
+        "final-validation-accepted": {
+            "attempt_event_sequence",
+            "snapshot_event_sequence",
+            "exact_head_sha",
+            "validation_log_path",
+            "validation_log_blob_sha",
+            "validation_contract_digest",
+            "command_identity",
+            "started_at",
+            "completed_at",
+            "result_digest",
+        },
+    }
+    allowed = []
+    for event in events:
+        if event.head_sha != head_sha or event.kind not in data_allowlist:
+            continue
+        source = event.data or {}
+        projected = {
+            key: source[key] for key in data_allowlist[event.kind] if key in source
+        }
+        if "command_identity" in projected and not re.fullmatch(
+            r"[0-9a-f]{64}", str(projected["command_identity"])
+        ):
+            projected.pop("command_identity")
+        allowed.append(
+            {
+                "sequence": event.sequence,
+                "kind": event.kind,
+                "result": event.result,
+                "head_sha": event.head_sha,
+                "data": redact_value(projected),
+            }
+        )
+    return json.dumps(allowed, sort_keys=True, separators=(",", ":"))
+
+
+def _paths_for_focus(paths: list[str], focus: str) -> list[str]:
+    tests = [path for path in paths if path.startswith("tests/")]
+    security_names = {
+        "scripts/agent/review.py",
+        "scripts/agent/delivery.py",
+        "scripts/agent/gates.py",
+        "scripts/agent/events.py",
+    }
+    security = [path for path in paths if path in security_names]
+    maintainability_names = {
+        "scripts/agent/work.py",
+        "scripts/agent/review_shards.py",
+        "README.md",
+        "docs/ai-operation.md",
+    }
+    maintainability = [path for path in paths if path in maintainability_names]
+    assigned = set(tests + security + maintainability)
+    if focus == "tests":
+        return tests
+    if focus == "security":
+        return security
+    if focus == "maintainability":
+        return maintainability
+    if focus == "spec-scope":
+        return [path for path in paths if path not in assigned]
+    return [path for path in paths if path.startswith("scripts/agent/")]
+
+
+def run_review(
+    repo: Path,
+    feature_dir: Path,
+    review_focus: str = "complete",
+    evidence_fields: dict | None = None,
+) -> tuple[ReviewResult, str, str]:
+    prepared = prepare_review(
+        repo, feature_dir, review_focus, evidence_fields=evidence_fields
+    )
+    result, stderr = run_prepared(repo, prepared)
+    return result, prepared.prompt, stderr
+
+
+def run_prepared(
+    repo: Path,
+    prepared: PreparedReview,
+    *,
+    timeout_seconds: float = REVIEW_TIMEOUT_SECONDS,
+    attempt: int = 1,
+) -> tuple[ReviewResult, str]:
+    if timeout_seconds > REVIEW_TIMEOUT_SECONDS:
+        raise ValueError("Review timeout exceeds the 600-second maximum")
+    completed = run_process_group(
+        prepared.command,
+        prepared.prompt,
+        repo,
+        timeout_seconds,
+        {
+            "shard": prepared.identity.shard,
+            "head_sha": prepared.identity.head_sha,
+            "attempt": attempt,
+            "input_digest": prepared.identity.diff_input_digest,
+        },
+    )
     if completed.returncode:
-        raise RuntimeError(f"Review Codex failed: {completed.stderr[-4000:]}")
-    return parse_review(completed.stdout), prompt, completed.stderr
+        raise RuntimeError(
+            "Review Codex failed: "
+            f"stdout={_safe_stream_tail(completed.stdout)}; "
+            f"stderr={_safe_stream_tail(completed.stderr)}"
+        )
+    return parse_review(completed.stdout), completed.stderr
+
+
+def run_process_group(
+    command: tuple[str, ...],
+    input_text: str,
+    cwd: Path,
+    timeout_seconds: float,
+    identity: dict,
+    *,
+    term_grace_seconds: float = 2.0,
+) -> subprocess.CompletedProcess[str]:
+    started = time.monotonic()
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        text=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    tracker = _DescendantTracker(process.pid)
+    tracker.start()
+    try:
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
+        tracker.stop()
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired as error:
+        process_group = process.pid
+        descendants = tracker.stop()
+        stdout = _output_text(error.output)
+        stderr = _output_text(error.stderr)
+        termination = "term"
+        _signal_process_group(process_group, signal.SIGTERM)
+        _signal_processes(descendants, signal.SIGTERM)
+        try:
+            tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
+        except subprocess.TimeoutExpired:
+            tail_out, tail_err = "", ""
+        if not _wait_for_targets_exit(process_group, descendants, term_grace_seconds):
+            termination = "kill"
+            _signal_process_group(process_group, signal.SIGKILL)
+            _signal_processes(descendants, signal.SIGKILL)
+            _wait_for_targets_exit(process_group, descendants, term_grace_seconds)
+        _reap_without_pipe_wait(process, term_grace_seconds)
+        surviving_pids = [
+            pid for pid, started in descendants.items() if _same_process(pid, started)
+        ]
+        group_survived = _process_group_exists(process_group)
+        group_terminated = not group_survived and not surviving_pids
+        diagnostic = {
+            **identity,
+            "configured_timeout": timeout_seconds,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "command_id": Path(command[0]).name + " " + command[1],
+            "prompt_chars": len(input_text),
+            "prompt_bytes": len(input_text.encode("utf-8")),
+            "stdout_tail": _safe_stream_tail(stdout + _output_text(tail_out)),
+            "stderr_tail": _safe_stream_tail(stderr + _output_text(tail_err)),
+            "process_status": "timeout",
+            "pid": process.pid,
+            "root_pid": process.pid,
+            "process_group_id": process_group,
+            "termination": termination,
+            "process_group_terminated": group_terminated,
+            "tracked_descendant_pids": sorted(descendants),
+            "observed_descendant_pids": sorted(descendants),
+            "term_targets": {
+                "process_group_id": process_group,
+                "pids": sorted(descendants),
+            },
+            "kill_targets": {
+                "process_group_id": process_group if termination == "kill" else None,
+                "pids": sorted(descendants) if termination == "kill" else [],
+            },
+            "termination_confirmed": group_terminated,
+            "known_survivors": (
+                ([f"pgid:{process_group}"] if group_survived else [])
+                + [f"pid:{pid}" for pid in surviving_pids]
+            ),
+        }
+        raise ReviewTimeout(diagnostic) from None
+
+
+def _process_group_exists(process_group: int) -> bool:
+    result = subprocess.run(
+        ["ps", "-axo", "pgid=,stat="],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    for line in result.stdout.splitlines():
+        values = line.split(maxsplit=1)
+        if (
+            len(values) == 2
+            and values[0].isdigit()
+            and int(values[0]) == process_group
+            and not values[1].startswith("Z")
+        ):
+            return True
+    return False
+
+
+def _signal_process_group(process_group: int, signal_value: signal.Signals) -> None:
+    try:
+        os.killpg(process_group, signal_value)
+    except (ProcessLookupError, PermissionError):
+        return
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _signal_processes(processes: dict[int, str], signal_value: signal.Signals) -> None:
+    for pid in sorted(processes, reverse=True):
+        if not _same_process(pid, processes[pid]):
+            continue
+        try:
+            os.kill(pid, signal_value)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
+def _wait_for_process_group_exit(process_group: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+    return True
+
+
+def _wait_for_targets_exit(
+    process_group: int, descendants: dict[int, str], timeout_seconds: float
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group) or any(
+        _same_process(pid, started) for pid, started in descendants.items()
+    ):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+    return True
+
+
+class _DescendantTracker:
+    """Best-effort PID tracking that retains children even after re-parenting."""
+
+    def __init__(self, root_pid: int):
+        self.root_pid = root_pid
+        self.seen: dict[int, str] = {}
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._sample()
+        self._thread.start()
+
+    def stop(self) -> dict[int, str]:
+        self._sample()
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self._sample()
+        return dict(self.seen)
+
+    def _run(self) -> None:
+        while not self._stop.wait(0.01):
+            self._sample()
+
+    def _sample(self) -> None:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,lstart="],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=2,
+        )
+        if result.returncode:
+            return
+        parents: dict[int, tuple[int, str]] = {}
+        for line in result.stdout.splitlines():
+            values = line.split(maxsplit=2)
+            if len(values) == 3 and values[0].isdigit() and values[1].isdigit():
+                parents[int(values[0])] = (int(values[1]), values[2].strip())
+        roots = {self.root_pid, *self.seen.keys()}
+        changed = True
+        while changed:
+            changed = False
+            for pid, (parent, started) in parents.items():
+                if pid != self.root_pid and parent in roots and pid not in self.seen:
+                    self.seen[pid] = started
+                    roots.add(pid)
+                    changed = True
+
+
+def _process_start(pid: int) -> str | None:
+    result = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    value = result.stdout.strip()
+    return value or None
+
+
+def _same_process(pid: int, started: str) -> bool:
+    if _process_start(pid) != started:
+        return False
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=2,
+    )
+    status = result.stdout.strip()
+    return bool(status) and not status.startswith("Z")
+
+
+def _output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _safe_stream_tail(value: str, limit: int = 2000) -> str:
+    safe_controls = "".join(
+        character if character in "\n\t" or ord(character) >= 32 else "?"
+        for character in value
+    )
+    return redact(safe_controls, limit)
+
+
+def _reap_without_pipe_wait(
+    process: subprocess.Popen[str], timeout_seconds: float
+) -> None:
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=timeout_seconds)
+
+
+def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:
+    combined = hashlib.sha256(
+        (prepared.identity.diff_input_digest + _digest(context)).encode("utf-8")
+    ).hexdigest()
+    return replace(
+        prepared, identity=replace(prepared.identity, diff_input_digest=combined)
+    )
+
+
+def _digest(value: dict) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def identity_set_digest(digests: list[str]) -> str:
+    return _digest({"review_identity_digests": sorted(digests)})
 
 
 def review_with_repairs(run_once, repair, max_attempts: int) -> ReviewResult:
@@ -107,7 +888,9 @@ def review_with_repairs(run_once, repair, max_attempts: int) -> ReviewResult:
             return result
         signature = result.signature()
         if signature == previous:
-            raise RuntimeError("Independent review repeated identical required findings")
+            raise RuntimeError(
+                "Independent review repeated identical required findings"
+            )
         previous = signature
         if attempt < limit:
             repair(result.required_findings)

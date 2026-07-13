@@ -183,6 +183,24 @@ available for repair or human review.
 For end-to-end delivery, the framework also provides a dry run and an isolated
 delivery workflow:
 
+Independent review is resumable but fail-closed. A shard result is reusable only
+when its feature, exact HEAD, shard, prompt/schema versions, model command,
+reviewed files, and complete input digest match and the authoritative runtime
+event records `PASS`. Failed, timed-out, invalid, or missing shards are rerun
+within both configured review budgets. Integration review runs only after every
+file-focused shard passes.
+
+Tracked validation evidence is finalized before exact-HEAD validation. The log
+contains snapshot format and event schema versions, its included-event watermark,
+generation time, and validation-contract digest—but never its own commit SHA.
+After commit, a `tracked-evidence-snapshot` runtime event binds that HEAD to the
+log's Git blob SHA. Each command emits `final-validation-attempt`; only a fully
+attributed `final-validation-accepted/PASS` references that attempt and snapshot
+and opens gates. Review accepts neither ordinary, legacy, attempt, or rejected
+validation events nor mismatched blob, contract, event, HEAD, or dirty-worktree
+state. This avoids a self-referential tracked commit loop while preserving exact
+attribution.
+
 ```bash
 make deliver-dry-run FEATURE=012-feature-name
 make deliver FEATURE=012-feature-name
