@@ -12,6 +12,7 @@ license = "MIT"
 authors = [{ name = "Local Project Board contributors" }]
 dependencies = [
   "fastapi>=0.115,<1",
+  "sqlalchemy>=2.0,<3",
   "uvicorn>=0.30,<1",
 ]
 
@@ -29,6 +30,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["src"]
 testpaths = ["tests/app"]
 
 [tool.ruff]
