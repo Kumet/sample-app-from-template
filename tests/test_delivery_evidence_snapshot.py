@@ -18,6 +18,7 @@ from agent.evidence_snapshot import (
 )
 from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
 from agent.review import ReviewIdentity
+from agent.review_shards import reusable_event
 from agent.validation import CommandResult
 
 
@@ -200,6 +201,8 @@ class EvidenceSnapshotTests(unittest.TestCase):
         ).stdout.strip()
         with self.assertRaisesRegex(ValueError, "tracked-evidence-snapshot"):
             require_pre_push(self.repo, self.feature, self.store.read(), new_head)
+        changed_identity = ReviewIdentity(**{**identity.__dict__, "head_sha": new_head})
+        self.assertIsNone(reusable_event(self.store.read(), changed_identity.digest))
 
     def test_ordinary_validation_does_not_satisfy_final_evidence(self):
         self._snapshot_commit()

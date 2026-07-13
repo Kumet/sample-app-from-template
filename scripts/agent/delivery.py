@@ -774,8 +774,9 @@ def record_review_failure_event(
 ):
     safe_error = safe_error_detail(error)
     signature = safe_error[-1000:]
+    is_timeout = isinstance(error, review.ReviewTimeout)
     diagnostic = {}
-    if isinstance(error, review.ReviewTimeout):
+    if is_timeout:
         allowed = {
             "shard",
             "head_sha",
@@ -804,7 +805,7 @@ def record_review_failure_event(
         worktree=worktree,
         phase="review",
         kind="review-shard",
-        result="TIMEOUT" if diagnostic else "INVALID",
+        result="TIMEOUT" if is_timeout else "INVALID",
         head_sha=head_sha,
         detail=safe_error,
         data={

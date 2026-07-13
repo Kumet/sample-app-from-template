@@ -446,6 +446,7 @@ class AutonomousCoreTests(unittest.TestCase):
             head_sha="abc",
             data={
                 "result_digest": "token=secret-value",
+                "command_identity": "python --token secret-value",
                 "unapproved_detail": "password=hunter2",
             },
         )
@@ -456,13 +457,14 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertNotIn("unapproved_detail", rendered)
         self.assertNotIn("secret-value", rendered)
         self.assertNotIn("hunter2", rendered)
+        self.assertNotIn("python --token", rendered)
 
     def test_timeout_terminates_local_process_group_and_records_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
             grandchild_path = Path(directory) / "grandchild.pid"
             child_program = (
-                "import subprocess,sys,time; "
+                "import os,subprocess,sys,time; time.sleep(0.05); os.setsid(); "
                 "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
                 f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
@@ -632,6 +634,22 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertNotIn("secret-value", serialized)
             self.assertIn("[REDACTED]", serialized)
             self.assertNotIn("identity", persisted.data)
+            empty_diagnostic_timeout = review.ReviewTimeout(diagnostic)
+            empty_diagnostic_timeout.diagnostic = {"unapproved": "token=hidden"}
+            second = delivery.record_review_failure_event(
+                store,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity=review_identity(),
+                attempt=2,
+                error=empty_diagnostic_timeout,
+            )
+            self.assertEqual(second.result, "TIMEOUT")
+            self.assertEqual(second.data["diagnostic"], {})
         self.assertEqual(review._output_text("text"), "text")
         self.assertEqual(review._output_text(None), "")
 

@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -275,7 +277,10 @@ class ProductionReadyTests(unittest.TestCase):
                 f"p=subprocess.Popen([sys.executable,'-c',{child_program!r}]); "
                 f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
-            with self.assertRaises(review.ReviewTimeout) as raised:
+            with (
+                mock.patch("agent.review.os.killpg", wraps=os.killpg) as killpg,
+                self.assertRaises(review.ReviewTimeout) as raised,
+            ):
                 review.run_process_group(
                     (sys.executable, "-c", parent_program),
                     "",
@@ -290,19 +295,23 @@ class ProductionReadyTests(unittest.TestCase):
                     term_grace_seconds=0.2,
                 )
             self.assertTrue(raised.exception.diagnostic["process_group_terminated"])
-            self.assertIn(raised.exception.diagnostic["termination"], {"term", "kill"})
+            self.assertEqual(raised.exception.diagnostic["termination"], "term")
+            self.assertEqual(
+                [call.args[1] for call in killpg.call_args_list if call.args[1]],
+                [signal.SIGSTOP, signal.SIGTERM, signal.SIGCONT],
+            )
             tracked = set(raised.exception.diagnostic["tracked_descendant_pids"])
             for path in (child_path, grandchild_path):
                 pid = int(path.read_text())
                 self.assertIn(pid, tracked)
-                for _ in range(20):
+                for _ in range(100):
                     status = subprocess.run(
                         ["ps", "-o", "stat=", "-p", str(pid)],
                         text=True,
                         capture_output=True,
                         check=False,
                     ).stdout.strip()
-                    if not status or status.startswith("Z"):
+                    if not status:
                         break
                     time.sleep(0.02)
                 else:

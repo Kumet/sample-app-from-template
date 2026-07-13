@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:00:57.602889+00:00","included_event_sequence":161,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:06:00.134612+00:00","included_event_sequence":174,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -172,3 +172,16 @@ Final included event result: PASS.
 | 159 | review/review-shard | PASS | `9807dad1eb40` |  |
 | 160 | review/review-shard | PASS | `9807dad1eb40` |  |
 | 161 | review-remediation/bounded-reap-and-diagnostic-allowlist | PASS | `9807dad1eb40` | New cycle loop 4: avoid post-kill pipe waits, centralize safe stdout/stderr tails, allowlist timeout event diagnostics, omit identity payloads, and prove ignored-TERM descendant-tree cleanup; make validate passed |
+| 162 | evidence/tracked-evidence-snapshot | PASS | `2b33244c0df7` |  |
+| 163 | post-evidence/final-validation | PASS | `2b33244c0df7` |  |
+| 164 | review/review-shard | PASS | `2b33244c0df7` |  |
+| 165 | review/review-shard | PASS | `2b33244c0df7` |  |
+| 166 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 167 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 168 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 169 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 170 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 171 | review/review-shard | FAIL | `2b33244c0df7` |  |
+| 172 | review/review-shard | PASS | `2b33244c0df7` |  |
+| 173 | review/review-shard | PASS | `2b33244c0df7` |  |
+| 174 | review-remediation/timeout-classification-and-digest-enforcement | PASS | `2b33244c0df7` | New cycle loop 5: classify timeout by exception type, omit non-digest command identities, test escaped descendants, exact-HEAD review reuse invalidation, PID disappearance, and TERM ordering; make validate passed |

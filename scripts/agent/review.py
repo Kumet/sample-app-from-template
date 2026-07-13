@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -473,19 +474,20 @@ def render_runtime_evidence(events, head_sha: str) -> str:
         if event.head_sha != head_sha or event.kind not in data_allowlist:
             continue
         source = event.data or {}
+        projected = {
+            key: source[key] for key in data_allowlist[event.kind] if key in source
+        }
+        if "command_identity" in projected and not re.fullmatch(
+            r"[0-9a-f]{64}", str(projected["command_identity"])
+        ):
+            projected.pop("command_identity")
         allowed.append(
             {
                 "sequence": event.sequence,
                 "kind": event.kind,
                 "result": event.result,
                 "head_sha": event.head_sha,
-                "data": redact_value(
-                    {
-                        key: source[key]
-                        for key in data_allowlist[event.kind]
-                        if key in source
-                    }
-                ),
+                "data": redact_value(projected),
             }
         )
     return json.dumps(allowed, sort_keys=True, separators=(",", ":"))
