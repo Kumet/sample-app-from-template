@@ -393,6 +393,24 @@ def prepare_reviews(
     runtime_evidence_text: str = "[]",
     evidence_fields: dict | None = None,
 ) -> tuple[PreparedReview, ...]:
+    fixed_input_chars = sum(
+        len((feature_dir / name).read_text(encoding="utf-8"))
+        for name in (
+            "spec.md",
+            "plan.md",
+            "tasks.md",
+            "validation.toml",
+            "validation-log.md",
+        )
+    )
+    fixed_input_chars += len(runtime_evidence_text)
+    fixed_input_chars += len(
+        (repo / "prompts" / "review-feature.md").read_text(encoding="utf-8")
+    )
+    fixed_input_chars += (repo / "schemas" / "review-result.schema.json").stat().st_size
+    max_patch_chars = MAX_REVIEW_INPUT_CHARS - fixed_input_chars - 8_000
+    if max_patch_chars < 10_000:
+        raise RuntimeError("Fixed independent review input exceeds size policy")
     base = subprocess.run(
         ["git", "merge-base", "main", "HEAD"],
         cwd=repo,
@@ -421,7 +439,6 @@ def prepare_reviews(
     chunks: list[tuple[str, ...]] = []
     current: list[str] = []
     size = 0
-    max_patch_chars = 70_000
     for path in paths:
         item = subprocess.run(
             ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", path],

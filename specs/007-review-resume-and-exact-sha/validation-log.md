@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:49:03.457136+00:00","included_event_sequence":230,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:55:29.548398+00:00","included_event_sequence":247,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -241,3 +241,20 @@ Final included event result: PASS.
 | 228 | review/review-shard | PASS | `373ec341a0ea` |  |
 | 229 | review/review-shard | PASS | `373ec341a0ea` |  |
 | 230 | review-remediation/production-gate-coverage | PASS | `373ec341a0ea` | New cycle loop 4: production-ready suite proves file-shard rerun invalidates integration and timeout diagnostics confirm no survivors alongside HUMAN_REQUIRED survivor coverage; make validate passed |
+| 231 | evidence/tracked-evidence-snapshot | PASS | `ea5fbd601ad7` |  |
+| 232 | post-evidence/final-validation-attempt | PASS | `ea5fbd601ad7` |  |
+| 233 | post-evidence/final-validation-accepted | PASS | `ea5fbd601ad7` |  |
+| 234 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 235 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 236 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 237 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 238 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 239 | review/review-shard | INVALID | `ea5fbd601ad7` | ValueError: Passing review cannot contain required high findings |
+| 240 | review/review-shard | FAIL | `ea5fbd601ad7` |  |
+| 241 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 242 | review/review-shard | INVALID | `ea5fbd601ad7` | ValueError: Passing review cannot contain required high findings |
+| 243 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 244 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 245 | review/review-shard | FAIL | `ea5fbd601ad7` |  |
+| 246 | review/review-shard | PASS | `ea5fbd601ad7` |  |
+| 247 | review-remediation/dynamic-review-chunk-budget | PASS | `ea5fbd601ad7` | New cycle loop 5: subtract fixed artifact/runtime/schema input from review budget and split integration patches into four complete subreviews below the 100k policy; make validate passed |
