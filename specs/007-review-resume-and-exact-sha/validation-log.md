@@ -286,3 +286,9 @@ Final included event result: PASS.
 | 273 | review/review-shard | FAIL | `b7d1d6a2eb54` |  |
 | 274 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
 | 275 | review-remediation/non-timeout-diagnostic-allowlist | PASS | `b7d1d6a2eb54` | Approved repair loop 1: persist only allowlisted structured metadata for non-timeout review failures; arbitrary exception and reviewer text are excluded. |
+
+## Authoritative template reconciliation
+
+Framework core matches template merge `4b782cbe1f85d5c944f2b889990ee78fcc9f67b4`.
+Only completed-status metadata was synchronized; this sample's append-only runtime
+history and application-specific configuration remain unchanged.
