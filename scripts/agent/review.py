@@ -236,16 +236,28 @@ def prepare_review(
         if review_paths is not None
         else [".", f":(exclude){feature_path}/**"]
     )
-    patch = subprocess.run(
-        ["git", "diff", "--no-ext-diff", base.stdout.strip(), "HEAD", "--", *pathspec],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
-    if patch.returncode:
-        raise RuntimeError(f"Cannot create review diff: {patch.stderr[-1000:]}")
+    if review_paths == ():
+        patch_text = ""
+    else:
+        patch = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--no-ext-diff",
+                base.stdout.strip(),
+                "HEAD",
+                "--",
+                *pathspec,
+            ],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        if patch.returncode:
+            raise RuntimeError(f"Cannot create review diff: {patch.stderr[-1000:]}")
+        patch_text = patch.stdout
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo,
@@ -277,7 +289,7 @@ def prepare_review(
             encoding="utf-8"
         ),
         "runtime_evidence_text": runtime_evidence_text,
-        "diff_text": patch.stdout,
+        "diff_text": patch_text,
     }
     input_size = sum(len(value) for value in inputs.values())
     if input_size > MAX_REVIEW_INPUT_CHARS:
