@@ -47,6 +47,17 @@ class FakeRunner:
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_review_call_budget_allows_eight_and_rejects_ninth(self):
+        budget = delivery_module.ReviewCallBudget(8)
+        reviewer = mock.Mock(return_value="pass")
+        for expected in range(1, 9):
+            self.assertEqual(budget.run(reviewer), "pass")
+            self.assertEqual(budget.used, expected)
+        self.assertEqual(reviewer.call_count, 8)
+        with self.assertRaisesRegex(RuntimeError, "call budget exhausted"):
+            budget.run(reviewer)
+        self.assertEqual(reviewer.call_count, 8)
+
     def _resumable_repo(self):
         temporary = tempfile.TemporaryDirectory()
         repo = Path(temporary.name)
