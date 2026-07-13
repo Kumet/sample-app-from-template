@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:37:58.951400+00:00","included_event_sequence":202,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:44:05.880317+00:00","included_event_sequence":216,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -213,3 +213,17 @@ Final included event result: PASS.
 | 200 | review/review-shard | FAIL | `44fb3f753922` |  |
 | 201 | review/review-shard | PASS | `44fb3f753922` |  |
 | 202 | review-remediation/latest-review-gate-and-coverage | PASS | `44fb3f753922` | New cycle loop 2: invalidate stale PASS on later non-PASS review events and strengthen termination diagnostics, append-only acceptance, tracked-commit, survivor and TERM/KILL tests; make validate passed |
+| 203 | evidence/tracked-evidence-snapshot | PASS | `b91bc4c0dc15` |  |
+| 204 | post-evidence/final-validation-attempt | PASS | `b91bc4c0dc15` |  |
+| 205 | post-evidence/final-validation-accepted | PASS | `b91bc4c0dc15` |  |
+| 206 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 207 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 208 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 209 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 210 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 211 | review/review-shard | FAIL | `b91bc4c0dc15` |  |
+| 212 | review/review-shard | FAIL | `b91bc4c0dc15` |  |
+| 213 | review/review-shard | FAIL | `b91bc4c0dc15` |  |
+| 214 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 215 | review/review-shard | PASS | `b91bc4c0dc15` |  |
+| 216 | review-remediation/survivor-and-gate-test-closure | PASS | `b91bc4c0dc15` | New cycle loop 3: directly test HUMAN_REQUIRED known survivors, diagnostic redaction, accepted-only pre-push, controlled PID TERM/KILL targeting and tracked-commit invalidation; make validate passed |

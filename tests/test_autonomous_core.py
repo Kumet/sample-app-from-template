@@ -666,6 +666,29 @@ class AutonomousCoreTests(unittest.TestCase):
             )
             self.assertEqual(second.result, "TIMEOUT")
             self.assertEqual(second.data["diagnostic"], {})
+            survivor_diagnostic = {
+                **diagnostic,
+                "known_survivors": ["pid:123"],
+                "termination_confirmed": False,
+                "unapproved": "password=hidden-value",
+            }
+            survivor = delivery.record_review_failure_event(
+                store,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity=review_identity(),
+                attempt=3,
+                error=review.ReviewTimeout(survivor_diagnostic),
+            )
+            self.assertEqual(survivor.result, "HUMAN_REQUIRED")
+            self.assertEqual(
+                survivor.data["diagnostic"]["known_survivors"], ["pid:123"]
+            )
+            self.assertNotIn("hidden-value", json.dumps(survivor.data))
         self.assertEqual(review._output_text("text"), "text")
         self.assertEqual(review._output_text(None), "")
 

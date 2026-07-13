@@ -89,6 +89,7 @@ class ProductionReadyTests(unittest.TestCase):
                 "configured_timeout": 1,
                 "known_survivors": ["pid:123"],
                 "termination_confirmed": False,
+                "unapproved": "token=secret-value",
             }
             event = record_review_failure_event(
                 store,
@@ -104,6 +105,8 @@ class ProductionReadyTests(unittest.TestCase):
             )
             self.assertEqual(event.result, "HUMAN_REQUIRED")
             self.assertEqual(event.data["diagnostic"]["known_survivors"], ["pid:123"])
+            self.assertNotIn("secret-value", str(event.data))
+            self.assertNotIn("unapproved", event.data["diagnostic"])
 
     def test_exact_validation_and_review_shards_share_head(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -338,6 +341,7 @@ class ProductionReadyTests(unittest.TestCase):
             )
             with (
                 mock.patch("agent.review.os.killpg", wraps=os.killpg) as killpg,
+                mock.patch("agent.review.os.kill", wraps=os.kill) as kill_pid,
                 self.assertRaises(review.ReviewTimeout) as raised,
             ):
                 review.run_process_group(
@@ -368,6 +372,8 @@ class ProductionReadyTests(unittest.TestCase):
             for path in (child_path, grandchild_path):
                 pid = int(path.read_text())
                 self.assertIn(pid, tracked)
+                self.assertIn(mock.call(pid, signal.SIGTERM), kill_pid.call_args_list)
+                self.assertIn(mock.call(pid, signal.SIGKILL), kill_pid.call_args_list)
                 for _ in range(100):
                     status = subprocess.run(
                         ["ps", "-o", "stat=", "-p", str(pid)],

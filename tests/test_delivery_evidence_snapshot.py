@@ -282,6 +282,8 @@ class EvidenceSnapshotTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
             require_final_evidence(self.repo, self.feature, self.store.read(), head)
+        with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
+            require_pre_push(self.repo, self.feature, self.store.read(), head)
 
     def test_attempt_is_audited_but_only_accepted_pass_opens_gate(self):
         snapshot = self._snapshot_commit()
