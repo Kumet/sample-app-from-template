@@ -33,22 +33,196 @@ def dry_run(repo: Path, feature: str, policy: RepositoryPolicy) -> dict:
     report = require_lint(feature_dir, policy)
     config = load_config(feature_dir, policy)
     tasks = parse_tasks(feature_dir / "tasks.md", set(config.commands))
+    inspection = inspect_delivery_worktree(
+        repo, feature_dir, config, tasks, policy.default_branch
+    )
     return {
         "feature": feature_dir.name,
         "risk": config.risk,
         "auto_merge_requested": config.auto_merge,
         "spec_warnings": list(report.warnings),
-        "pending_tasks": [t.task_id for t in tasks if not t.completed],
+        **inspection,
         "planned_mutations": [
-            "create isolated worktree",
+            inspection["worktree_action"],
             "run Codex tasks",
             "local commits",
-            "push feature branch",
-            "create/update PR",
-            "monitor CI",
-            "merge only when low-risk policy permits",
         ],
+        "planned_remote_mutations": (
+            []
+            if config.risk == "high"
+            else ["push-feature-branch", "create-or-update-pr", "monitor-ci"]
+        ),
+        "deferred_remote_mutations": (
+            ["push-feature-branch", "create-or-update-pr", "monitor-ci"]
+            if config.risk == "high"
+            else []
+        ),
+        "remote_mutation_blocker": (
+            "high-risk-pre-push-approval" if config.risk == "high" else None
+        ),
     }
+
+
+def inspect_delivery_worktree(
+    repo: Path, feature_dir: Path, config, tasks, default_branch: str | None = None
+) -> dict:
+    """Inspect delivery resume/create eligibility without changing any state."""
+    path = repo / ".agent-worktrees" / feature_dir.name
+    normalized_path = path.resolve(strict=False)
+    safe_start = git_utils.inspect_safe_start(repo, default_branch)
+    root_marker = repo / ".agent-worktree-owned"
+    blockers = list(safe_start.blocking_reasons)
+    if root_marker.exists():
+        blockers.append("repository root contains an ownership marker")
+    result = {
+        "worktree_action": "create-isolated-worktree",
+        "root_start_safe": safe_start.safe,
+        "root_branch": safe_start.branch,
+        "root_detached": safe_start.detached,
+        "root_dirty": safe_start.dirty,
+        "root_blocking_reasons": list(safe_start.blocking_reasons),
+        "worktree_path": str(normalized_path),
+        "expected_worktree_path": str(normalized_path),
+        "saved_worktree_path": None,
+        "saved_worktree_path_raw": None,
+        "worktree_path_match": None,
+        "worktree_exists": path.exists(),
+        "ownership_valid": None,
+        "marker_feature": None,
+        "state_status": None,
+        "state_failure_class": None,
+        "state_task": None,
+        "state_feature": None,
+        "saved_head": None,
+        "current_head": None,
+        "contract_match": None,
+        "branch_match": None,
+        "changed_paths_match": None,
+        "completed_tasks": [task.task_id for task in tasks if task.completed],
+        "pending_tasks": [task.task_id for task in tasks if not task.completed],
+        "resume_safe": False,
+        "blocking_reasons": blockers,
+    }
+    if not path.exists():
+        if worktree.is_registered_isolated(repo, path):
+            blockers.append("worktree is registered but its directory is missing")
+            result["worktree_action"] = "blocked-existing-worktree"
+        result["resume_safe"] = not blockers
+        return result
+    result["worktree_action"] = "blocked-existing-worktree"
+    eligible_action = None
+
+    if not worktree.is_registered_isolated(repo, path):
+        blockers.append("existing path is not a registered isolated worktree")
+    marker = path / ".agent-worktree-owned"
+    try:
+        marker_feature = worktree.read_ownership_marker(marker)
+    except FileNotFoundError:
+        marker_feature = None
+    except (OSError, UnicodeError, ValueError) as error:
+        blockers.append(f"ownership marker is unreadable: {type(error).__name__}")
+        marker_feature = None
+    result["marker_feature"] = marker_feature
+    result["ownership_valid"] = marker_feature == feature_dir.name
+    if not result["ownership_valid"]:
+        blockers.append("ownership marker is missing or names another feature")
+
+    try:
+        current_branch = git_utils.branch(path)
+        current_head = git_utils.run_git(path, ["rev-parse", "HEAD"]).stdout.strip()
+        changed_paths = git_utils.changed_paths_read_only(path)
+    except Exception as error:
+        blockers.append(f"worktree Git inspection failed: {type(error).__name__}")
+        current_branch, current_head, changed_paths = None, None, []
+    result["current_head"] = current_head
+
+    state_path = repo / ".agent-work" / feature_dir.name / "state.json"
+    try:
+        saved = state.read_state(state_path)
+    except Exception as error:
+        blockers.append(f"saved state is unavailable: {type(error).__name__}")
+        saved = None
+
+    isolated_feature = None
+    isolated_contract_digest = None
+    try:
+        isolated_feature = resolve_feature(path, feature_dir.name)
+        isolated_contract_digest = state.contract_digest(isolated_feature)
+        isolated_tasks = parse_tasks(
+            isolated_feature / "tasks.md", set(config.commands)
+        )
+        result["completed_tasks"] = [
+            task.task_id for task in isolated_tasks if task.completed
+        ]
+        result["pending_tasks"] = [
+            task.task_id for task in isolated_tasks if not task.completed
+        ]
+    except Exception as error:
+        blockers.append(f"worktree feature inspection failed: {type(error).__name__}")
+
+    if saved is not None:
+        result.update(
+            {
+                "state_status": saved.status,
+                "state_failure_class": saved.failure_class,
+                "state_task": saved.task,
+                "state_feature": saved.feature,
+                "saved_head": saved.head_commit,
+                "saved_worktree_path_raw": saved.worktree,
+                "branch_match": saved.branch == current_branch,
+                "changed_paths_match": tuple(sorted(saved.changed_paths))
+                == tuple(sorted(changed_paths)),
+            }
+        )
+        result["contract_match"] = (
+            isolated_contract_digest is not None
+            and saved.contract_digest == isolated_contract_digest
+        )
+        if saved.feature != feature_dir.name:
+            blockers.append("saved state names another feature")
+        try:
+            saved_path = Path(saved.worktree)
+            normalized_saved_path = saved_path.resolve(strict=False)
+            result["saved_worktree_path"] = str(normalized_saved_path)
+            result["worktree_path_match"] = (
+                saved_path.is_absolute()
+                and saved_path == path.absolute()
+                and saved_path.exists()
+                and normalized_saved_path == normalized_path
+            )
+        except (OSError, RuntimeError):
+            result["worktree_path_match"] = False
+        if not result["worktree_path_match"]:
+            blockers.append("saved state names another worktree")
+        if not result["branch_match"]:
+            blockers.append("worktree branch differs from saved state")
+        if not result["contract_match"]:
+            blockers.append("feature contract differs from saved state")
+        if not result["changed_paths_match"]:
+            blockers.append("changed paths differ from saved state")
+        if saved.status == "complete":
+            eligible_action = "reuse-completed-worktree"
+            ancestor = (
+                git_utils.run_git(
+                    path,
+                    ["merge-base", "--is-ancestor", saved.head_commit, current_head],
+                    check=False,
+                )
+                if current_head
+                else None
+            )
+            if ancestor is None or ancestor.returncode or changed_paths:
+                blockers.append("completed worktree history or files changed")
+        elif saved.status in {"running", "failed"}:
+            eligible_action = "resume-existing-worktree"
+            if saved.head_commit != current_head:
+                blockers.append("worktree HEAD differs from saved state")
+        else:
+            blockers.append(f"state status {saved.status} is not resumable")
+    result["resume_safe"] = not blockers
+    if result["resume_safe"] and eligible_action is not None:
+        result["worktree_action"] = eligible_action
+    return result
 
 
 def deliver(
@@ -58,49 +232,25 @@ def deliver(
     work_function,
     github_factory=GitHubDelivery,
 ) -> dict:
-    git_utils.ensure_safe_start(repo)
+    git_utils.ensure_safe_start(repo, policy.default_branch)
     feature_dir = resolve_feature(repo, feature)
     require_lint(feature_dir, policy)
     config = load_config(feature_dir, policy)
+    tasks = parse_tasks(feature_dir / "tasks.md", set(config.commands))
     event_store = EventStore(repo / ".agent-work" / feature_dir.name / "events.jsonl")
     existing_path = repo / ".agent-worktrees" / feature_dir.name
-    resuming = existing_path.exists()
+    inspection = inspect_delivery_worktree(
+        repo, feature_dir, config, tasks, policy.default_branch
+    )
+    if not inspection["resume_safe"]:
+        raise RuntimeError(
+            "Delivery worktree is unsafe: " + "; ".join(inspection["blocking_reasons"])
+        )
+    resuming = inspection["worktree_exists"]
     if resuming:
-        marker = existing_path / ".agent-worktree-owned"
-        if (
-            not marker.is_file()
-            or marker.read_text(encoding="utf-8").strip() != feature_dir.name
-        ):
-            raise RuntimeError("Existing worktree is not framework-owned")
         isolated = worktree.Worktree(existing_path, git_utils.branch(existing_path))
         saved = state.read_state(repo / ".agent-work" / feature_dir.name / "state.json")
         isolated_feature = resolve_feature(existing_path, feature_dir.name)
-        current_head = git_utils.run_git(
-            existing_path, ["rev-parse", "HEAD"]
-        ).stdout.strip()
-        if saved.status == "complete":
-            if (
-                saved.branch != isolated.branch
-                or saved.contract_digest != state.contract_digest(isolated_feature)
-            ):
-                raise RuntimeError("Completed worktree branch or contract changed")
-            ancestor = git_utils.run_git(
-                existing_path,
-                ["merge-base", "--is-ancestor", saved.head_commit, current_head],
-                check=False,
-            )
-            if ancestor.returncode or git_utils.changed_paths(existing_path):
-                raise RuntimeError(
-                    "Completed worktree has unrelated history or changes"
-                )
-        else:
-            state.verify_resume(
-                saved,
-                isolated.branch,
-                current_head,
-                state.contract_digest(isolated_feature),
-                git_utils.changed_paths(existing_path),
-            )
     else:
         isolated = worktree.create(repo, feature_dir.name, git_utils.branch(repo))
     try:
