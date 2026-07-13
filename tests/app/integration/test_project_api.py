@@ -74,8 +74,13 @@ def test_project_list_is_ordered_by_creation_time_then_id(
     first = client.post("/api/projects", json={"name": "First"}).json()
     second = client.post("/api/projects", json={"name": "Second"}).json()
     third = client.post("/api/projects", json={"name": "Third"}).json()
+    reassigned_second_id = second["id"] + 100
 
     with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE projects SET id = :new_id WHERE id = :old_id"),
+            {"new_id": reassigned_second_id, "old_id": second["id"]},
+        )
         connection.execute(
             text(
                 "UPDATE projects SET created_at = :created_at "
@@ -83,7 +88,7 @@ def test_project_list_is_ordered_by_creation_time_then_id(
             ),
             {
                 "created_at": "2025-01-02 00:00:00.000000",
-                "second_id": second["id"],
+                "second_id": reassigned_second_id,
                 "third_id": third["id"],
             },
         )
@@ -98,11 +103,13 @@ def test_project_list_is_ordered_by_creation_time_then_id(
     response = client.get("/api/projects")
 
     assert response.status_code == 200
-    assert [project["id"] for project in response.json()] == [
+    projects = response.json()
+    assert [project["id"] for project in projects] == [
         first["id"],
-        second["id"],
         third["id"],
+        reassigned_second_id,
     ]
+    assert [project["name"] for project in projects] == ["First", "Third", "Second"]
 
 
 @pytest.mark.parametrize("method", ["get", "patch", "delete"])

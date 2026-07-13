@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from project_board.domain import Project, RepositoryError
@@ -85,13 +86,31 @@ def test_failed_write_rolls_back_and_raises_stable_error(
 ) -> None:
     repository = SQLAlchemyProjectRepository(session)
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-    session.execute(text("DROP TABLE projects"))
-    session.commit()
+    flushed_row_counts: list[int | None] = []
+
+    def fail_after_write_is_flushed(
+        flushed_session: Session, _flush_context: object
+    ) -> None:
+        flushed_row_counts.append(
+            flushed_session.scalar(select(func.count()).select_from(ProjectModel))
+        )
+        raise SQLAlchemyError("forced failure after write flush")
+
+    event.listen(
+        session, "after_flush_postexec", fail_after_write_is_flushed, once=True
+    )
 
     with pytest.raises(RepositoryError, match="persistence operation failed") as caught:
         repository.create(make_project(name="Will fail", created_at=timestamp))
 
     assert caught.value.args == ("Project persistence operation failed",)
+    assert flushed_row_counts == [1]
     assert session.in_transaction() is False
     assert not session.new
-    assert ProjectModel.__tablename__ == "projects"
+
+    with create_session_factory(isolated_engine)() as verification_session:
+        persisted_count = verification_session.scalar(
+            select(func.count()).select_from(ProjectModel)
+        )
+
+    assert persisted_count == 0
