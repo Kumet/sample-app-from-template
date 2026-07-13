@@ -1,11 +1,11 @@
 # Validation log: 001-project-crud
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T04:32:20.934047+00:00","included_event_sequence":14,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T05:14:18.895225+00:00","included_event_sequence":17,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
 ## Summary
 
-Final included event result: PASS.
+Final included event result: FAIL.
 
 ## Runs
 
@@ -25,3 +25,6 @@ Final included event result: PASS.
 | 12 | task/task-complete | PASS | `19ac10bd36fc` | T006 |
 | 13 | task/task-complete | PASS | `3977e55cd70d` | T007 |
 | 14 | final/validation | PASS | `b7a24e1a2bef` |  |
+| 15 | evidence/tracked-evidence-snapshot | PASS | `132b67c54bb2` |  |
+| 16 | post-evidence/final-validation-attempt | PASS | `132b67c54bb2` |  |
+| 17 | post-evidence/final-validation-rejected | FAIL | `132b67c54bb2` | Final-validation acceptance requires a clean worktree |
