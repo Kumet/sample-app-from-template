@@ -374,7 +374,14 @@ def require_final_evidence(
 
 
 def snapshot_metadata(path: Path) -> dict:
-    first = path.read_text(encoding="utf-8").splitlines()[1]
+    return snapshot_metadata_text(path.read_text(encoding="utf-8"))
+
+
+def snapshot_metadata_text(text: str) -> dict:
+    lines = text.splitlines()
+    if len(lines) < 2:
+        raise ValueError("Validation log snapshot metadata is missing")
+    first = lines[1]
     prefix = "<!-- validation-snapshot:"
     if not first.startswith(prefix) or not first.endswith(" -->"):
         raise ValueError("Validation log snapshot metadata is missing")

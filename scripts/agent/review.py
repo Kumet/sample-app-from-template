@@ -11,13 +11,14 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from . import evidence_snapshot
 from .evidence import redact, redact_value
 from .weakening import Finding
 
 MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
-REVIEW_PROMPT_VERSION = "2"
+REVIEW_PROMPT_VERSION = "3"
 REVIEW_MODEL = "gpt-5.4-mini"
 REVIEW_IDENTITY_SCHEMA_VERSION = "4"
 REVIEW_IDENTITY_FIELDS = (
@@ -291,6 +292,13 @@ def prepare_review(
         "runtime_evidence_text": runtime_evidence_text,
         "diff_text": patch_text,
     }
+    inputs["evidence_semantics_text"] = render_evidence_semantics(
+        inputs["validation_text"],
+        inputs["validation_contract_text"],
+        runtime_evidence_text,
+        evidence_fields,
+        head.stdout.strip(),
+    )
     input_size = sum(len(value) for value in inputs.values())
     if input_size > MAX_REVIEW_INPUT_CHARS:
         raise RuntimeError(
@@ -369,6 +377,152 @@ def prepare_review(
         str(evidence_fields["final_validation_result_digest"]),
     )
     return PreparedReview(identity, prompt, command)
+
+
+def render_evidence_semantics(
+    validation_text: str,
+    validation_contract_text: str,
+    runtime_evidence_text: str,
+    evidence_fields: dict,
+    head_sha: str,
+) -> str:
+    """Render the mechanically checked tracked/runtime evidence interpretation."""
+    rules = {
+        "tracked_log_role": "pre-final snapshot through included_event_sequence",
+        "post_evidence_storage": "append-only runtime evidence outside tracked log",
+        "post_watermark_absence_from_log_is_stale": False,
+        "gate_authority": "final-validation-accepted/PASS only",
+        "stale_finding_requires_actual_mismatch": [
+            "included_event_sequence",
+            "validation_log_blob_sha",
+            "validation_contract_digest",
+            "exact_head_sha",
+            "snapshot_event_sequence",
+            "attempt_event_sequence",
+            "result_digest",
+        ],
+    }
+    try:
+        events = json.loads(runtime_evidence_text)
+    except json.JSONDecodeError as error:
+        raise ValueError("Runtime review evidence is invalid JSON") from error
+    if not isinstance(events, list) or not all(
+        isinstance(item, dict) for item in events
+    ):
+        raise ValueError("Runtime review evidence must be an event array")
+    lifecycle_kinds = {
+        "tracked-evidence-snapshot",
+        "final-validation-attempt",
+        "final-validation-accepted",
+    }
+    if not any(item.get("kind") in lifecycle_kinds for item in events):
+        raise ValueError("Runtime review evidence lifecycle is incomplete")
+    sequences = [item.get("sequence") for item in events]
+    if not all(
+        isinstance(sequence, int) and not isinstance(sequence, bool) and sequence >= 1
+        for sequence in sequences
+    ):
+        raise ValueError("Runtime review evidence sequence is invalid")
+    if len(set(sequences)) != len(sequences):
+        raise ValueError("Runtime review evidence sequence is duplicated")
+    snapshot_sequence = int(evidence_fields["tracked_snapshot_event_sequence"])
+    attempt_sequence = int(evidence_fields["final_validation_attempt_event_sequence"])
+    accepted_sequence = int(evidence_fields["final_validation_accepted_event_sequence"])
+    by_sequence = {item.get("sequence"): item for item in events}
+    try:
+        snapshot = by_sequence[snapshot_sequence]
+        attempt = by_sequence[attempt_sequence]
+        accepted = by_sequence[accepted_sequence]
+    except KeyError as error:
+        raise ValueError("Runtime review evidence lifecycle is incomplete") from error
+    metadata = evidence_snapshot.snapshot_metadata_text(validation_text)
+    snapshot_data = snapshot.get("data") or {}
+    attempt_data = attempt.get("data") or {}
+    accepted_data = accepted.get("data") or {}
+    log_blob = str(evidence_fields["validation_log_blob_sha"])
+    result_digest = str(evidence_fields["final_validation_result_digest"])
+    contract_digest = hashlib.sha256(validation_contract_text.encode()).hexdigest()
+
+    checks = (
+        (snapshot.get("kind"), "tracked-evidence-snapshot", "snapshot kind"),
+        (attempt.get("kind"), "final-validation-attempt", "attempt kind"),
+        (accepted.get("kind"), "final-validation-accepted", "accepted kind"),
+        (snapshot.get("sequence"), snapshot_sequence, "snapshot sequence"),
+        (attempt.get("sequence"), attempt_sequence, "attempt sequence"),
+        (accepted.get("sequence"), accepted_sequence, "accepted sequence"),
+        (snapshot.get("result"), "PASS", "snapshot result"),
+        (attempt.get("result"), "PASS", "attempt result"),
+        (accepted.get("result"), "PASS", "accepted result"),
+        (snapshot.get("head_sha"), head_sha, "snapshot HEAD"),
+        (attempt.get("head_sha"), head_sha, "attempt HEAD"),
+        (accepted.get("head_sha"), head_sha, "accepted HEAD"),
+        (
+            snapshot_data.get("included_event_sequence"),
+            metadata.get("included_event_sequence"),
+            "snapshot watermark",
+        ),
+        (snapshot_data.get("log_blob_sha"), log_blob, "snapshot log blob"),
+        (
+            snapshot_data.get("validation_contract_digest"),
+            contract_digest,
+            "snapshot contract digest",
+        ),
+        (
+            metadata.get("validation_contract_digest"),
+            contract_digest,
+            "validation-log contract digest",
+        ),
+        (
+            attempt_data.get("snapshot_event_sequence"),
+            snapshot_sequence,
+            "attempt snapshot reference",
+        ),
+        (attempt_data.get("exact_head_sha"), head_sha, "attempt exact HEAD"),
+        (attempt_data.get("validation_log_blob_sha"), log_blob, "attempt log blob"),
+        (
+            attempt_data.get("validation_contract_digest"),
+            contract_digest,
+            "attempt contract digest",
+        ),
+        (attempt_data.get("result_digest"), result_digest, "attempt result digest"),
+        (
+            accepted_data.get("snapshot_event_sequence"),
+            snapshot_sequence,
+            "accepted snapshot reference",
+        ),
+        (
+            accepted_data.get("attempt_event_sequence"),
+            attempt_sequence,
+            "accepted attempt reference",
+        ),
+        (accepted_data.get("exact_head_sha"), head_sha, "accepted exact HEAD"),
+        (accepted_data.get("validation_log_blob_sha"), log_blob, "accepted log blob"),
+        (
+            accepted_data.get("validation_contract_digest"),
+            contract_digest,
+            "accepted contract digest",
+        ),
+        (accepted_data.get("result_digest"), result_digest, "accepted result digest"),
+    )
+    for actual, expected, label in checks:
+        if actual != expected:
+            raise ValueError(f"Review evidence {label} mismatch")
+    return json.dumps(
+        {
+            "model": "tracked-pre-final-plus-runtime-v1",
+            "status": "mechanically-verified",
+            "validation_log_watermark": metadata["included_event_sequence"],
+            "tracked_snapshot_event_sequence": snapshot_sequence,
+            "final_validation_attempt_event_sequence": attempt_sequence,
+            "final_validation_accepted_event_sequence": accepted_sequence,
+            "validation_log_blob_sha": log_blob,
+            "exact_head_sha": head_sha,
+            "validation_result_digest": result_digest,
+            **rules,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _review_guidance(focus: str) -> str:
@@ -583,10 +737,15 @@ def run_review(
     repo: Path,
     feature_dir: Path,
     review_focus: str = "complete",
+    runtime_evidence_text: str = "[]",
     evidence_fields: dict | None = None,
 ) -> tuple[ReviewResult, str, str]:
     prepared = prepare_review(
-        repo, feature_dir, review_focus, evidence_fields=evidence_fields
+        repo,
+        feature_dir,
+        review_focus,
+        runtime_evidence_text=runtime_evidence_text,
+        evidence_fields=evidence_fields,
     )
     result, stderr = run_prepared(repo, prepared)
     return result, prepared.prompt, stderr

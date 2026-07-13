@@ -580,31 +580,142 @@ class EvidenceSnapshotTests(unittest.TestCase):
             capture_output=True,
             check=True,
         ).stdout.strip()
-        self.store.append(
-            feature=self.feature.name,
+        non_authoritative = (
+            ("validation", "PASS", {}),
+            (
+                "final-validation",
+                "PASS",
+                {"evidence_snapshot_event_sequence": snapshot.sequence},
+            ),
+            (
+                "legacy-final-validation",
+                "PASS",
+                {"evidence_snapshot_event_sequence": snapshot.sequence},
+            ),
+            (
+                "final-validation-attempt",
+                "PASS",
+                {"snapshot_event_sequence": snapshot.sequence},
+            ),
+            (
+                "final-validation-rejected",
+                "FAIL",
+                {"snapshot_event_sequence": snapshot.sequence},
+            ),
+        )
+        for index, (kind, result, data) in enumerate(non_authoritative):
+            with self.subTest(kind=kind):
+                isolated_store = EventStore(
+                    Path(self.temp.name) / f"non-authoritative-{index}.jsonl"
+                )
+                isolated_store.append(
+                    feature=snapshot.feature,
+                    repository=snapshot.repository,
+                    branch=snapshot.branch,
+                    worktree=snapshot.worktree,
+                    phase=snapshot.phase,
+                    kind=snapshot.kind,
+                    result=snapshot.result,
+                    head_sha=snapshot.head_sha,
+                    detail=snapshot.detail,
+                    data=snapshot.data,
+                )
+                isolated_store.append(
+                    feature=self.feature.name,
+                    repository=str(self.repo),
+                    branch="test",
+                    worktree=str(self.repo),
+                    phase="post-evidence",
+                    kind=kind,
+                    result=result,
+                    head_sha=head,
+                    data=data,
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "final-validation-accepted"
+                ):
+                    require_final_evidence(
+                        self.repo, self.feature, isolated_store.read(), head
+                    )
+
+        failed_acceptance_store = EventStore(
+            Path(self.temp.name) / "failed-acceptance.jsonl"
+        )
+        failed_acceptance_store.append(
+            feature=snapshot.feature,
+            repository=snapshot.repository,
+            branch=snapshot.branch,
+            worktree=snapshot.worktree,
+            phase=snapshot.phase,
+            kind=snapshot.kind,
+            result=snapshot.result,
+            head_sha=snapshot.head_sha,
+            detail=snapshot.detail,
+            data=snapshot.data,
+        )
+        failed_attempt = record_final_validation_attempt(
+            failed_acceptance_store,
+            repo=self.repo,
+            feature_dir=self.feature,
             repository=str(self.repo),
             branch="test",
             worktree=str(self.repo),
-            phase="final",
-            kind="validation",
-            result="PASS",
-            head_sha=head,
+            snapshot=snapshot,
+            result=CommandResult("full", ("make", "validate"), 0, "ok", ""),
+            started_at=utc_now(),
+            completed_at=utc_now(),
         )
-        self.store.append(
+        failed_acceptance_store.append(
             feature=self.feature.name,
             repository=str(self.repo),
             branch="test",
             worktree=str(self.repo),
             phase="post-evidence",
-            kind="final-validation",
-            result="PASS",
+            kind="final-validation-accepted",
+            result="FAIL",
             head_sha=head,
-            data={"evidence_snapshot_event_sequence": snapshot.sequence},
+            data={
+                **(failed_attempt.data or {}),
+                "attempt_event_sequence": failed_attempt.sequence,
+            },
         )
-        with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
-            require_final_evidence(self.repo, self.feature, self.store.read(), head)
+        with self.assertRaisesRegex(
+            ValueError, "Missing final-validation-accepted PASS"
+        ):
+            require_final_evidence(
+                self.repo, self.feature, failed_acceptance_store.read(), head
+            )
         with self.assertRaisesRegex(ValueError, "final-validation-accepted"):
             require_pre_push(self.repo, self.feature, self.store.read(), head)
+
+        attempt = record_final_validation_attempt(
+            self.store,
+            repo=self.repo,
+            feature_dir=self.feature,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            snapshot=snapshot,
+            result=CommandResult("full", ("make", "validate"), 0, "ok", ""),
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        accepted = record_final_validation_accepted(
+            self.store,
+            repo=self.repo,
+            feature_dir=self.feature,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            snapshot=snapshot,
+            attempt=attempt,
+        )
+        binding = require_final_evidence(
+            self.repo, self.feature, self.store.read(), head
+        )
+        self.assertEqual(
+            binding.final_validation_accepted_event_sequence, accepted.sequence
+        )
 
     def test_attempt_is_audited_but_only_accepted_pass_opens_gate(self):
         snapshot = self._snapshot_commit()
