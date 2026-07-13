@@ -30,6 +30,19 @@ other repository files; evaluate only this bounded input.
 {runtime_evidence_text}
 </runtime-evidence>
 
+<evidence-semantics>
+{evidence_semantics_text}
+</evidence-semantics>
+
+Evidence interpretation is normative: validation-log is a tracked pre-final
+snapshot only through its watermark. The snapshot event itself and later
+post-evidence events intentionally remain in append-only runtime evidence to
+avoid a self-referential tracked commit. Their absence from validation-log is
+normal and is not, by itself, stale evidence. Report stale or unattributable
+evidence only for an actual mismatch named by the mechanically verified
+evidence-semantics object. Only final-validation-accepted/PASS opens the gate;
+attempt-only, rejected, ordinary validation, and legacy events do not.
+
 <git-diff>
 {diff_text}
 </git-diff>
