@@ -22,6 +22,7 @@ from agent.gates import (
     evaluate_gates,
     require_exact_validation,
     require_mergeable,
+    require_pre_push,
 )
 from agent.notifications import github_comment, payload, stdout_json, write_outbox
 from agent.quality import validate as validate_quality
@@ -56,6 +57,76 @@ from agent.work import _scope_paths
 
 
 class ProductionReadyTests(unittest.TestCase):
+    def test_file_shard_rerun_invalidates_earlier_integration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            common = dict(
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                phase="review",
+                head_sha="abc",
+            )
+            store.append(**common, kind="weakening", result="PASS")
+            aggregates = {}
+            for shard in REQUIRED_REVIEW_SHARDS:
+                identity = ReviewIdentity(
+                    identity_schema_version="4",
+                    feature="007-x",
+                    head_sha="abc",
+                    shard=shard,
+                    review_schema_version="1",
+                    prompt_version="2",
+                    reviewer_model="gpt-5.4-mini",
+                    reviewer_command_identity="c" * 64,
+                    review_settings=("model=gpt-5.4-mini",),
+                    reviewed_files=("file.py",),
+                    spec_digest="1" * 64,
+                    plan_digest="2" * 64,
+                    tasks_digest="3" * 64,
+                    validation_contract_digest="4" * 64,
+                    diff_input_digest=f"input-{shard}",
+                    runtime_evidence_digest="6" * 64,
+                    tracked_snapshot_event_sequence=1,
+                    validation_log_blob_sha="b" * 40,
+                    final_validation_attempt_event_sequence=2,
+                    final_validation_accepted_event_sequence=3,
+                    final_validation_result_digest="7" * 64,
+                )
+                store.append(
+                    **common,
+                    kind="review-shard",
+                    result="PASS",
+                    data={
+                        "shard": shard,
+                        "identity_digest": identity.digest,
+                        "identity": identity.payload(),
+                    },
+                )
+                aggregates[shard] = store.append(
+                    **common,
+                    kind="review-shard",
+                    result="PASS",
+                    data={
+                        "shard": shard,
+                        "aggregate": True,
+                        "chunk_identities": [identity.digest],
+                    },
+                )
+            with mock.patch("agent.gates.evidence_snapshot.require_final_evidence"):
+                require_pre_push(Path(directory), Path(directory), store.read(), "abc")
+                store.append(
+                    **common,
+                    kind="review-shard",
+                    result="PASS",
+                    data=aggregates["security"].data,
+                )
+                with self.assertRaisesRegex(ValueError, "Integration review predates"):
+                    require_pre_push(
+                        Path(directory), Path(directory), store.read(), "abc"
+                    )
+
     def test_known_reviewer_survivor_requires_human(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
@@ -358,6 +429,8 @@ class ProductionReadyTests(unittest.TestCase):
                     term_grace_seconds=0.2,
                 )
             self.assertTrue(raised.exception.diagnostic["process_group_terminated"])
+            self.assertTrue(raised.exception.diagnostic["termination_confirmed"])
+            self.assertEqual(raised.exception.diagnostic["known_survivors"], [])
             self.assertEqual(raised.exception.diagnostic["termination"], "kill")
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],

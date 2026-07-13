@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:44:05.880317+00:00","included_event_sequence":216,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:49:03.457136+00:00","included_event_sequence":230,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -227,3 +227,17 @@ Final included event result: PASS.
 | 214 | review/review-shard | PASS | `b91bc4c0dc15` |  |
 | 215 | review/review-shard | PASS | `b91bc4c0dc15` |  |
 | 216 | review-remediation/survivor-and-gate-test-closure | PASS | `b91bc4c0dc15` | New cycle loop 3: directly test HUMAN_REQUIRED known survivors, diagnostic redaction, accepted-only pre-push, controlled PID TERM/KILL targeting and tracked-commit invalidation; make validate passed |
+| 217 | evidence/tracked-evidence-snapshot | PASS | `373ec341a0ea` |  |
+| 218 | post-evidence/final-validation-attempt | PASS | `373ec341a0ea` |  |
+| 219 | post-evidence/final-validation-accepted | PASS | `373ec341a0ea` |  |
+| 220 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 221 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 222 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 223 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 224 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 225 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 226 | review/review-shard | FAIL | `373ec341a0ea` |  |
+| 227 | review/review-shard | FAIL | `373ec341a0ea` |  |
+| 228 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 229 | review/review-shard | PASS | `373ec341a0ea` |  |
+| 230 | review-remediation/production-gate-coverage | PASS | `373ec341a0ea` | New cycle loop 4: production-ready suite proves file-shard rerun invalidates integration and timeout diagnostics confirm no survivors alongside HUMAN_REQUIRED survivor coverage; make validate passed |
