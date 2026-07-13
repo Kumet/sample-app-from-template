@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:31:21.231625+00:00","included_event_sequence":188,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:37:58.951400+00:00","included_event_sequence":202,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -199,3 +199,17 @@ Final included event result: PASS.
 | 186 | review/review-shard | FAIL | `6f97f3200ee7` |  |
 | 187 | clarification/human-approval | PASS | `6f97f3200ee7` | Previous cycle stopped at five loops on HEAD 6f97f320 with snapshot 175 and legacy final-validation 176; human approved the portable known-process boundary and attempt/accepted/rejected event model |
 | 188 | implementation/accepted-validation-model | PASS | `6f97f3200ee7` | New cycle loop 1: implemented PID-start-bound known process termination, HUMAN_REQUIRED survivors, attempt/accepted/rejected validation events, accepted-only gates and identity, docs and regression tests; make validate passed |
+| 189 | evidence/tracked-evidence-snapshot | PASS | `44fb3f753922` |  |
+| 190 | post-evidence/final-validation-attempt | PASS | `44fb3f753922` |  |
+| 191 | post-evidence/final-validation-accepted | PASS | `44fb3f753922` |  |
+| 192 | review/review-shard | PASS | `44fb3f753922` |  |
+| 193 | review/review-shard | PASS | `44fb3f753922` |  |
+| 194 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 195 | review/review-shard | PASS | `44fb3f753922` |  |
+| 196 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 197 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 198 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 199 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 200 | review/review-shard | FAIL | `44fb3f753922` |  |
+| 201 | review/review-shard | PASS | `44fb3f753922` |  |
+| 202 | review-remediation/latest-review-gate-and-coverage | PASS | `44fb3f753922` | New cycle loop 2: invalidate stale PASS on later non-PASS review events and strengthen termination diagnostics, append-only acceptance, tracked-commit, survivor and TERM/KILL tests; make validate passed |

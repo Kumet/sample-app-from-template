@@ -79,20 +79,32 @@ def require_pre_push(
     if weakening is None or weakening.result != "PASS":
         raise ValueError("No weakening PASS event for current HEAD")
     aggregates = {}
+    latest_review_event = {}
     for event in events:
         data = event.data or {}
+        shard = data.get("shard")
         if (
             event.kind == "review-shard"
-            and event.result == "PASS"
+            and event.head_sha == head_sha
+            and shard in REQUIRED_REVIEW_SHARDS
+        ):
+            latest_review_event[shard] = event
+        if (
+            event.kind == "review-shard"
             and event.head_sha == head_sha
             and data.get("aggregate") is True
         ):
-            aggregates[data.get("shard")] = event
+            aggregates[shard] = event
     passed = set()
     for shard, aggregate in aggregates.items():
         identities = (aggregate.data or {}).get("chunk_identities") or []
-        if identities and all(
-            _valid_identity_pass(events, head_sha, value) for value in identities
+        if (
+            aggregate.result == "PASS"
+            and latest_review_event.get(shard) is aggregate
+            and identities
+            and all(
+                _valid_identity_pass(events, head_sha, value) for value in identities
+            )
         ):
             passed.add(shard)
     missing = set(REQUIRED_REVIEW_SHARDS) - passed

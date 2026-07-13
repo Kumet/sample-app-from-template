@@ -197,6 +197,26 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 },
             )
         require_pre_push(self.repo, self.feature, self.store.read(), head)
+        latest_security = next(
+            event
+            for event in reversed(self.store.read())
+            if (event.data or {}).get("shard") == "security"
+            and (event.data or {}).get("aggregate") is True
+        )
+        self.store.append(
+            **common,
+            kind="review-shard",
+            result="HUMAN_REQUIRED",
+            data={"shard": "security", "failure_signature": "survivor"},
+        )
+        with self.assertRaisesRegex(ValueError, "security"):
+            require_pre_push(self.repo, self.feature, self.store.read(), head)
+        self.store.append(
+            **common,
+            kind="review-shard",
+            result="PASS",
+            data=latest_security.data,
+        )
         latest_spec_scope = next(
             event
             for event in reversed(self.store.read())
@@ -301,6 +321,7 @@ class EvidenceSnapshotTests(unittest.TestCase):
             require_final_evidence(
                 self.repo, self.feature, self.store.read(), snapshot.head_sha
             )
+        before_acceptance = self.store.read()
         accepted = record_final_validation_accepted(
             self.store,
             repo=self.repo,
@@ -316,6 +337,11 @@ class EvidenceSnapshotTests(unittest.TestCase):
         )
         self.assertEqual(accepted.data["attempt_event_sequence"], attempt.sequence)
         self.assertEqual(accepted.data["snapshot_event_sequence"], snapshot.sequence)
+        after_acceptance = self.store.read()
+        self.assertEqual(after_acceptance[:-1], before_acceptance)
+        self.assertEqual(
+            after_acceptance[-1].sequence, before_acceptance[-1].sequence + 1
+        )
 
     def test_acceptance_mismatch_appends_rejection(self):
         snapshot = self._snapshot_commit()

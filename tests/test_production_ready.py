@@ -15,6 +15,7 @@ from agent.ci_tracking import WorkflowRun, normalize_status, require_log_sha, se
 from agent.contract_migration import preview as migration_preview
 from agent.contract_migration import render_v2
 from agent.doctor import Check, readiness
+from agent.delivery import record_review_failure_event
 from agent.events import EventStore, render_validation_log
 from agent.gates import (
     REQUIRED_REVIEW_SHARDS,
@@ -55,6 +56,55 @@ from agent.work import _scope_paths
 
 
 class ProductionReadyTests(unittest.TestCase):
+    def test_known_reviewer_survivor_requires_human(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            identity = ReviewIdentity(
+                identity_schema_version="4",
+                feature="007-x",
+                head_sha="abc",
+                shard="security",
+                review_schema_version="1",
+                prompt_version="2",
+                reviewer_model="gpt-5.4-mini",
+                reviewer_command_identity="c" * 64,
+                review_settings=("model=gpt-5.4-mini",),
+                reviewed_files=("file.py",),
+                spec_digest="1" * 64,
+                plan_digest="2" * 64,
+                tasks_digest="3" * 64,
+                validation_contract_digest="4" * 64,
+                diff_input_digest="5" * 64,
+                runtime_evidence_digest="6" * 64,
+                tracked_snapshot_event_sequence=1,
+                validation_log_blob_sha="b" * 40,
+                final_validation_attempt_event_sequence=2,
+                final_validation_accepted_event_sequence=3,
+                final_validation_result_digest="7" * 64,
+            )
+            diagnostic = {
+                "shard": "security",
+                "head_sha": "abc",
+                "attempt": 1,
+                "configured_timeout": 1,
+                "known_survivors": ["pid:123"],
+                "termination_confirmed": False,
+            }
+            event = record_review_failure_event(
+                store,
+                feature="007-x",
+                repository="repo",
+                branch="branch",
+                worktree="worktree",
+                head_sha="abc",
+                shard="security",
+                identity=identity,
+                attempt=1,
+                error=review.ReviewTimeout(diagnostic),
+            )
+            self.assertEqual(event.result, "HUMAN_REQUIRED")
+            self.assertEqual(event.data["diagnostic"]["known_survivors"], ["pid:123"])
+
     def test_exact_validation_and_review_shards_share_head(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
@@ -269,13 +319,20 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
             grandchild_path = Path(directory) / "grandchild.pid"
+            grandchild_program = (
+                "import signal,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+            )
             child_program = (
-                "import os,subprocess,sys,time; time.sleep(0.05); os.setsid(); "
-                "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+                "import os,signal,subprocess,sys,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "time.sleep(0.05); os.setsid(); "
+                f"p=subprocess.Popen([sys.executable,'-c',{grandchild_program!r}]); "
                 f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
             parent_program = (
-                "import subprocess,sys,time; "
+                "import signal,subprocess,sys,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
                 f"p=subprocess.Popen([sys.executable,'-c',{child_program!r}]); "
                 f"open({str(child_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
@@ -297,10 +354,15 @@ class ProductionReadyTests(unittest.TestCase):
                     term_grace_seconds=0.2,
                 )
             self.assertTrue(raised.exception.diagnostic["process_group_terminated"])
-            self.assertEqual(raised.exception.diagnostic["termination"], "term")
+            self.assertEqual(raised.exception.diagnostic["termination"], "kill")
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
-                [signal.SIGSTOP, signal.SIGTERM, signal.SIGCONT],
+                [
+                    signal.SIGSTOP,
+                    signal.SIGTERM,
+                    signal.SIGCONT,
+                    signal.SIGKILL,
+                ],
             )
             tracked = set(raised.exception.diagnostic["tracked_descendant_pids"])
             for path in (child_path, grandchild_path):
@@ -369,6 +431,25 @@ class ProductionReadyTests(unittest.TestCase):
 
     def test_exact_sha_gates_fail_on_new_head(self):
         with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            (repo / "tracked.txt").write_text("one", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "one"], cwd=repo, check=True)
+            old_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
             store = EventStore(Path(directory) / "events.jsonl")
             for kind in (
                 "final-validation-accepted",
@@ -384,16 +465,26 @@ class ProductionReadyTests(unittest.TestCase):
                     phase=kind,
                     kind=kind,
                     result="PASS",
-                    head_sha="abc",
+                    head_sha=old_head,
                 )
-            self.assertTrue(evaluate_gates(store.read(), "abc").passed)
-            report = evaluate_gates(store.read(), "def")
+            self.assertTrue(evaluate_gates(store.read(), old_head).passed)
+            (repo / "tracked.txt").write_text("two", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "two"], cwd=repo, check=True)
+            new_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            report = evaluate_gates(store.read(), new_head)
             self.assertEqual(
                 set(report.mismatched),
                 {"final-validation-accepted", "weakening", "review", "ci"},
             )
             with self.assertRaisesRegex(ValueError, "not fully gated"):
-                require_mergeable(store.read(), "def")
+                require_mergeable(store.read(), new_head)
 
     def test_quality_requires_explicit_reason(self):
         valid = {

@@ -507,6 +507,19 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertIsInstance(diagnostic["pid"], int)
             self.assertEqual(diagnostic["process_status"], "timeout")
             self.assertEqual(diagnostic["termination"], "term")
+            self.assertEqual(diagnostic["root_pid"], diagnostic["pid"])
+            self.assertEqual(diagnostic["process_group_id"], diagnostic["root_pid"])
+            self.assertEqual(
+                diagnostic["observed_descendant_pids"],
+                diagnostic["tracked_descendant_pids"],
+            )
+            self.assertEqual(
+                diagnostic["term_targets"]["process_group_id"],
+                diagnostic["process_group_id"],
+            )
+            self.assertEqual(diagnostic["kill_targets"]["pids"], [])
+            self.assertTrue(diagnostic["termination_confirmed"])
+            self.assertEqual(diagnostic["known_survivors"], [])
             self.assertNotIn("token-value", diagnostic["stderr_tail"])
             self.assertTrue(diagnostic["process_group_terminated"])
             self.assertEqual(
