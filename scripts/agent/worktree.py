@@ -106,6 +106,35 @@ def owns_registered_worktree(repo: Path, path: Path, feature: str) -> bool:
         return False
 
 
+def owns_current_worktree(path: Path, feature: str) -> bool:
+    """Verify that path is a framework-owned linked worktree for feature."""
+    repository = current_repository_root(path)
+    return repository is not None and owns_registered_worktree(
+        repository, path, feature
+    )
+
+
+def current_repository_root(path: Path) -> Path | None:
+    """Return the main repository root for a normal or linked worktree."""
+    try:
+        value = git_utils.run_git(path, ["rev-parse", "--git-common-dir"]).stdout.strip()
+        common = Path(value)
+        if not common.is_absolute():
+            common = path / common
+        common = common.resolve()
+        if common.name != ".git":
+            return None
+        return common.parent
+    except (OSError, RuntimeError):
+        return None
+
+
+def is_current_registered_isolated(path: Path) -> bool:
+    """Return whether path itself is a registered managed linked worktree."""
+    repository = current_repository_root(path)
+    return repository is not None and is_registered_isolated(repository, path)
+
+
 def remove_after_success(repo: Path, worktree: Worktree) -> None:
     marker = worktree.path / ".agent-worktree-owned"
     if not worktree.owned:

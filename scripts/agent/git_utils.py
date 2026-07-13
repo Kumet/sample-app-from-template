@@ -126,6 +126,25 @@ def changed_paths_read_only(repo: Path) -> list[str]:
     ]
 
 
+def cleanliness_paths_read_only(
+    repo: Path, *, allow_ownership_marker: bool = False
+) -> list[str]:
+    """Return every dirty path without refreshing the index.
+
+    Runtime paths are included. The ownership marker is excluded only when the
+    caller has already verified framework ownership of this linked worktree.
+    """
+    return [
+        path
+        for _, path in _status_records(
+            repo,
+            optional_locks=False,
+            include_runtime=True,
+            allow_ownership_marker=allow_ownership_marker,
+        )
+    ]
+
+
 def _status_records(
     repo: Path,
     *,
