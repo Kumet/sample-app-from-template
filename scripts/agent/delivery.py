@@ -233,11 +233,27 @@ class ReviewCallBudget:
     limit: int
     used: int = 0
 
-    def run(self, reviewer_call):
+    def require_capacity(self) -> None:
         if self.used >= self.limit:
-            raise RuntimeError("Independent review call budget exhausted")
+            raise ReviewBudgetExhausted(self.limit, self.used)
+
+    def run(self, reviewer_call):
+        self.require_capacity()
         self.used += 1
         return reviewer_call()
+
+
+class ReviewBudgetExhausted(RuntimeError):
+    """The bounded delivery-wide reviewer subprocess allowance is consumed."""
+
+    def __init__(self, limit: int, used: int):
+        self.limit = limit
+        self.used = used
+        super().__init__("Independent review call budget exhausted")
+
+
+class ReviewResumeRequired(RuntimeError):
+    """An explicit later delivery invocation is required to resume review."""
 
 
 def deliver(
@@ -375,64 +391,21 @@ def deliver(
             shard_results = []
 
             def obtain_prepared(shard, prepared):
-                cached = review_shards.reusable_event(
-                    event_store.read(), prepared.identity.digest
+                result, stderr, reused = obtain_cached_or_run_prepared_review(
+                    isolated.path,
+                    prepared,
+                    review_budget,
+                    config.max_review_attempts,
+                    event_store=event_store,
+                    feature=feature_dir.name,
+                    repository=str(repo),
+                    branch=isolated.branch,
+                    worktree=str(isolated.path),
+                    head_sha=head,
+                    shard=shard,
                 )
-                if cached is not None:
-                    review_shards.record_reuse_decision(
-                        event_store,
-                        source=cached,
-                        feature=feature_dir.name,
-                        repository=str(repo),
-                        branch=isolated.branch,
-                        worktree=str(isolated.path),
-                        head_sha=head,
-                        shard=shard,
-                        identity_digest=prepared.identity.digest,
-                    )
-                    return review_shards.result_from_event(cached)
-                last_error = None
-                for shard_attempt in range(1, config.max_review_attempts + 1):
-                    try:
-                        result, stderr = review_budget.run(
-                            lambda: review.run_prepared(
-                                isolated.path, prepared, attempt=shard_attempt
-                            )
-                        )
-                        break
-                    except Exception as error:
-                        last_error = error
-                        failure_event = record_review_failure_event(
-                            event_store,
-                            feature=feature_dir.name,
-                            repository=str(repo),
-                            branch=isolated.branch,
-                            worktree=str(isolated.path),
-                            head_sha=head,
-                            shard=shard,
-                            identity=prepared.identity,
-                            attempt=shard_attempt,
-                            error=error,
-                        )
-                        signature = (failure_event.data or {})["failure_signature"]
-                        if failure_event.result == "HUMAN_REQUIRED":
-                            raise RuntimeError(
-                                "Known reviewer processes survived timeout cleanup"
-                            ) from error
-                        if (
-                            review_shards.matching_failure_count(
-                                event_store.read(), prepared.identity, signature
-                            )
-                            >= 2
-                        ):
-                            raise RuntimeError(
-                                "Independent review shard "
-                                f"{shard} repeated identical failure"
-                            ) from error
-                else:
-                    raise RuntimeError(
-                        f"Independent review shard {shard} retry budget exhausted"
-                    ) from last_error
+                if reused:
+                    return result
                 prefix = f"review-{review_budget.used}-{shard}"
                 (evidence / f"{prefix}-prompt-metadata.json").write_text(
                     json.dumps(
@@ -955,6 +928,7 @@ def record_review_failure_event(
     error: Exception,
 ):
     is_timeout = isinstance(error, review.ReviewTimeout)
+    is_budget_exhaustion = isinstance(error, ReviewBudgetExhausted)
     error_class = type(error).__name__
     safe_error = safe_error_detail(error) if is_timeout else error_class
     signature = safe_error[-1000:] if is_timeout else f"{shard}:{error_class}"
@@ -988,6 +962,13 @@ def record_review_failure_event(
         diagnostic = redact_value(
             {key: value for key, value in error.diagnostic.items() if key in allowed}
         )
+    elif is_budget_exhaustion:
+        diagnostic = {
+            "limit": error.limit,
+            "used": error.used,
+            "retryable": False,
+            "resume_boundary": "explicit-delivery-invocation",
+        }
     return event_store.append(
         feature=feature,
         repository=repository,
@@ -997,7 +978,8 @@ def record_review_failure_event(
         kind="review-shard",
         result=(
             "HUMAN_REQUIRED"
-            if is_timeout and diagnostic.get("known_survivors")
+            if is_budget_exhaustion
+            or (is_timeout and diagnostic.get("known_survivors"))
             else "TIMEOUT"
             if is_timeout
             else "INVALID"
@@ -1013,3 +995,153 @@ def record_review_failure_event(
             "error_class": error_class,
         },
     )
+
+
+def require_review_capacity_or_stop(
+    budget: ReviewCallBudget,
+    *,
+    event_store: EventStore,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+    shard: str,
+    identity,
+    attempt: int,
+) -> None:
+    """Record one non-retryable stop before an over-budget reviewer call."""
+    try:
+        budget.require_capacity()
+    except ReviewBudgetExhausted as error:
+        record_review_failure_event(
+            event_store,
+            feature=feature,
+            repository=repository,
+            branch=branch,
+            worktree=worktree,
+            head_sha=head_sha,
+            shard=shard,
+            identity=identity,
+            attempt=attempt,
+            error=error,
+        )
+        raise ReviewResumeRequired(
+            "Independent review call budget exhausted; "
+            "explicit delivery resume required"
+        ) from error
+
+
+def run_prepared_review_with_retries(
+    repo: Path,
+    prepared,
+    budget: ReviewCallBudget,
+    max_attempts: int,
+    *,
+    event_store: EventStore,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+    shard: str,
+):
+    """Run retryable reviewer failures while stopping exhaustion immediately."""
+    last_error = None
+    for shard_attempt in range(1, max_attempts + 1):
+        require_review_capacity_or_stop(
+            budget,
+            event_store=event_store,
+            feature=feature,
+            repository=repository,
+            branch=branch,
+            worktree=worktree,
+            head_sha=head_sha,
+            shard=shard,
+            identity=prepared.identity,
+            attempt=shard_attempt,
+        )
+        try:
+            return budget.run(
+                lambda: review.run_prepared(
+                    repo, prepared, attempt=shard_attempt
+                )
+            )
+        except Exception as error:
+            last_error = error
+            failure_event = record_review_failure_event(
+                event_store,
+                feature=feature,
+                repository=repository,
+                branch=branch,
+                worktree=worktree,
+                head_sha=head_sha,
+                shard=shard,
+                identity=prepared.identity,
+                attempt=shard_attempt,
+                error=error,
+            )
+            signature = (failure_event.data or {})["failure_signature"]
+            if failure_event.result == "HUMAN_REQUIRED":
+                raise RuntimeError(
+                    "Known reviewer processes survived timeout cleanup"
+                ) from error
+            if (
+                review_shards.matching_failure_count(
+                    event_store.read(), prepared.identity, signature
+                )
+                >= 2
+            ):
+                raise RuntimeError(
+                    f"Independent review shard {shard} repeated identical failure"
+                ) from error
+    raise RuntimeError(
+        f"Independent review shard {shard} retry budget exhausted"
+    ) from last_error
+
+
+def obtain_cached_or_run_prepared_review(
+    repo: Path,
+    prepared,
+    budget: ReviewCallBudget,
+    max_attempts: int,
+    *,
+    event_store: EventStore,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+    shard: str,
+):
+    """Reuse one exact PASS or execute the pending prepared reviewer."""
+    cached = review_shards.reusable_event(
+        event_store.read(), prepared.identity.digest
+    )
+    if cached is not None:
+        review_shards.record_reuse_decision(
+            event_store,
+            source=cached,
+            feature=feature,
+            repository=repository,
+            branch=branch,
+            worktree=worktree,
+            head_sha=head_sha,
+            shard=shard,
+            identity_digest=prepared.identity.digest,
+        )
+        return review_shards.result_from_event(cached), "", True
+    result, stderr = run_prepared_review_with_retries(
+        repo,
+        prepared,
+        budget,
+        max_attempts,
+        event_store=event_store,
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        head_sha=head_sha,
+        shard=shard,
+    )
+    return result, stderr, False
