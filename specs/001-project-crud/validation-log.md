@@ -1,5 +1,5 @@
 # Validation log: 001-project-crud
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T09:02:16.838797+00:00","included_event_sequence":86,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T09:39:21.859746+00:00","included_event_sequence":105,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -97,3 +97,22 @@ Final included event result: PASS.
 | 84 | review/review-shard | FAIL | `0f5286a96f26` |  |
 | 85 | review/review-shard | PASS | `0f5286a96f26` |  |
 | 86 | review/review-shard | PASS | `0f5286a96f26` |  |
+| 87 | evidence/tracked-evidence-snapshot | PASS | `2ca5ebecf581` |  |
+| 88 | post-evidence/final-validation-attempt | PASS | `2ca5ebecf581` |  |
+| 89 | post-evidence/final-validation-accepted | PASS | `2ca5ebecf581` |  |
+| 90 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 91 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 92 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 93 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 94 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 95 | review/review-shard | HUMAN_REQUIRED | `2ca5ebecf581` | ReviewBudgetExhausted |
+| 96 | delivery/weakening | PASS | `2ca5ebecf581` |  |
+| 97 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 98 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 99 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 100 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 101 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 102 | review/review-shard | FAIL | `2ca5ebecf581` |  |
+| 103 | review/review-shard | FAIL | `2ca5ebecf581` |  |
+| 104 | review/review-shard | PASS | `2ca5ebecf581` |  |
+| 105 | review/review-shard | PASS | `2ca5ebecf581` |  |
