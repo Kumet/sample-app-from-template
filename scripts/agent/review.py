@@ -364,7 +364,10 @@ def _review_guidance(focus: str) -> str:
     guidance = {
         "spec-scope": (
             "Check only specification compliance, approved scope, traceability, "
-            "and whether the supplied evidence is attributable to this HEAD."
+            "and whether the supplied evidence is attributable to this HEAD. "
+            "This read-only shard intentionally receives the complete approved "
+            "feature diff; overlap with focused shards is not an execution or "
+            "data-authorization boundary."
         ),
         "security": (
             "Check only security, privacy, secret exposure, process isolation, "
@@ -558,7 +561,9 @@ def _paths_for_focus(paths: list[str], focus: str) -> list[str]:
     if focus == "maintainability":
         return maintainability
     if focus == "spec-scope":
-        return [path for path in paths if path not in assigned]
+        # Specification compliance and scope review requires the complete diff,
+        # including files also assigned to focused review shards.
+        return paths
     return [path for path in paths if path.startswith("scripts/agent/")]
 
 

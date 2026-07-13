@@ -9,6 +9,19 @@ This document explains how to operate Claude Code and Codex in this repository.
 - CI is the minimum mechanical gate.
 - PR review is the human quality gate.
 
+`make deliver-dry-run FEATURE=<feature>` uses the same read-only worktree,
+ownership-marker, saved-state, branch/HEAD, contract, changed-path, and task
+inspection as delivery. It reports create, resume, completed reuse, or explicit
+blocking reasons without creating markers, worktrees, runtime evidence, commits,
+or remote mutations. Ownership markers are valid only at a registered linked
+worktree root. A marker at the parent repository root blocks delivery and
+requires human handling.
+
+The report also exposes the shared root safe-start decision (branch, detached or
+dirty state, unmerged paths, and in-progress Git operations) and normalized
+`expected_worktree_path`, `saved_worktree_path`, and `worktree_path_match` values.
+The same safe-start inspection drives the enforcing delivery check.
+
 ## Phase gates
 
 ### 1. Specification gate

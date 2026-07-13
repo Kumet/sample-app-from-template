@@ -234,7 +234,14 @@ def work(
 ) -> int:
     feature_dir, config, tasks = feature_context(repo, feature)
     if not resume_mode:
-        git_utils.ensure_safe_start(repo)
+        allow_marker = False
+        if state_root is not None and repo.resolve() != state_root.resolve():
+            allow_marker = worktree_module.owns_registered_worktree(
+                state_root, repo, feature_dir.name
+            )
+        git_utils.ensure_safe_start(
+            repo, allow_ownership_marker=allow_marker
+        )
     policy = load_policy(repo) if (repo / ".agent-policy.toml").is_file() else None
     budget = Budget((policy.max_elapsed_minutes if policy else 120) * 60)
     pending = [task for task in tasks if not task.completed]

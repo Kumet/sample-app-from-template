@@ -426,19 +426,25 @@ class AutonomousCoreTests(unittest.TestCase):
         second = review.bind_context(prepared, {"security": "fail"})
         self.assertNotEqual(first.identity.digest, second.identity.digest)
 
-    def test_file_focus_partition_covers_every_changed_path(self):
+    def test_spec_scope_receives_complete_diff_and_focuses_cover_paths(self):
         paths = [
             "scripts/agent/review.py",
             "scripts/agent/work.py",
             "tests/test_review.py",
             "prompts/review-feature.md",
         ]
+        self.assertEqual(
+            set(review._paths_for_focus(paths, "spec-scope")), set(paths)
+        )
         selected = set()
-        for focus in ("spec-scope", "security", "tests", "maintainability"):
-            group = review._paths_for_focus(paths, focus)
+        for focus in ("security", "tests", "maintainability"):
+            group = set(review._paths_for_focus(paths, focus))
             self.assertFalse(selected.intersection(group))
             selected.update(group)
-        self.assertEqual(selected, set(paths))
+        self.assertTrue(selected.issubset(set(paths)))
+        self.assertEqual(selected, set(paths) - {"prompts/review-feature.md"})
+        self.assertIn("scripts/agent/review.py", selected)
+        self.assertIn("tests/test_review.py", selected)
 
     def test_review_guidance_is_focus_specific(self):
         security = review._review_guidance("security [1/1]")
