@@ -67,6 +67,25 @@ def test_project_api_crud_round_trip_and_health_regression(
     assert health_response.json() == {"status": "ok"}
 
 
+def test_project_api_patch_with_null_clears_description(
+    api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = api_database
+    created_response = client.post(
+        "/api/projects",
+        json={"name": "Sample project", "description": "Details"},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+
+    response = client.patch(
+        f"/api/projects/{created['id']}", json={"description": None}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["description"] is None
+
+
 def test_project_list_is_ordered_by_creation_time_then_id(
     api_database: tuple[TestClient, Engine],
 ) -> None:

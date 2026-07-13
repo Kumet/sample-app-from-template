@@ -114,3 +114,69 @@ def test_failed_write_rolls_back_and_raises_stable_error(
         )
 
     assert persisted_count == 0
+
+
+def test_failed_update_rolls_back_and_leaves_transaction_clean(
+    session: Session, isolated_engine: Engine
+) -> None:
+    repository = SQLAlchemyProjectRepository(session)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    original = repository.create(make_project(name="Original", created_at=timestamp))
+    updated = replace(
+        original,
+        name="Will fail",
+        updated_at=timestamp + timedelta(hours=1),
+    )
+
+    def fail_after_write_is_flushed(
+        _flushed_session: Session, _flush_context: object
+    ) -> None:
+        raise SQLAlchemyError("forced update failure after write flush")
+
+    event.listen(
+        session, "after_flush_postexec", fail_after_write_is_flushed, once=True
+    )
+
+    with pytest.raises(RepositoryError, match="persistence operation failed") as caught:
+        repository.update(updated)
+
+    assert caught.value.args == ("Project persistence operation failed",)
+    assert session.in_transaction() is False
+    assert not session.dirty
+
+    with create_session_factory(isolated_engine)() as verification_session:
+        persisted = verification_session.get(ProjectModel, original.id)
+
+    assert persisted is not None
+    assert persisted.name == "Original"
+    assert persisted.updated_at == timestamp.replace(tzinfo=None)
+
+
+def test_failed_delete_rolls_back_and_leaves_transaction_clean(
+    session: Session, isolated_engine: Engine
+) -> None:
+    repository = SQLAlchemyProjectRepository(session)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    original = repository.create(make_project(name="Will remain", created_at=timestamp))
+
+    def fail_after_write_is_flushed(
+        _flushed_session: Session, _flush_context: object
+    ) -> None:
+        raise SQLAlchemyError("forced delete failure after write flush")
+
+    event.listen(
+        session, "after_flush_postexec", fail_after_write_is_flushed, once=True
+    )
+
+    with pytest.raises(RepositoryError, match="persistence operation failed") as caught:
+        repository.delete(original.id)
+
+    assert caught.value.args == ("Project persistence operation failed",)
+    assert session.in_transaction() is False
+    assert not session.deleted
+
+    with create_session_factory(isolated_engine)() as verification_session:
+        persisted = verification_session.get(ProjectModel, original.id)
+
+    assert persisted is not None
+    assert persisted.name == "Will remain"
