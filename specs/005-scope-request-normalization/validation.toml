@@ -1,0 +1,33 @@
+version = 2
+risk = "high"
+auto_merge = false
+risk_domains = ["security"]
+max_tasks = 10
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "T001"]
+REQ-002 = ["AC-001", "T001"]
+REQ-003 = ["AC-002", "T001"]
+REQ-004 = ["AC-003", "T002"]
+REQ-005 = ["AC-004", "T002"]
+REQ-006 = ["AC-004", "T002"]
+REQ-007 = ["AC-005", "T002"]
+REQ-008 = ["AC-006", "T002"]
+REQ-009 = ["AC-003", "T002"]
+REQ-010 = ["AC-007", "T003"]
+
+[dependencies]
+T002 = ["T001"]
+T003 = ["T002"]
+
+[scope]
+allowed = ["scripts/agent/**", "tests/**", "Makefile", "README.md", "docs/**", "specs/005-scope-request-normalization/**"]
+forbidden = [".env", ".env.*", "**/.env", "**/.env.*", "local.properties", "**/local.properties", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx"]

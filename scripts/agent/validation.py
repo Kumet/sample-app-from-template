@@ -9,6 +9,19 @@ from . import git_utils
 from .parser import WorkConfig
 
 
+class ScopeViolation(ValueError):
+    """A scope failure whose paths remain machine-readable through wrapping."""
+
+    def __init__(self, category: str, paths: list[str]):
+        if category not in {"forbidden", "outside"}:
+            raise ValueError("Unknown scope violation category")
+        normalized = tuple(_normalize_changed_path(path) for path in paths)
+        self.category = category
+        self.paths = normalized
+        label = "Forbidden files changed" if category == "forbidden" else "Out-of-scope files changed"
+        super().__init__(label + ": " + ", ".join(normalized))
+
+
 @dataclass(frozen=True)
 class CommandResult:
     name: str
@@ -40,10 +53,10 @@ def run_named(repo: Path, config: WorkConfig, name: str) -> CommandResult:
 def validate_scope(paths: list[str], config: WorkConfig) -> None:
     forbidden = [path for path in paths if _matches_any(path, config.forbidden)]
     if forbidden:
-        raise ValueError("Forbidden files changed: " + ", ".join(forbidden))
+        raise ScopeViolation("forbidden", forbidden)
     outside = [path for path in paths if not _matches_any(path, config.allowed)]
     if outside:
-        raise ValueError("Out-of-scope files changed: " + ", ".join(outside))
+        raise ScopeViolation("outside", outside)
 
 
 def validate_task(repo: Path, config: WorkConfig, names: tuple[str, ...]) -> list[CommandResult]:
@@ -83,3 +96,14 @@ class ValidationFailure(RuntimeError):
 
 def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+
+
+def _normalize_changed_path(path: str) -> str:
+    if not isinstance(path, str) or not path or path.startswith("/"):
+        raise ValueError("Invalid repository-relative changed path")
+    if "\\" in path or any(ord(character) < 32 or ord(character) == 127 for character in path):
+        raise ValueError("Invalid repository-relative changed path")
+    parts = path.rstrip("/").split("/")
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Invalid repository-relative changed path")
+    return "/".join(parts)

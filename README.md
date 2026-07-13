@@ -234,6 +234,24 @@ available for repair or human review.
 For end-to-end delivery, the framework also provides a dry run and an isolated
 delivery workflow:
 
+Independent review is resumable but fail-closed. A shard result is reusable only
+when its feature, exact HEAD, shard, prompt/schema versions, model command,
+reviewed files, and complete input digest match and the authoritative runtime
+event records `PASS`. Failed, timed-out, invalid, or missing shards are rerun
+within both configured review budgets. Integration review runs only after every
+file-focused shard passes.
+
+Tracked validation evidence is finalized before exact-HEAD validation. The log
+contains snapshot format and event schema versions, its included-event watermark,
+generation time, and validation-contract digest—but never its own commit SHA.
+After commit, a `tracked-evidence-snapshot` runtime event binds that HEAD to the
+log's Git blob SHA. Each command emits `final-validation-attempt`; only a fully
+attributed `final-validation-accepted/PASS` references that attempt and snapshot
+and opens gates. Review accepts neither ordinary, legacy, attempt, or rejected
+validation events nor mismatched blob, contract, event, HEAD, or dirty-worktree
+state. This avoids a self-referential tracked commit loop while preserving exact
+attribution.
+
 ```bash
 make deliver-dry-run FEATURE=012-feature-name
 make deliver FEATURE=012-feature-name
@@ -269,6 +287,47 @@ make doctor
 Push, merge, deployment, and specification changes are never implicit. Safety
 stops apply to protected branches, dirty worktrees, forbidden paths, repeated
 errors, and attempts to access secret files.
+
+Additional framework qualification commands are:
+
+```bash
+make quality-check
+make qualify-stacks
+```
+
+実行証跡は `.agent-work/<feature>/events.jsonl` が正本です。validation、review、
+CI、mergeは同一HEAD SHAに揃わない限り合格しません。
+
+```bash
+make render-validation-log FEATURE=012-feature
+```
+
+scope違反で停止したあと、エラー修正のため別のパス（例:
+`.gitignore`）が必要になった場合は、既存eventを編集せず、正式な要求を
+dry-runしてから発行します。これは承認ではなく、人間による承認待ちの
+evidenceを追加するだけです。
+
+```bash
+make request-scope-dry-run FEATURE=012-feature PATH='.gitignore' REASON='ignore generated build metadata'
+make request-scope FEATURE=012-feature PATH='.gitignore' REASON='ignore generated build metadata'
+```
+
+要求内容を人間が確認してscope拡張を承認した場合は、まず承認変更を
+previewします。
+
+```bash
+make approve-scope-dry-run FEATURE=012-feature PATH='prompts/**' REASON='review repair'
+make approve-scope FEATURE=012-feature PATH='prompts/**' REASON='review repair'
+```
+
+`request-scope` と `approve-scope` は、同じfeatureと完全一致する安全な
+repository-relative pathを要求します。絶対パス、`..`、制御文字、全体を
+許可する `*` / `**`、forbidden pathは拒否されます。承認後は表示された
+contract/state差分を確認し、停止中のworktreeを `make work-resume
+FEATURE=012-feature` で再開します。壊れた古いscope eventは監査履歴として
+保持され、新しい正規requestが追記されます。
+
+version 1契約は実行されません。安全なMakeターゲットだけをversion 2へ移行します。
 
 ## Project documentation
 

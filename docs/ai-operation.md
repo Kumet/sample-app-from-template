@@ -9,6 +9,19 @@ This document explains how to operate Claude Code and Codex in this repository.
 - CI is the minimum mechanical gate.
 - PR review is the human quality gate.
 
+`make deliver-dry-run FEATURE=<feature>` uses the same read-only worktree,
+ownership-marker, saved-state, branch/HEAD, contract, changed-path, and task
+inspection as delivery. It reports create, resume, completed reuse, or explicit
+blocking reasons without creating markers, worktrees, runtime evidence, commits,
+or remote mutations. Ownership markers are valid only at a registered linked
+worktree root. A marker at the parent repository root blocks delivery and
+requires human handling.
+
+The report also exposes the shared root safe-start decision (branch, detached or
+dirty state, unmerged paths, and in-progress Git operations) and normalized
+`expected_worktree_path`, `saved_worktree_path`, and `worktree_path_match` values.
+The same safe-start inspection drives the enforcing delivery check.
+
 ## Phase gates
 
 ### 1. Specification gate
@@ -122,3 +135,43 @@ Stop if scope changes are required.
 Review the PR against AGENTS.md, spec.md, plan.md, tasks.md, and validation-log.md.
 Focus on scope, regression risk, security, and test quality.
 ```
+
+## Resumable review and exact-HEAD evidence
+
+Review reuse is an exact-identity decision backed by append-only events. Never
+edit review JSON or events to make a shard reusable. A reused PASS records a new
+decision event referencing its source sequence. Any tracked change invalidates
+validation and every review shard.
+
+Review timeouts terminate the dedicated process group with TERM and then KILL
+only when necessary, and do the same for observed controlled descendants whose
+PID start identity still matches. Known survivors require human review. Unknown
+processes that escape before observation are not claimed as a portable guarantee;
+kernel containment is a future optional adapter. Diagnostics contain allowlisted
+identity metadata and redacted output tails. The timeout remains capped at 600 seconds.
+
+The reviewer model is explicitly pinned in the review command and included in
+the identity digest. Changing that model invalidates every cached shard. The
+current reviewer is `gpt-5.4-mini`, selected for bounded, structured review.
+
+Generate and commit `validation-log.md` from pre-final events, then run full
+validation on that new HEAD and append the PASS runtime event. Do not regenerate
+tracked evidence afterward. PR summaries identify the tracked-log cutoff, final
+validation event, and validated HEAD.
+
+The runtime sequence is strictly:
+
+1. Render and commit snapshot-format validation log.
+2. Append `evidence/tracked-evidence-snapshot` with HEAD, log Git blob,
+   watermark, contract digest, and format version.
+3. Run the full command on that unchanged HEAD.
+4. Append `post-evidence/final-validation-attempt` for every command result.
+5. Verify HEAD, attempt, snapshot, log blob, contract, result digest, and clean state.
+6. Append `post-evidence/final-validation-accepted/PASS` only when every check
+   succeeds; otherwise append `final-validation-rejected` when attribution fails.
+7. Require the accepted PASS before review.
+
+Ordinary task or pre-commit `validation` events never satisfy the final gate.
+All reviewer exceptions pass through centralized redaction before event,
+diagnostic, notification, or report persistence; EventStore recursively redacts
+again as defense in depth.
