@@ -1,11 +1,11 @@
 # Validation log: 001-project-crud
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T07:48:29.434928+00:00","included_event_sequence":63,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"001-project-crud","generated_at":"2026-07-13T08:57:40.922683+00:00","included_event_sequence":73,"snapshot_format_version":2,"validation_contract_digest":"d2c19736548721ae1265e97c035496c510a219ffbf60bb8431209d022a01244b"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
 ## Summary
 
-Final included event result: PASS.
+Final included event result: INVALID.
 
 ## Runs
 
@@ -74,3 +74,13 @@ Final included event result: PASS.
 | 61 | review/review-shard | FAIL | `c36cf2361b27` |  |
 | 62 | review/review-shard | PASS | `c36cf2361b27` |  |
 | 63 | review/review-shard | PASS | `c36cf2361b27` |  |
+| 64 | evidence/tracked-evidence-snapshot | PASS | `c5a0047dbbb0` |  |
+| 65 | post-evidence/final-validation-attempt | PASS | `c5a0047dbbb0` |  |
+| 66 | post-evidence/final-validation-accepted | PASS | `c5a0047dbbb0` |  |
+| 67 | review/review-shard | PASS | `c5a0047dbbb0` |  |
+| 68 | review/review-shard | PASS | `c5a0047dbbb0` |  |
+| 69 | review/review-shard | PASS | `c5a0047dbbb0` |  |
+| 70 | review/review-shard | PASS | `c5a0047dbbb0` |  |
+| 71 | review/review-shard | PASS | `c5a0047dbbb0` |  |
+| 72 | review/review-shard | INVALID | `c5a0047dbbb0` | RuntimeError |
+| 73 | review/review-shard | INVALID | `c5a0047dbbb0` | RuntimeError |
