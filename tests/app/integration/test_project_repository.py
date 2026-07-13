@@ -15,7 +15,9 @@ from project_board.infrastructure import (
     initialize_schema,
 )
 from project_board.infrastructure.models import ProjectModel
-from project_board.repositories import SQLAlchemyProjectRepository
+from project_board.repositories.sqlalchemy_project_repository import (
+    SQLAlchemyProjectRepository,
+)
 
 
 @pytest.fixture

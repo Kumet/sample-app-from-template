@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Final
 
 from project_board.domain import Project, ProjectNotFound, ProjectValidationError
-from project_board.repositories import ProjectRepository
+from project_board.repositories.project_repository import ProjectRepository
 
 
 class _UnsetType:

@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from project_board.application import ProjectService
 from project_board.infrastructure import SessionFactory
-from project_board.repositories import SQLAlchemyProjectRepository
+from project_board.repositories.sqlalchemy_project_repository import (
+    SQLAlchemyProjectRepository,
+)
 
 
 def get_session(request: Request) -> Iterator[Session]:

@@ -1,5 +1,9 @@
+import json
+import subprocess
+import sys
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +14,35 @@ from project_board.domain import (
     ProjectValidationError,
     RepositoryError,
 )
+
+
+def test_importing_project_service_does_not_load_sqlalchemy_infrastructure() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    script = """
+import json
+import sys
+
+import project_board.application.project_service
+
+watched_modules = (
+    "sqlalchemy",
+    "project_board.repositories.sqlalchemy_project_repository",
+    "project_board.infrastructure.database",
+    "project_board.infrastructure.models",
+)
+print(json.dumps([name for name in watched_modules if name in sys.modules]))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        cwd=repository_root,
+        env={"PYTHONPATH": str(repository_root / "src")},
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == []
 
 
 def make_project(project_id: int = 1, **changes: object) -> Project:
