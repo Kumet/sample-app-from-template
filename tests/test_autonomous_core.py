@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import signal
@@ -45,6 +46,76 @@ EVIDENCE_FIELDS = {
     "final_validation_accepted_event_sequence": 12,
     "final_validation_result_digest": "f" * 64,
 }
+
+
+def review_evidence_fixture(contract: str, head: str, body: str = ""):
+    contract_digest = hashlib.sha256(contract.encode()).hexdigest()
+    metadata = {
+        "feature": "test-feature",
+        "event_schema_version": 1,
+        "snapshot_format_version": 2,
+        "included_event_sequence": 9,
+        "generated_at": "2026-07-13T00:00:00+00:00",
+        "validation_contract_digest": contract_digest,
+    }
+    validation = (
+        "# Validation log\n<!-- validation-snapshot: "
+        + json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+        + " -->\n"
+        + body
+    )
+    runtime = json.dumps(
+        [
+            {
+                "sequence": 10,
+                "kind": "tracked-evidence-snapshot",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "included_event_sequence": 9,
+                    "log_blob_sha": EVIDENCE_FIELDS["validation_log_blob_sha"],
+                    "validation_contract_digest": contract_digest,
+                },
+            },
+            {
+                "sequence": 11,
+                "kind": "final-validation-attempt",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "snapshot_event_sequence": 10,
+                    "exact_head_sha": head,
+                    "validation_log_blob_sha": EVIDENCE_FIELDS[
+                        "validation_log_blob_sha"
+                    ],
+                    "validation_contract_digest": contract_digest,
+                    "result_digest": EVIDENCE_FIELDS[
+                        "final_validation_result_digest"
+                    ],
+                },
+            },
+            {
+                "sequence": 12,
+                "kind": "final-validation-accepted",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "snapshot_event_sequence": 10,
+                    "attempt_event_sequence": 11,
+                    "exact_head_sha": head,
+                    "validation_log_blob_sha": EVIDENCE_FIELDS[
+                        "validation_log_blob_sha"
+                    ],
+                    "validation_contract_digest": contract_digest,
+                    "result_digest": EVIDENCE_FIELDS[
+                        "final_validation_result_digest"
+                    ],
+                },
+            },
+        ],
+        separators=(",", ":"),
+    )
+    return validation, runtime
 
 
 def review_identity(**changes):
@@ -249,10 +320,19 @@ class AutonomousCoreTests(unittest.TestCase):
             (repo / "prompts" / "review-feature.md").write_text(
                 template.read_text(encoding="utf-8"), encoding="utf-8"
             )
-            for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
+            for name in ("spec.md", "plan.md", "tasks.md"):
                 content = f"{name}-start\n" + "a" * 13_000 + f"\n{name}-end"
                 (feature / name).write_text(content, encoding="utf-8")
-            (feature / "validation.toml").write_text("version=2\n", encoding="utf-8")
+            contract = "version=2\n"
+            validation, runtime = review_evidence_fixture(
+                contract,
+                "abc",
+                "validation-log.md-start\n"
+                + "a" * 13_000
+                + "\nvalidation-log.md-end",
+            )
+            (feature / "validation-log.md").write_text(validation, encoding="utf-8")
+            (feature / "validation.toml").write_text(contract, encoding="utf-8")
             completed = subprocess.CompletedProcess(
                 [], 0, '{"result":"pass","findings":[]}', ""
             )
@@ -271,7 +351,10 @@ class AutonomousCoreTests(unittest.TestCase):
                 ) as process_group,
             ):
                 result, prompt, _ = review.run_review(
-                    repo, feature, evidence_fields=EVIDENCE_FIELDS
+                    repo,
+                    feature,
+                    runtime_evidence_text=runtime,
+                    evidence_fields=EVIDENCE_FIELDS,
                 )
             self.assertEqual(result.result, "pass")
             for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
@@ -304,9 +387,12 @@ class AutonomousCoreTests(unittest.TestCase):
             (repo / "prompts" / "review-feature.md").write_text(
                 template.read_text(encoding="utf-8"), encoding="utf-8"
             )
-            for name in ("spec.md", "plan.md", "tasks.md", "validation-log.md"):
+            for name in ("spec.md", "plan.md", "tasks.md"):
                 (feature / name).write_text(name, encoding="utf-8")
-            (feature / "validation.toml").write_text("version=2\n", encoding="utf-8")
+            contract = "version=2\n"
+            validation, runtime = review_evidence_fixture(contract, "abc")
+            (feature / "validation-log.md").write_text(validation, encoding="utf-8")
+            (feature / "validation.toml").write_text(contract, encoding="utf-8")
             merge = subprocess.CompletedProcess([], 0, "abc\n", "")
             oversized = "material-at-start\n" + "x" * review.MAX_REVIEW_INPUT_CHARS
             diff = subprocess.CompletedProcess([], 0, oversized, "")
@@ -322,7 +408,12 @@ class AutonomousCoreTests(unittest.TestCase):
                     RuntimeError, "refusing to review truncated content"
                 ),
             ):
-                review.run_review(repo, feature, evidence_fields=EVIDENCE_FIELDS)
+                review.run_review(
+                    repo,
+                    feature,
+                    runtime_evidence_text=runtime,
+                    evidence_fields=EVIDENCE_FIELDS,
+                )
             self.assertEqual(run.call_count, 4)
             process_group.assert_not_called()
 
@@ -356,12 +447,16 @@ class AutonomousCoreTests(unittest.TestCase):
             (repo / "schemas" / "review-result.schema.json").write_text(
                 schema.read_text(encoding="utf-8"), encoding="utf-8"
             )
+            contract = "version=2\n"
+            validation, _ = review_evidence_fixture(
+                contract, "pending", "VALIDATION-FIXED\n"
+            )
             artifacts = {
                 "spec.md": "SPEC-FIXED\n",
                 "plan.md": "PLAN-FIXED\n",
                 "tasks.md": "TASKS-FIXED\n",
-                "validation.toml": "version=2\n",
-                "validation-log.md": "VALIDATION-FIXED\n",
+                "validation.toml": contract,
+                "validation-log.md": validation,
             }
             for name, value in artifacts.items():
                 (feature / name).write_text(value, encoding="utf-8")
@@ -378,7 +473,10 @@ class AutonomousCoreTests(unittest.TestCase):
             subprocess.run(["git", "add", "src"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "change"], cwd=repo, check=True)
 
-            runtime = '[{"kind":"final-validation-accepted"}]'
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            _, runtime = review_evidence_fixture(contract, head)
             with mock.patch(
                 "agent.review.subprocess.run", wraps=subprocess.run
             ) as git_run:
@@ -400,6 +498,10 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertNotIn("--", diff_commands[0])
             self.assertNotIn("--no-ext-diff", diff_commands[0])
             self.assertIn("<git-diff>\n\n</git-diff>", empty.prompt)
+            self.assertIn("<evidence-semantics>", empty.prompt)
+            self.assertIn(
+                '"post_watermark_absence_from_log_is_stale":false', empty.prompt
+            )
             self.assertNotIn("A-change", empty.prompt)
             self.assertNotIn("B-change", empty.prompt)
             for marker in (*artifacts.values(), runtime):
@@ -470,6 +572,187 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertEqual(identity.digest, same.digest)
         self.assertNotEqual(identity.digest, changed_head.digest)
         self.assertNotEqual(identity.digest, changed_input.digest)
+
+    def test_review_evidence_semantics_bind_snapshot_and_runtime_events(self):
+        contract = "version=2\n"
+        contract_digest = hashlib.sha256(contract.encode()).hexdigest()
+        metadata = {
+            "feature": "012-test",
+            "event_schema_version": 1,
+            "snapshot_format_version": 2,
+            "included_event_sequence": 40,
+            "generated_at": "2026-07-13T00:00:00+00:00",
+            "validation_contract_digest": contract_digest,
+        }
+        validation = (
+            "# Validation log\n<!-- validation-snapshot: "
+            + json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+            + " -->\n"
+        )
+        head = "a" * 40
+        blob = "b" * 40
+        result_digest = "f" * 64
+        fields = {
+            "tracked_snapshot_event_sequence": 41,
+            "validation_log_blob_sha": blob,
+            "final_validation_attempt_event_sequence": 42,
+            "final_validation_accepted_event_sequence": 43,
+            "final_validation_result_digest": result_digest,
+        }
+        events = [
+            {
+                "sequence": 41,
+                "kind": "tracked-evidence-snapshot",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "included_event_sequence": 40,
+                    "log_blob_sha": blob,
+                    "validation_contract_digest": contract_digest,
+                },
+            },
+            {
+                "sequence": 42,
+                "kind": "final-validation-attempt",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "snapshot_event_sequence": 41,
+                    "exact_head_sha": head,
+                    "validation_log_blob_sha": blob,
+                    "validation_contract_digest": contract_digest,
+                    "result_digest": result_digest,
+                },
+            },
+            {
+                "sequence": 43,
+                "kind": "final-validation-accepted",
+                "result": "PASS",
+                "head_sha": head,
+                "data": {
+                    "snapshot_event_sequence": 41,
+                    "attempt_event_sequence": 42,
+                    "exact_head_sha": head,
+                    "validation_log_blob_sha": blob,
+                    "validation_contract_digest": contract_digest,
+                    "result_digest": result_digest,
+                },
+            },
+        ]
+
+        incomplete_lifecycles = (
+            [],
+            [{"sequence": 1, "kind": "weakening", "result": "PASS"}],
+            events[:1],
+            events[:2],
+        )
+        for incomplete in incomplete_lifecycles:
+            with self.subTest(incomplete_events=len(incomplete)):
+                with self.assertRaisesRegex(ValueError, "lifecycle is incomplete"):
+                    review.render_evidence_semantics(
+                        validation, contract, json.dumps(incomplete), fields, head
+                    )
+
+        # Later, non-accepted evidence must not replace the referenced lifecycle.
+        events.append(
+            {
+                "sequence": 44,
+                "kind": "final-validation-attempt",
+                "result": "FAIL",
+                "head_sha": head,
+                "data": {},
+            }
+        )
+
+        rendered = review.render_evidence_semantics(
+            validation, contract, json.dumps(events), fields, head
+        )
+        semantics = json.loads(rendered)
+        self.assertEqual(semantics["status"], "mechanically-verified")
+        self.assertEqual(semantics["validation_log_watermark"], 40)
+        self.assertEqual(semantics["tracked_snapshot_event_sequence"], 41)
+        self.assertEqual(semantics["final_validation_attempt_event_sequence"], 42)
+        self.assertEqual(semantics["final_validation_accepted_event_sequence"], 43)
+        self.assertFalse(semantics["post_watermark_absence_from_log_is_stale"])
+
+        duplicated = json.loads(json.dumps(events))
+        duplicated[-1]["sequence"] = 43
+        duplicated[-1]["kind"] = "final-validation-accepted"
+        duplicated[-1]["result"] = "PASS"
+        duplicated[-1]["data"] = dict(events[2]["data"])
+        with self.assertRaisesRegex(ValueError, "sequence is duplicated"):
+            review.render_evidence_semantics(
+                validation, contract, json.dumps(duplicated), fields, head
+            )
+
+        mutations = {
+            "watermark": (0, "included_event_sequence", 39, "snapshot watermark"),
+            "blob": (0, "log_blob_sha", "0" * 40, "snapshot log blob"),
+            "attempt-head": (1, "exact_head_sha", "0" * 40, "attempt exact HEAD"),
+            "attempt-snapshot": (
+                1,
+                "snapshot_event_sequence",
+                999,
+                "attempt snapshot reference",
+            ),
+            "attempt-blob": (
+                1,
+                "validation_log_blob_sha",
+                "0" * 40,
+                "attempt log blob",
+            ),
+            "attempt-contract": (
+                1,
+                "validation_contract_digest",
+                "0" * 64,
+                "attempt contract digest",
+            ),
+            "attempt-result": (
+                1,
+                "result_digest",
+                "0" * 64,
+                "attempt result digest",
+            ),
+            "accepted-attempt": (
+                2,
+                "attempt_event_sequence",
+                999,
+                "accepted attempt reference",
+            ),
+            "accepted-snapshot": (
+                2,
+                "snapshot_event_sequence",
+                999,
+                "accepted snapshot reference",
+            ),
+            "accepted-head": (
+                2,
+                "exact_head_sha",
+                "0" * 40,
+                "accepted exact HEAD",
+            ),
+            "result": (2, "result_digest", "0" * 64, "accepted result digest"),
+            "contract": (
+                2,
+                "validation_contract_digest",
+                "0" * 64,
+                "accepted contract digest",
+            ),
+        }
+        for label, (index, key, value, expected_error) in mutations.items():
+            with self.subTest(label=label):
+                changed = json.loads(json.dumps(events))
+                changed[index]["data"][key] = value
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    review.render_evidence_semantics(
+                        validation, contract, json.dumps(changed), fields, head
+                    )
+
+        current = review_identity()
+        old_prompt = review.ReviewIdentity(
+            **{**current.__dict__, "prompt_version": "2"}
+        )
+        self.assertNotEqual(current.digest, old_prompt.digest)
 
     def test_every_canonical_identity_field_invalidates_cached_pass(self):
         self.assertEqual(
