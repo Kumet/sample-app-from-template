@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T01:07:50.499870+00:00","included_event_sequence":263,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T01:20:36.617519+00:00","included_event_sequence":275,"snapshot_format_version":2,"validation_contract_digest":"883409757ebaafc97b12eaa30d558bfff807dc259ee9eb25a4c252187c479b88"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -274,3 +274,15 @@ Final included event result: PASS.
 | 261 | review/review-shard | PASS | `a5f57e1968e1` |  |
 | 262 | clarification/human-approval | PASS | `a5f57e1968e1` | Human approved a new bounded cycle removing SIGSTOP/SIGCONT in favor of TERM, bounded grace, and KILL, plus remaining retry, survivor, identity mutation and source-linked reuse tests |
 | 263 | review-remediation/direct-term-kill-and-test-closure | PASS | `a5f57e1968e1` | New cycle loop 1: use direct TERM to known process group/PIDs, wait bounded grace, KILL survivors, and strengthen repair budget and evidence reuse identity tests; make validate passed |
+| 264 | evidence/tracked-evidence-snapshot | PASS | `b7d1d6a2eb54` |  |
+| 265 | post-evidence/final-validation-attempt | PASS | `b7d1d6a2eb54` |  |
+| 266 | post-evidence/final-validation-accepted | PASS | `b7d1d6a2eb54` |  |
+| 267 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
+| 268 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
+| 269 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
+| 270 | review/review-shard | FAIL | `b7d1d6a2eb54` |  |
+| 271 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
+| 272 | review/review-shard | FAIL | `b7d1d6a2eb54` |  |
+| 273 | review/review-shard | FAIL | `b7d1d6a2eb54` |  |
+| 274 | review/review-shard | PASS | `b7d1d6a2eb54` |  |
+| 275 | review-remediation/non-timeout-diagnostic-allowlist | PASS | `b7d1d6a2eb54` | Approved repair loop 1: persist only allowlisted structured metadata for non-timeout review failures; arbitrary exception and reviewer text are excluded. |

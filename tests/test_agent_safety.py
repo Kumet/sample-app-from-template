@@ -3,10 +3,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from agent import git_utils
-from agent.delivery import _safe_command_failure
+from agent.delivery import _safe_command_failure, record_review_failure_event
 from agent.events import EventStore
 from agent.evidence import redact_value, safe_error_detail
 from agent.parser import WorkConfig
@@ -101,6 +102,31 @@ class SafetyTests(unittest.TestCase):
             {"stderr_tail": "password=hidden", "nested": ["token=hidden-token"]}
         )
         self.assertNotIn("hidden", str(value))
+
+    def test_non_timeout_review_failure_persists_only_allowlisted_metadata(self):
+        path = self.repo / ".agent-work" / "007" / "events.jsonl"
+        store = EventStore(path)
+        secret = "arbitrary reviewer output token=do-not-persist"
+        event = record_review_failure_event(
+            store,
+            feature="007",
+            repository=str(self.repo),
+            branch="feature/test",
+            worktree=str(self.repo),
+            head_sha="abc",
+            shard="security",
+            identity=SimpleNamespace(digest="identity-digest"),
+            attempt=1,
+            error=RuntimeError(secret),
+        )
+        persisted = path.read_text(encoding="utf-8")
+        self.assertEqual(event.result, "INVALID")
+        self.assertEqual(event.detail, "RuntimeError")
+        self.assertEqual(event.data["error_class"], "RuntimeError")
+        self.assertEqual(event.data["diagnostic"], {})
+        self.assertNotIn("error", event.data)
+        self.assertNotIn("arbitrary reviewer output", persisted)
+        self.assertNotIn("do-not-persist", persisted)
 
     def test_command_failure_is_redacted_before_exception_exposure(self):
         unsafe = (

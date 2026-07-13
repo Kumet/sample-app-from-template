@@ -89,7 +89,9 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 - REQ-035: Review identity has one canonical schema defining every required field,
   including artifact digests and snapshot/final-validation evidence fields.
 - REQ-036: Every review subprocess exception crosses one centralized redaction
-  boundary before persistence; EventStore redaction remains defense in depth.
+  boundary before persistence; non-timeout failures persist only allowlisted
+  structured metadata and never arbitrary exception/reviewer text. EventStore
+  redaction remains defense in depth.
 - REQ-037: Process diagnostics record root PID, process-group ID, observed PID
   identities, TERM/KILL targets, confirmation results, and known survivors;
   survivors produce HUMAN_REQUIRED without claiming kernel containment.
@@ -133,6 +135,7 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Controlled descendant | A descendant PID observed by the framework and bound to its process-start identity, preventing PID-reuse termination. Known survivors require human review. | 2026-07-13 |
 | Accepted validation cycle | Human approved the attempt/accepted/rejected event model and a new bounded repair cycle after HEAD `6f97f320`; events 175 and 176 remain immutable legacy evidence. | 2026-07-13 |
 | Direct termination cycle | After the accepted-validation cycle reached five loops, human approved removing SIGSTOP/SIGCONT and using the portable `TERM → bounded grace → KILL if still live` sequence, plus the remaining retry, survivor, identity, and reuse tests. | 2026-07-13 |
+| Non-timeout diagnostic allowlist | Human approved limiting non-timeout review failure evidence to structured class, shard, identity, attempt, and signature metadata; arbitrary exception/reviewer output is not persisted. | 2026-07-13 |
 
 ## Scope
 
@@ -153,5 +156,6 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 
 ## Security and privacy
 
-Diagnostics are allowlisted metadata plus redacted output tails. Prompts and
-full command arguments are not copied into timeout events.
+Diagnostics are allowlisted metadata. Only timeout diagnostics may include
+redacted output tails; non-timeout failures never persist arbitrary exception or
+reviewer text. Prompts and full command arguments are not copied into events.

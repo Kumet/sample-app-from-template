@@ -32,3 +32,6 @@
 - [x] T010: Verify escaped-descendant termination, evidence identity, recovery phases, and remaining review-test gaps
   - Requirements: REQ-007, REQ-012, REQ-017, REQ-019, REQ-027, REQ-029, REQ-037, REQ-038
   - Validation: unit, integration, full
+- [x] T011: Restrict non-timeout review failure persistence to allowlisted metadata
+  - Requirements: REQ-036
+  - Validation: unit, full

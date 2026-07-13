@@ -794,9 +794,10 @@ def record_review_failure_event(
     attempt: int,
     error: Exception,
 ):
-    safe_error = safe_error_detail(error)
-    signature = safe_error[-1000:]
     is_timeout = isinstance(error, review.ReviewTimeout)
+    error_class = type(error).__name__
+    safe_error = safe_error_detail(error) if is_timeout else error_class
+    signature = safe_error[-1000:] if is_timeout else f"{shard}:{error_class}"
     diagnostic = {}
     if is_timeout:
         allowed = {
@@ -849,6 +850,6 @@ def record_review_failure_event(
             "failure_signature": signature,
             "attempt": attempt,
             "diagnostic": diagnostic,
-            "error": safe_error,
+            "error_class": error_class,
         },
     )

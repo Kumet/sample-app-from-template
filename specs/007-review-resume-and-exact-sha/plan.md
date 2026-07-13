@@ -60,8 +60,10 @@ both events against the current repository before constructing identities.
 
 Review identity uses one validated canonical field schema rather than a loose
 payload. Every artifact and evidence field has an independent digest component.
-Subprocess errors pass through `safe_error_detail` before any event, attempt log,
-notification, or report persistence.
+Timeout subprocess errors pass through `safe_error_detail` before persistence.
+Non-timeout failures persist only allowlisted structured metadata (exception
+class, shard, identity, attempt, and stable signature), never arbitrary exception
+or reviewer text.
 
 ## Test strategy
 
