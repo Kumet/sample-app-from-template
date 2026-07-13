@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:55:29.548398+00:00","included_event_sequence":247,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T01:07:50.499870+00:00","included_event_sequence":263,"snapshot_format_version":2,"validation_contract_digest":"34035630f8b48727be93795cac88fb9c5d6c1162f03ccbdeed96dc7d27b036c2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -258,3 +258,19 @@ Final included event result: PASS.
 | 245 | review/review-shard | FAIL | `ea5fbd601ad7` |  |
 | 246 | review/review-shard | PASS | `ea5fbd601ad7` |  |
 | 247 | review-remediation/dynamic-review-chunk-budget | PASS | `ea5fbd601ad7` | New cycle loop 5: subtract fixed artifact/runtime/schema input from review budget and split integration patches into four complete subreviews below the 100k policy; make validate passed |
+| 248 | evidence/tracked-evidence-snapshot | PASS | `a5f57e1968e1` |  |
+| 249 | post-evidence/final-validation-attempt | PASS | `a5f57e1968e1` |  |
+| 250 | post-evidence/final-validation-accepted | PASS | `a5f57e1968e1` |  |
+| 251 | review/review-shard | PASS | `a5f57e1968e1` |  |
+| 252 | review/review-shard | PASS | `a5f57e1968e1` |  |
+| 253 | review/review-shard | PASS | `a5f57e1968e1` |  |
+| 254 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 255 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 256 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 257 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 258 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 259 | review/review-shard | FAIL | `a5f57e1968e1` |  |
+| 260 | review/review-shard | PASS | `a5f57e1968e1` |  |
+| 261 | review/review-shard | PASS | `a5f57e1968e1` |  |
+| 262 | clarification/human-approval | PASS | `a5f57e1968e1` | Human approved a new bounded cycle removing SIGSTOP/SIGCONT in favor of TERM, bounded grace, and KILL, plus remaining retry, survivor, identity mutation and source-linked reuse tests |
+| 263 | review-remediation/direct-term-kill-and-test-closure | PASS | `a5f57e1968e1` | New cycle loop 1: use direct TERM to known process group/PIDs, wait bounded grace, KILL survivors, and strengthen repair budget and evidence reuse identity tests; make validate passed |

@@ -18,8 +18,8 @@ from agent.evidence_snapshot import (
     utc_now,
 )
 from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
-from agent.review import ReviewIdentity
-from agent.review_shards import reusable_event
+from agent.review import REVIEW_IDENTITY_FIELDS, ReviewIdentity
+from agent.review_shards import record_reuse_decision, reusable_event
 from agent.validation import CommandResult
 
 
@@ -197,6 +197,35 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 },
             )
         require_pre_push(self.repo, self.feature, self.store.read(), head)
+        source = reusable_event(self.store.read(), identity.digest)
+        self.assertIsNotNone(source)
+        reuse = record_reuse_decision(
+            self.store,
+            source=source,
+            feature=self.feature.name,
+            repository=str(self.repo),
+            branch="test",
+            worktree=str(self.repo),
+            head_sha=head,
+            shard="integration",
+            identity_digest=identity.digest,
+        )
+        self.assertEqual(reuse.data["source_sequence"], source.sequence)
+        for field in REVIEW_IDENTITY_FIELDS:
+            if field == "identity_schema_version":
+                continue
+            values = dict(identity.__dict__)
+            value = values[field]
+            values[field] = (
+                value + 1
+                if isinstance(value, int)
+                else value + ("changed",)
+                if isinstance(value, tuple)
+                else value + "-changed"
+            )
+            changed = ReviewIdentity(**values)
+            with self.subTest(identity_field=field):
+                self.assertIsNone(reusable_event(self.store.read(), changed.digest))
         latest_security = next(
             event
             for event in reversed(self.store.read())

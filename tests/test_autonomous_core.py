@@ -163,6 +163,18 @@ class AutonomousCoreTests(unittest.TestCase):
             review_with_repairs(
                 lambda: ReviewResult("fail", (finding,)), lambda _: None, 3
             )
+        calls = []
+
+        def distinct_failure():
+            calls.append(len(calls) + 1)
+            value = weakening.Finding("high", "spec", "a.py", f"fix-{calls[-1]}", True)
+            return ReviewResult("fail", (value,))
+
+        bounded_repairs = []
+        with self.assertRaisesRegex(RuntimeError, "repair limit"):
+            review_with_repairs(distinct_failure, bounded_repairs.extend, 2)
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual(len(bounded_repairs), 1)
 
     def test_review_prompt_embeds_complete_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -524,7 +536,7 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertTrue(diagnostic["process_group_terminated"])
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
-                [signal.SIGSTOP, signal.SIGTERM, signal.SIGCONT],
+                [signal.SIGTERM],
             )
             for pid_path in (child_path, grandchild_path):
                 child_pid = int(pid_path.read_text())
@@ -584,9 +596,7 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
                 [
-                    signal.SIGSTOP,
                     signal.SIGTERM,
-                    signal.SIGCONT,
                     signal.SIGKILL,
                 ],
             )

@@ -435,9 +435,7 @@ class ProductionReadyTests(unittest.TestCase):
             self.assertEqual(
                 [call.args[1] for call in killpg.call_args_list if call.args[1]],
                 [
-                    signal.SIGSTOP,
                     signal.SIGTERM,
-                    signal.SIGCONT,
                     signal.SIGKILL,
                 ],
             )

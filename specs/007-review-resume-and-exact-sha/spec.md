@@ -132,6 +132,7 @@ commit from a later tracked evidence commit. The 600-second ceiling from Feature
 | Process isolation boundary | Guarantee the framework process group and observed controlled descendants with matching PID start identity; unknown pre-observation escapes are outside the portable guarantee and kernel containment is a future optional adapter. | 2026-07-13 |
 | Controlled descendant | A descendant PID observed by the framework and bound to its process-start identity, preventing PID-reuse termination. Known survivors require human review. | 2026-07-13 |
 | Accepted validation cycle | Human approved the attempt/accepted/rejected event model and a new bounded repair cycle after HEAD `6f97f320`; events 175 and 176 remain immutable legacy evidence. | 2026-07-13 |
+| Direct termination cycle | After the accepted-validation cycle reached five loops, human approved removing SIGSTOP/SIGCONT and using the portable `TERM → bounded grace → KILL if still live` sequence, plus the remaining retry, survivor, identity, and reuse tests. | 2026-07-13 |
 
 ## Scope
 

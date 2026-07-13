@@ -632,16 +632,12 @@ def run_process_group(
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
         process_group = process.pid
-        _signal_process_group(process_group, signal.SIGSTOP)
         descendants = tracker.stop()
-        _signal_processes(descendants, signal.SIGSTOP)
         stdout = _output_text(error.output)
         stderr = _output_text(error.stderr)
         termination = "term"
         _signal_process_group(process_group, signal.SIGTERM)
         _signal_processes(descendants, signal.SIGTERM)
-        _signal_process_group(process_group, signal.SIGCONT)
-        _signal_processes(descendants, signal.SIGCONT)
         try:
             tail_out, tail_err = process.communicate(timeout=term_grace_seconds)
         except subprocess.TimeoutExpired:
