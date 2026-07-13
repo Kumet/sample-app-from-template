@@ -26,6 +26,7 @@ class RepositoryPolicy:
     allow_legacy_contracts: bool = False
     queue_concurrency: int = 1
     max_codex_calls: int = 20
+    max_review_calls: int = 8
     quality: dict | None = None
 
 
@@ -57,6 +58,7 @@ def load_policy(repo: Path) -> RepositoryPolicy:
         allow_legacy_contracts=raw.get("allow_legacy_contracts") is True,
         queue_concurrency=_integer(raw, "queue_concurrency", 1, 8),
         max_codex_calls=_integer(raw, "max_codex_calls", 1, 100),
+        max_review_calls=_integer(raw, "max_review_calls", 1, 100),
         quality=raw.get("quality", {}),
     )
 

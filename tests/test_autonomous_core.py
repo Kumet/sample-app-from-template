@@ -15,7 +15,7 @@ from agent import adapters, delivery, recovery, review, weakening
 from agent.budget import Budget
 from agent.events import Event, EventStore
 from agent.evidence import redact
-from agent.policy import RepositoryPolicy, validation_commands
+from agent.policy import RepositoryPolicy, load_policy, validation_commands
 from agent.review import ReviewResult, parse_review, review_with_repairs
 from agent.review_shards import (
     matching_failure_count,
@@ -76,6 +76,63 @@ def review_identity(**changes):
 
 
 class AutonomousCoreTests(unittest.TestCase):
+    def _policy_text(self, review_value="8", *, include_review=True):
+        review = f"max_review_calls = {review_value}\n" if include_review else ""
+        return (
+            "version = 1\n"
+            'default_branch = "main"\n'
+            'allowed_make_targets = ["test", "validate"]\n'
+            "max_tasks = 20\n"
+            "max_attempts_per_task = 3\n"
+            "max_review_attempts = 1\n"
+            "max_ci_attempts = 2\n"
+            "max_elapsed_minutes = 60\n"
+            "auto_merge_low_risk = false\n"
+            "allow_legacy_contracts = false\n"
+            "queue_concurrency = 1\n"
+            "max_codex_calls = 99\n"
+            + review
+            + "[risk_paths]\n"
+            'high = ["auth/**"]\n'
+            'medium = [".github/**"]\n'
+        )
+
+    def test_policy_loads_independent_bounded_review_call_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            path = repo / ".agent-policy.toml"
+            for expected in (1, 8, 100):
+                with self.subTest(max_review_calls=expected):
+                    path.write_text(
+                        self._policy_text(str(expected)), encoding="utf-8"
+                    )
+                    policy = load_policy(repo)
+                    self.assertEqual(policy.max_review_calls, expected)
+                    self.assertEqual(policy.max_review_attempts, 1)
+                    self.assertEqual(policy.max_codex_calls, 99)
+
+    def test_policy_rejects_missing_or_invalid_review_call_budget(self):
+        invalid = {
+            "missing": (None, False),
+            "boolean-true": ("true", True),
+            "boolean-false": ("false", True),
+            "string": ('"8"', True),
+            "zero": ("0", True),
+            "negative": ("-1", True),
+            "above-limit": ("101", True),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            path = repo / ".agent-policy.toml"
+            for label, (value, include) in invalid.items():
+                with self.subTest(label=label):
+                    path.write_text(
+                        self._policy_text(value or "8", include_review=include),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(ValueError, "max_review_calls"):
+                        load_policy(repo)
+
     def test_allowlist_builds_only_make_commands(self):
         self.assertEqual(
             validation_commands({"unit": "test"}, POLICY), {"unit": ("make", "test")}

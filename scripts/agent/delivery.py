@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import (
@@ -225,6 +226,20 @@ def inspect_delivery_worktree(
     return result
 
 
+@dataclass
+class ReviewCallBudget:
+    """Stateful total-call budget that reserves before reviewer execution."""
+
+    limit: int
+    used: int = 0
+
+    def run(self, reviewer_call):
+        if self.used >= self.limit:
+            raise RuntimeError("Independent review call budget exhausted")
+        self.used += 1
+        return reviewer_call()
+
+
 def deliver(
     repo: Path,
     feature: str,
@@ -348,11 +363,9 @@ def deliver(
         )
         evidence = repo / ".agent-work" / feature_dir.name / "delivery"
         evidence.mkdir(parents=True, exist_ok=True)
-        review_counter = 0
-        review_calls = 0
+        review_budget = ReviewCallBudget(policy.max_review_calls)
 
         def run_review_once():
-            nonlocal review_counter, review_calls
             head = git_utils.run_git(
                 isolated.path, ["rev-parse", "HEAD"]
             ).stdout.strip()
@@ -362,7 +375,6 @@ def deliver(
             shard_results = []
 
             def obtain_prepared(shard, prepared):
-                nonlocal review_counter, review_calls
                 cached = review_shards.reusable_event(
                     event_store.read(), prepared.identity.digest
                 )
@@ -381,13 +393,11 @@ def deliver(
                     return review_shards.result_from_event(cached)
                 last_error = None
                 for shard_attempt in range(1, config.max_review_attempts + 1):
-                    if review_calls >= policy.max_review_calls:
-                        raise RuntimeError("Independent review call budget exhausted")
-                    review_calls += 1
-                    review_counter += 1
                     try:
-                        result, stderr = review.run_prepared(
-                            isolated.path, prepared, attempt=shard_attempt
+                        result, stderr = review_budget.run(
+                            lambda: review.run_prepared(
+                                isolated.path, prepared, attempt=shard_attempt
+                            )
                         )
                         break
                     except Exception as error:
@@ -423,7 +433,7 @@ def deliver(
                     raise RuntimeError(
                         f"Independent review shard {shard} retry budget exhausted"
                     ) from last_error
-                prefix = f"review-{review_counter}-{shard}"
+                prefix = f"review-{review_budget.used}-{shard}"
                 (evidence / f"{prefix}-prompt-metadata.json").write_text(
                     json.dumps(
                         {
@@ -468,7 +478,7 @@ def deliver(
                     data={
                         **payload,
                         "identity": prepared.identity.payload(),
-                        "attempt": review_calls,
+                        "attempt": review_budget.used,
                     },
                 )
                 return result
