@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import git_utils, worktree
 from .events import Event, EventStore
 from .evidence import redact
 from .validation import CommandResult
@@ -259,7 +260,7 @@ def _validate_acceptance(
         raise ValueError("Final-validation contract digest mismatch")
     if not isinstance(result_value, str) or len(result_value) != 64:
         raise ValueError("Final-validation result digest is invalid")
-    if _changed(repo):
+    if _changed(repo, feature_dir.name):
         raise ValueError("Final-validation acceptance requires a clean worktree")
     if any(
         event.kind == "final-validation-accepted"
@@ -286,7 +287,7 @@ def require_final_evidence(
 ) -> EvidenceBinding:
     if _head(repo) != head_sha:
         raise ValueError("Current HEAD differs from requested review HEAD")
-    if _changed(repo):
+    if _changed(repo, feature_dir.name):
         raise ValueError("Review requires a clean worktree")
     snapshot = next(
         (
@@ -412,16 +413,15 @@ def _head(repo: Path) -> str:
     return result.stdout.strip()
 
 
-def _changed(repo: Path) -> bool:
-    result = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=30,
+def _changed(repo: Path, feature: str) -> bool:
+    allow_marker = worktree.owns_current_worktree(repo, feature)
+    if worktree.is_current_registered_isolated(repo) and not allow_marker:
+        return True
+    return bool(
+        git_utils.cleanliness_paths_read_only(
+            repo, allow_ownership_marker=allow_marker
+        )
     )
-    return bool(result.stdout.strip())
 
 
 def _digest(value: dict) -> str:

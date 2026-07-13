@@ -4,9 +4,11 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
+from agent import git_utils, worktree
 from agent.events import EventStore, render_validation_log
 from agent.evidence_snapshot import (
     contract_digest,
@@ -97,6 +99,296 @@ class EvidenceSnapshotTests(unittest.TestCase):
             worktree=str(self.repo),
         )
         return snapshot
+
+    def _linked_attempt(self):
+        (self.repo / "stable.txt").write_text("clean\n", encoding="utf-8")
+        self._snapshot_commit()
+        branch = git_utils.branch(self.repo)
+        isolated = worktree.create(self.repo, self.feature.name, branch)
+        linked_feature = isolated.path / "specs" / self.feature.name
+        snapshot = record_snapshot(
+            self.store,
+            repo=isolated.path,
+            feature_dir=linked_feature,
+            repository=str(self.repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+        )
+        attempt = record_final_validation_attempt(
+            self.store,
+            repo=isolated.path,
+            feature_dir=linked_feature,
+            repository=str(self.repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+            snapshot=snapshot,
+            result=CommandResult("full", ("make", "validate"), 0, "ok", ""),
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        return isolated, linked_feature, snapshot, attempt
+
+    def test_owned_marker_allows_acceptance_and_final_evidence(self):
+        isolated, linked_feature, snapshot, attempt = self._linked_attempt()
+        marker = isolated.path / ".agent-worktree-owned"
+        index = Path(
+            git_utils.run_git(
+                isolated.path, ["rev-parse", "--git-path", "index"]
+            ).stdout.strip()
+        )
+        if not index.is_absolute():
+            index = isolated.path / index
+        before = (index.read_bytes(), index.stat().st_mtime_ns, marker.read_bytes())
+        accepted = record_final_validation_accepted(
+            self.store,
+            repo=isolated.path,
+            feature_dir=linked_feature,
+            repository=str(self.repo),
+            branch=isolated.branch,
+            worktree=str(isolated.path),
+            snapshot=snapshot,
+            attempt=attempt,
+        )
+        binding = require_final_evidence(
+            isolated.path,
+            linked_feature,
+            self.store.read(),
+            snapshot.head_sha,
+        )
+        self.assertEqual(binding.final_validation_accepted_event_sequence, accepted.sequence)
+        self.assertEqual(
+            (index.read_bytes(), index.stat().st_mtime_ns, marker.read_bytes()), before
+        )
+
+        marker.write_text("009-other\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            require_final_evidence(
+                isolated.path,
+                linked_feature,
+                self.store.read(),
+                snapshot.head_sha,
+            )
+        marker.write_text(self.feature.name + "\n", encoding="utf-8")
+        (isolated.path / "unrelated.txt").write_text("dirty", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            require_final_evidence(
+                isolated.path,
+                linked_feature,
+                self.store.read(),
+                snapshot.head_sha,
+            )
+
+    def test_unverified_ownership_markers_fail_closed(self):
+        isolated, linked_feature, snapshot, attempt = self._linked_attempt()
+        marker = isolated.path / ".agent-worktree-owned"
+
+        marker.write_text("009-other\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        external = Path(self.temp.name) / "external-marker"
+        external.write_text(self.feature.name + "\n", encoding="utf-8")
+        marker.unlink()
+        marker.symlink_to(external)
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        marker.unlink()
+        marker.hardlink_to(external)
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        marker.unlink()
+        marker.write_bytes(b"x" * 129)
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        marker.unlink()
+        marker.write_bytes(b"\xff")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        marker.unlink()
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+        worktree.write_ownership_marker(self.repo, isolated.path, self.feature.name)
+        with (
+            mock.patch.object(
+                worktree,
+                "read_ownership_marker",
+                side_effect=PermissionError("denied"),
+            ),
+            self.assertRaisesRegex(ValueError, "clean worktree"),
+        ):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+    def test_repository_root_marker_remains_dirty(self):
+        snapshot = self._snapshot_commit()
+        attempt = record_final_validation_attempt(
+            self.store,
+            repo=self.repo,
+            feature_dir=self.feature,
+            repository=str(self.repo),
+            branch=git_utils.branch(self.repo),
+            worktree=str(self.repo),
+            snapshot=snapshot,
+            result=CommandResult("full", ("make", "validate"), 0, "ok", ""),
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        (self.repo / ".agent-worktree-owned").write_text(
+            self.feature.name + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=self.repo,
+                feature_dir=self.feature,
+                repository=str(self.repo),
+                branch=git_utils.branch(self.repo),
+                worktree=str(self.repo),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+    def test_marker_in_unregistered_directory_remains_dirty(self):
+        self._snapshot_commit()
+        unmanaged = self.repo / ".agent-worktrees" / self.feature.name
+        unmanaged.parent.mkdir()
+        subprocess.run(
+            ["git", "clone", "-q", str(self.repo), str(unmanaged)], check=True
+        )
+        self.assertFalse(worktree.is_registered_isolated(self.repo, unmanaged))
+        unmanaged_feature = unmanaged / "specs" / self.feature.name
+        (unmanaged / ".agent-worktree-owned").write_text(
+            self.feature.name + "\n", encoding="utf-8"
+        )
+        unmanaged_store = EventStore(Path(self.temp.name) / "unmanaged-events.jsonl")
+        snapshot = record_snapshot(
+            unmanaged_store,
+            repo=unmanaged,
+            feature_dir=unmanaged_feature,
+            repository=str(self.repo),
+            branch=git_utils.branch(unmanaged),
+            worktree=str(unmanaged),
+        )
+        attempt = record_final_validation_attempt(
+            unmanaged_store,
+            repo=unmanaged,
+            feature_dir=unmanaged_feature,
+            repository=str(self.repo),
+            branch=git_utils.branch(unmanaged),
+            worktree=str(unmanaged),
+            snapshot=snapshot,
+            result=CommandResult("full", ("make", "validate"), 0, "ok", ""),
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                unmanaged_store,
+                repo=unmanaged,
+                feature_dir=unmanaged_feature,
+                repository=str(self.repo),
+                branch=git_utils.branch(unmanaged),
+                worktree=str(unmanaged),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+    def test_owned_marker_does_not_hide_tracked_changes(self):
+        isolated, linked_feature, snapshot, attempt = self._linked_attempt()
+        (isolated.path / "stable.txt").write_text("changed\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
+
+    def test_owned_marker_does_not_hide_untracked_changes_at_acceptance(self):
+        isolated, linked_feature, snapshot, attempt = self._linked_attempt()
+        (isolated.path / "unrelated.txt").write_text("dirty\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "clean worktree"):
+            record_final_validation_accepted(
+                self.store,
+                repo=isolated.path,
+                feature_dir=linked_feature,
+                repository=str(self.repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                snapshot=snapshot,
+                attempt=attempt,
+            )
 
     def test_snapshot_blob_and_post_evidence_validation_bind_exact_head(self):
         snapshot = self._snapshot_commit()
