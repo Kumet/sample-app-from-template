@@ -774,11 +774,29 @@ def record_review_failure_event(
 ):
     safe_error = safe_error_detail(error)
     signature = safe_error[-1000:]
-    diagnostic = (
-        redact_value(error.diagnostic)
-        if isinstance(error, review.ReviewTimeout)
-        else {}
-    )
+    diagnostic = {}
+    if isinstance(error, review.ReviewTimeout):
+        allowed = {
+            "shard",
+            "head_sha",
+            "attempt",
+            "configured_timeout",
+            "elapsed_seconds",
+            "command_id",
+            "prompt_chars",
+            "prompt_bytes",
+            "input_digest",
+            "stdout_tail",
+            "stderr_tail",
+            "process_status",
+            "pid",
+            "termination",
+            "process_group_terminated",
+            "tracked_descendant_pids",
+        }
+        diagnostic = redact_value(
+            {key: value for key, value in error.diagnostic.items() if key in allowed}
+        )
     return event_store.append(
         feature=feature,
         repository=repository,
@@ -792,7 +810,6 @@ def record_review_failure_event(
         data={
             "shard": shard,
             "identity_digest": identity.digest,
-            "identity": identity.payload(),
             "failure_signature": signature,
             "attempt": attempt,
             "diagnostic": diagnostic,

@@ -554,7 +554,11 @@ def run_prepared(
         },
     )
     if completed.returncode:
-        raise RuntimeError(f"Review Codex failed: {redact(completed.stderr, 4000)}")
+        raise RuntimeError(
+            "Review Codex failed: "
+            f"stdout={_safe_stream_tail(completed.stdout)}; "
+            f"stderr={_safe_stream_tail(completed.stderr)}"
+        )
     return parse_review(completed.stdout), completed.stderr
 
 
@@ -603,14 +607,8 @@ def run_process_group(
             termination = "kill"
             _signal_process_group(process_group, signal.SIGKILL)
             _signal_processes(descendants, signal.SIGKILL)
-            more_out, more_err = process.communicate()
-            tail_out += _output_text(more_out)
-            tail_err += _output_text(more_err)
             _wait_for_targets_exit(process_group, descendants, term_grace_seconds)
-        elif process.poll() is None:
-            more_out, more_err = process.communicate()
-            tail_out += _output_text(more_out)
-            tail_err += _output_text(more_err)
+        _reap_without_pipe_wait(process, term_grace_seconds)
         group_terminated = not _process_group_exists(process_group) and not any(
             _process_exists(pid) for pid in descendants
         )
@@ -753,6 +751,19 @@ def _safe_stream_tail(value: str, limit: int = 2000) -> str:
         for character in value
     )
     return redact(safe_controls, limit)
+
+
+def _reap_without_pipe_wait(
+    process: subprocess.Popen[str], timeout_seconds: float
+) -> None:
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=timeout_seconds)
 
 
 def bind_context(prepared: PreparedReview, context: dict) -> PreparedReview:

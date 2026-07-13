@@ -528,9 +528,16 @@ class AutonomousCoreTests(unittest.TestCase):
     def test_timeout_kills_process_group_when_term_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = Path(directory) / "child.pid"
-            child = (
+            grandchild_path = Path(directory) / "grandchild.pid"
+            grandchild = (
                 "import signal,time; "
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+            )
+            child = (
+                "import signal,subprocess,sys,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                f"p=subprocess.Popen([sys.executable,'-c',{grandchild!r}]); "
+                f"open({str(grandchild_path)!r},'w').write(str(p.pid)); time.sleep(60)"
             )
             program = (
                 "import signal,subprocess,sys,time; "
@@ -565,19 +572,20 @@ class AutonomousCoreTests(unittest.TestCase):
                     signal.SIGKILL,
                 ],
             )
-            child_pid = int(child_path.read_text())
-            for _ in range(20):
-                status = subprocess.run(
-                    ["ps", "-o", "stat=", "-p", str(child_pid)],
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                ).stdout.strip()
-                if not status or status.startswith("Z"):
-                    break
-                time.sleep(0.02)
-            else:
-                self.fail("SIGKILL did not remove review child process")
+            for pid_path in (child_path, grandchild_path):
+                child_pid = int(pid_path.read_text())
+                for _ in range(20):
+                    status = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(child_pid)],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    ).stdout.strip()
+                    if not status or status.startswith("Z"):
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail("SIGKILL did not remove review descendant process")
 
     def test_timeout_output_normalizes_wrapped_bytes(self):
         self.assertEqual(review._output_text(b"partial\xff"), "partial\ufffd")
@@ -620,7 +628,10 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertEqual(persisted.result, "TIMEOUT")
             self.assertEqual(persisted.data["diagnostic"]["termination"], "kill")
             self.assertTrue(persisted.data["diagnostic"]["process_group_terminated"])
-            self.assertNotIn("secret-value", str(persisted.data))
+            serialized = json.dumps(persisted.data, sort_keys=True)
+            self.assertNotIn("secret-value", serialized)
+            self.assertIn("[REDACTED]", serialized)
+            self.assertNotIn("identity", persisted.data)
         self.assertEqual(review._output_text("text"), "text")
         self.assertEqual(review._output_text(None), "")
 

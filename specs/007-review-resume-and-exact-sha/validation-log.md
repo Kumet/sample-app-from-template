@@ -1,5 +1,5 @@
 # Validation log: 007-review-resume-and-exact-sha
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-12T23:55:33.456268+00:00","included_event_sequence":148,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"007-review-resume-and-exact-sha","generated_at":"2026-07-13T00:00:57.602889+00:00","included_event_sequence":161,"snapshot_format_version":2,"validation_contract_digest":"24afc8181439f7f6160d687627865e8bf8c81971987270b0028616b37c03fad3"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -159,3 +159,16 @@ Final included event result: PASS.
 | 146 | review/review-shard | PASS | `4c3a006e3004` |  |
 | 147 | review/review-shard | PASS | `4c3a006e3004` |  |
 | 148 | review-remediation/frozen-timeout-and-minimal-evidence | PASS | `4c3a006e3004` | New cycle loop 3: freeze reviewer group before final descendant snapshot, persist prompt digests only, centralize shutdown-tail redaction, clarify Feature 006 artifact scope, and strengthen required tests; make validate passed |
+| 149 | evidence/tracked-evidence-snapshot | PASS | `9807dad1eb40` |  |
+| 150 | post-evidence/final-validation | PASS | `9807dad1eb40` |  |
+| 151 | review/review-shard | PASS | `9807dad1eb40` |  |
+| 152 | review/review-shard | PASS | `9807dad1eb40` |  |
+| 153 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 154 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 155 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 156 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 157 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 158 | review/review-shard | FAIL | `9807dad1eb40` |  |
+| 159 | review/review-shard | PASS | `9807dad1eb40` |  |
+| 160 | review/review-shard | PASS | `9807dad1eb40` |  |
+| 161 | review-remediation/bounded-reap-and-diagnostic-allowlist | PASS | `9807dad1eb40` | New cycle loop 4: avoid post-kill pipe waits, centralize safe stdout/stderr tails, allowlist timeout event diagnostics, omit identity payloads, and prove ignored-TERM descendant-tree cleanup; make validate passed |
