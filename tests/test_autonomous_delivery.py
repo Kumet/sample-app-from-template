@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -10,7 +11,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from agent import delivery as delivery_module
-from agent import git_utils, state, worktree
+from agent import git_utils, review, review_shards, state, worktree
+from agent.events import EventStore
 from agent.github_delivery import GitHubDelivery, checks_with_repairs
 from agent.parser import Task
 
@@ -54,9 +56,272 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(budget.run(reviewer), "pass")
             self.assertEqual(budget.used, expected)
         self.assertEqual(reviewer.call_count, 8)
-        with self.assertRaisesRegex(RuntimeError, "call budget exhausted"):
+        with self.assertRaisesRegex(
+            delivery_module.ReviewBudgetExhausted, "call budget exhausted"
+        ) as raised:
             budget.run(reviewer)
+        self.assertEqual((raised.exception.limit, raised.exception.used), (8, 8))
         self.assertEqual(reviewer.call_count, 8)
+
+    def test_budget_exhaustion_stops_once_as_human_required_without_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            budget = delivery_module.ReviewCallBudget(8)
+            identity = SimpleNamespace(digest="blocked-identity")
+            prepared = SimpleNamespace(identity=identity)
+            reviewer_result = review.ReviewResult("pass", ())
+
+            with mock.patch.object(
+                delivery_module.review,
+                "run_prepared",
+                return_value=(reviewer_result, ""),
+            ) as run:
+                for index in range(8):
+                    completed = SimpleNamespace(
+                        identity=SimpleNamespace(digest=f"completed-{index}")
+                    )
+                    result, _ = delivery_module.run_prepared_review_with_retries(
+                        Path(directory),
+                        completed,
+                        budget,
+                        3,
+                        event_store=store,
+                        feature="013-test",
+                        repository="repo",
+                        branch="feature/013-test",
+                        worktree="worktree",
+                        head_sha="a" * 40,
+                        shard=f"chunk-{index}",
+                    )
+                    self.assertEqual(result.result, "pass")
+                with self.assertRaisesRegex(
+                    delivery_module.ReviewResumeRequired,
+                    "explicit delivery resume required",
+                ):
+                    delivery_module.run_prepared_review_with_retries(
+                        Path(directory),
+                        prepared,
+                        budget,
+                        3,
+                        event_store=store,
+                        feature="013-test",
+                        repository="repo",
+                        branch="feature/013-test",
+                        worktree="worktree",
+                        head_sha="a" * 40,
+                        shard="tests",
+                    )
+
+            events = store.read()
+            self.assertEqual(len(events), 1)
+            event = events[0]
+            self.assertEqual(
+                (event.kind, event.result), ("review-shard", "HUMAN_REQUIRED")
+            )
+            self.assertEqual(event.detail, "ReviewBudgetExhausted")
+            self.assertEqual(
+                event.data["diagnostic"],
+                {
+                    "limit": 8,
+                    "used": 8,
+                    "retryable": False,
+                    "resume_boundary": "explicit-delivery-invocation",
+                },
+            )
+            self.assertEqual(event.data["attempt"], 1)
+            self.assertEqual(run.call_count, 8)
+            self.assertEqual(
+                [call.kwargs["attempt"] for call in run.call_args_list], [1] * 8
+            )
+            self.assertEqual(
+                review_shards.matching_failure_count(
+                    events, identity, "tests:ReviewBudgetExhausted"
+                ),
+                1,
+            )
+
+    def test_fresh_budget_reuses_exact_pass_and_spends_only_pending_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "events.jsonl")
+            common = {
+                "feature": "013-test",
+                "repository": "repo",
+                "branch": "feature/013-test",
+                "worktree": "worktree",
+                "phase": "review",
+                "kind": "review-shard",
+                "head_sha": "a" * 40,
+            }
+            identity = review.ReviewIdentity(
+                identity_schema_version=review.REVIEW_IDENTITY_SCHEMA_VERSION,
+                feature="013-test",
+                head_sha="a" * 40,
+                shard="spec-scope",
+                review_schema_version=review.REVIEW_SCHEMA_VERSION,
+                prompt_version=review.REVIEW_PROMPT_VERSION,
+                reviewer_model=review.REVIEW_MODEL,
+                reviewer_command_identity="c" * 64,
+                review_settings=review.MODEL_SETTINGS,
+                reviewed_files=("scripts/agent/delivery.py",),
+                spec_digest="1" * 64,
+                plan_digest="2" * 64,
+                tasks_digest="3" * 64,
+                validation_contract_digest="4" * 64,
+                diff_input_digest="5" * 64,
+                runtime_evidence_digest="6" * 64,
+                tracked_snapshot_event_sequence=1,
+                validation_log_blob_sha="7" * 40,
+                final_validation_attempt_event_sequence=2,
+                final_validation_accepted_event_sequence=3,
+                final_validation_result_digest="8" * 64,
+            )
+            exact = store.append(
+                **common,
+                result="PASS",
+                data={
+                    "shard": "spec-scope",
+                    "identity_digest": identity.digest,
+                    "findings": [],
+                },
+            )
+            store.append(
+                **common,
+                result="HUMAN_REQUIRED",
+                data={
+                    "shard": "tests",
+                    "identity_digest": "pending",
+                    "failure_signature": "tests:ReviewBudgetExhausted",
+                },
+            )
+
+            fresh = delivery_module.ReviewCallBudget(8)
+            prepared = SimpleNamespace(identity=identity)
+            before_reuse = store.read()
+            with mock.patch.object(
+                delivery_module.review, "run_prepared"
+            ) as exact_reviewer:
+                result, stderr, reused = (
+                    delivery_module.obtain_cached_or_run_prepared_review(
+                        Path(directory),
+                        prepared,
+                        fresh,
+                        3,
+                        event_store=store,
+                        feature="013-test",
+                        repository="repo",
+                        branch="feature/013-test",
+                        worktree="worktree",
+                        head_sha="a" * 40,
+                        shard="spec-scope",
+                    )
+                )
+            self.assertTrue(reused)
+            self.assertEqual((result.result, stderr), ("pass", ""))
+            exact_reviewer.assert_not_called()
+            self.assertEqual(fresh.used, 0)
+            after_reuse = store.read()
+            self.assertEqual(len(after_reuse), len(before_reuse) + 1)
+            reuse = after_reuse[-1]
+            self.assertEqual((reuse.kind, reuse.result), ("review-reused", "PASS"))
+            self.assertEqual(reuse.data["source_sequence"], exact.sequence)
+            self.assertEqual(
+                sum(
+                    event.kind == "review-shard" and event.result == "PASS"
+                    for event in after_reuse
+                ),
+                1,
+            )
+            for field in review.REVIEW_IDENTITY_FIELDS:
+                with self.subTest(identity_change=field):
+                    values = dict(identity.__dict__)
+                    if field == "identity_schema_version":
+                        values[field] = "unknown"
+                        with self.assertRaisesRegex(ValueError, "schema version"):
+                            review.ReviewIdentity(**values)
+                        legacy_payload = identity.payload()
+                        legacy_payload[field] = "unknown"
+                        legacy_digest = hashlib.sha256(
+                            json.dumps(
+                                legacy_payload,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode()
+                        ).hexdigest()
+                        legacy_store = EventStore(
+                            Path(directory) / "legacy-schema-events.jsonl"
+                        )
+                        legacy_store.append(
+                            **common,
+                            result="PASS",
+                            data={
+                                "shard": "spec-scope",
+                                "identity_digest": legacy_digest,
+                                "identity": legacy_payload,
+                                "findings": [],
+                            },
+                        )
+                        schema_budget = delivery_module.ReviewCallBudget(8)
+                        schema_result = review.ReviewResult("pass", ())
+                        with mock.patch.object(
+                            delivery_module.review,
+                            "run_prepared",
+                            return_value=(schema_result, ""),
+                        ) as schema_reviewer:
+                            _, _, schema_reused = (
+                                delivery_module.obtain_cached_or_run_prepared_review(
+                                    Path(directory),
+                                    prepared,
+                                    schema_budget,
+                                    3,
+                                    event_store=legacy_store,
+                                    feature="013-test",
+                                    repository="repo",
+                                    branch="feature/013-test",
+                                    worktree="worktree",
+                                    head_sha="a" * 40,
+                                    shard="spec-scope",
+                                )
+                            )
+                        self.assertFalse(schema_reused)
+                        self.assertEqual(schema_budget.used, 1)
+                        schema_reviewer.assert_called_once()
+                        continue
+                    value = values[field]
+                    values[field] = (
+                        value + 1
+                        if isinstance(value, int)
+                        else value + ("changed",)
+                        if isinstance(value, tuple)
+                        else value + "-changed"
+                    )
+                    changed = review.ReviewIdentity(**values)
+                    changed_budget = delivery_module.ReviewCallBudget(8)
+                    changed_prepared = SimpleNamespace(identity=changed)
+                    reviewer_result = review.ReviewResult("pass", ())
+                    with mock.patch.object(
+                        delivery_module.review,
+                        "run_prepared",
+                        return_value=(reviewer_result, ""),
+                    ) as pending_reviewer:
+                        pending, _, pending_reused = (
+                            delivery_module.obtain_cached_or_run_prepared_review(
+                                Path(directory),
+                                changed_prepared,
+                                changed_budget,
+                                3,
+                                event_store=store,
+                                feature="013-test",
+                                repository="repo",
+                                branch="feature/013-test",
+                                worktree="worktree",
+                                head_sha="a" * 40,
+                                shard="spec-scope",
+                            )
+                        )
+                    self.assertFalse(pending_reused)
+                    self.assertEqual(pending.result, "pass")
+                    self.assertEqual(changed_budget.used, 1)
+                    pending_reviewer.assert_called_once()
 
     def _resumable_repo(self):
         temporary = tempfile.TemporaryDirectory()

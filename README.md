@@ -241,6 +241,13 @@ event records `PASS`. Failed, timed-out, invalid, or missing shards are rerun
 within both configured review budgets. Integration review runs only after every
 file-focused shard passes.
 
+If the delivery-wide reviewer-call budget is exhausted, delivery records one
+`HUMAN_REQUIRED` event and stops before another reviewer subprocess starts. It
+does not retry exhaustion or refill the budget in the same invocation. After
+human approval, invoking `make deliver` again creates a fresh bounded budget;
+exact-identity PASS shards are reused without spending calls, while pending or
+identity-changed shards still require reviewer PASS.
+
 Tracked validation evidence is finalized before exact-HEAD validation. The log
 contains snapshot format and event schema versions, its included-event watermark,
 generation time, and validation-contract digest—but never its own commit SHA.
