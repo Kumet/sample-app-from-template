@@ -9,7 +9,7 @@
 
 ## Tasks
 
-- [ ] T001: Add Comment/Activity domain types, fixed events, errors, queries, and repository protocol.
+- [x] T001: Add Comment/Activity domain types, fixed events, errors, queries, and repository protocol.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-020
   - Acceptance criteria: AC-001, AC-014
   - Validation: unit, app

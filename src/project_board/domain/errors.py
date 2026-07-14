@@ -26,6 +26,23 @@ class TaskNotFound(LookupError):
         super().__init__(f"Task {task_id} was not found in Project {project_id}")
 
 
+class TaskCommentValidationError(ValueError):
+    """Raised when Task Comment or Activity data violates a domain rule."""
+
+
+class TaskCommentNotFound(LookupError):
+    """Raised when a Comment is absent from the requested Project and Task."""
+
+    def __init__(self, project_id: int, task_id: int, comment_id: int) -> None:
+        self.project_id = project_id
+        self.task_id = task_id
+        self.comment_id = comment_id
+        super().__init__(
+            f"Comment {comment_id} was not found in Task {task_id} "
+            f"of Project {project_id}"
+        )
+
+
 class TagValidationError(ValueError):
     """Raised when Tag data violates a domain rule."""
 
