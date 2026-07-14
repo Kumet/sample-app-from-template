@@ -1,0 +1,35 @@
+version = 2
+risk = "high"
+auto_merge = false
+risk_domains = ["infrastructure"]
+max_tasks = 5
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+integration = "integration-test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "AC-002", "T001", "T002"]
+REQ-002 = ["AC-001", "T001", "T003"]
+REQ-003 = ["AC-001", "T003"]
+REQ-004 = ["AC-001", "T003"]
+REQ-005 = ["AC-002", "T002"]
+REQ-006 = ["AC-003", "T001", "T005"]
+REQ-007 = ["AC-004", "T001", "T004"]
+REQ-008 = ["AC-004", "AC-005", "T002", "T004"]
+REQ-009 = ["AC-005", "AC-006", "T004", "T005"]
+
+[dependencies]
+T002 = ["T001"]
+T003 = ["T002"]
+T004 = ["T003"]
+T005 = ["T004"]
+
+[scope]
+allowed = ["scripts/agent/delivery.py", "scripts/agent/review.py", "scripts/agent/weakening.py", "tests/test_autonomous_delivery.py", "tests/test_weakening_evidence.py", "tests/test_post_repair_weakening_order.py", "README.md", "docs/**", "specs/016-post-repair-weakening-order/**"]
+forbidden = [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/credentials.*", "**/secrets.*", ".github/**", "src/**", ".agent-work/**", ".agent-worktrees/**", ".agent-worktree-owned"]

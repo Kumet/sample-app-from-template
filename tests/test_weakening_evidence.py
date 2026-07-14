@@ -140,6 +140,8 @@ class WeakeningReviewEvidenceTests(unittest.TestCase):
                 "branch": "feature/015-test",
                 "worktree": "worktree",
                 "head_sha": self.head,
+                "final_validation_accepted_event_sequence": 1,
+                "command_identity": "c" * 64,
             }
             first = delivery._record_weakening_pass(
                 store, inspection, **arguments
@@ -149,7 +151,14 @@ class WeakeningReviewEvidenceTests(unittest.TestCase):
             )
             self.assertEqual(first.sequence, second.sequence)
             self.assertEqual(len(store.read()), 1)
-            self.assertEqual(store.read()[0].data, self.payload)
+            self.assertEqual(
+                store.read()[0].data,
+                {
+                    **self.payload,
+                    "final_validation_accepted_event_sequence": 1,
+                    "command_identity": "c" * 64,
+                },
+            )
 
     def test_contradictory_or_failing_current_head_evidence_fails_closed(self):
         changed = {
