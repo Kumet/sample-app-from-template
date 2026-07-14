@@ -277,11 +277,17 @@ def test_failed_delete_rolls_back_and_same_session_remains_reusable(
     session: Session,
 ) -> None:
     project = create_project(session)
+    task = create_task(session, project.id)
     repository = SQLAlchemyTagRepository(session)
     timestamp = datetime(2026, 7, 14, tzinfo=UTC)
     original = repository.create(make_tag(project.id, "Original", timestamp))
+    repository.attach(project.id, task.id, original.id)
+    cascaded_counts: list[int | None] = []
 
-    def fail_after_flush(_session: Session, _flush_context: object) -> None:
+    def fail_after_flush(flushed_session: Session, _flush_context: object) -> None:
+        cascaded_counts.append(
+            flushed_session.scalar(select(func.count()).select_from(TaskTagModel))
+        )
         raise SQLAlchemyError("forced delete failure")
 
     event.listen(session, "after_flush_postexec", fail_after_flush, once=True)
@@ -289,11 +295,34 @@ def test_failed_delete_rolls_back_and_same_session_remains_reusable(
         repository.delete(project.id, original.id)
 
     assert caught.value.args == ("Tag persistence operation failed",)
+    assert cascaded_counts == [0]
     assert session.in_transaction() is False
     assert not session.deleted
     assert repository.get(project.id, original.id) == original
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 1
+    assert SQLAlchemyTaskRepository(session).get(project.id, task.id) == replace(
+        task, tags=(original,)
+    )
     recovered = repository.create(make_tag(project.id, "Recovered", timestamp))
     assert repository.get(project.id, recovered.id) == recovered
+
+
+def test_tag_delete_cascades_association_but_preserves_task_and_project(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    task = create_task(session, project.id)
+    repository = SQLAlchemyTagRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    tag = repository.create(make_tag(project.id, "Backend", timestamp))
+    repository.attach(project.id, task.id, tag.id)
+
+    assert repository.delete(project.id, tag.id) is True
+
+    assert repository.get(project.id, tag.id) is None
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 0
+    assert SQLAlchemyTaskRepository(session).get(project.id, task.id) == task
+    assert SQLAlchemyProjectRepository(session).get(project.id) == project
 
 
 def test_attach_and_detach_are_idempotent_and_change_one_association_row(

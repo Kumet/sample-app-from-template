@@ -59,7 +59,7 @@
   - Validation: unit, app, integration
   - Dependencies: T004, T007
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T009: Complete deletion cascades, rollback, physical-row, schema, import-isolation, and regression tests.
+- [x] T009: Complete deletion cascades, rollback, physical-row, schema, import-isolation, and regression tests.
   - Requirements: REQ-011, REQ-015, REQ-016, REQ-017, REQ-018, REQ-019, REQ-020, REQ-021, REQ-022, REQ-025
   - Acceptance criteria: AC-007, AC-008, AC-012, AC-013, AC-014, AC-015, AC-016, AC-017, AC-018, AC-020
   - Validation: unit, app, integration, full
