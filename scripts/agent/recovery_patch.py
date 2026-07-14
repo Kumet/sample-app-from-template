@@ -236,23 +236,35 @@ def inspect(
     except Exception as error:
         blockers.append(f"worktree Git inspection failed: {type(error).__name__}")
         current_branch, current_head, current_paths = "", "", ()
+    current_paths_valid = True
+    try:
+        current_paths = tuple(sorted(_normalize_path(path) for path in current_paths))
+    except ValueError as error:
+        blockers.append(f"current changed path rejected: {error}")
+        current_paths = ()
+        current_paths_valid = False
     branch_match = current_branch == saved.branch
     head_match = current_head == saved.head_commit
     if not branch_match:
         blockers.append("worktree branch differs from saved state")
     if not head_match:
         blockers.append("worktree HEAD differs from saved state")
-    try:
-        isolated_feature = resolve_feature(expected, feature_dir.name)
-        current_contract = contract_digest(isolated_feature)
-    except Exception as error:
-        blockers.append(f"worktree contract inspection failed: {type(error).__name__}")
+    if current_paths_valid:
+        try:
+            isolated_feature = resolve_feature(expected, feature_dir.name)
+            current_contract = contract_digest(isolated_feature)
+        except Exception as error:
+            blockers.append(
+                f"worktree contract inspection failed: {type(error).__name__}"
+            )
+            current_contract = ""
+    else:
+        blockers.append("worktree contract inspection blocked by rejected changed path")
         current_contract = ""
     contract_match = current_contract == saved.contract_digest
-    if not contract_match:
+    if not contract_match and current_paths_valid:
         blockers.append("feature contract differs from saved state")
     prior_paths = tuple(sorted(saved.changed_paths))
-    current_paths = tuple(sorted(current_paths))
     if len(current_paths) > MAX_CHANGED_PATHS:
         blockers.append("current changed paths exceed the recovery inspection limit")
     added_paths = tuple(sorted(set(current_paths) - set(prior_paths)))
@@ -260,14 +272,17 @@ def inspect(
     paths_match = added_paths == approved_paths and not removed_paths
     if not paths_match:
         blockers.append("approved paths do not exactly match newly changed paths")
-    try:
-        validation.validate_scope(list(current_paths), config)
-    except ValueError as error:
-        blockers.append(str(error))
-    try:
-        digest = diff_digest(expected, current_paths) if path_match else ""
-    except (OSError, ValueError, git_utils.GitError) as error:
-        blockers.append(f"recovery diff inspection failed: {type(error).__name__}")
+    if current_paths_valid:
+        try:
+            validation.validate_scope(list(current_paths), config)
+        except ValueError as error:
+            blockers.append(str(error))
+        try:
+            digest = diff_digest(expected, current_paths) if path_match else ""
+        except (OSError, ValueError, git_utils.GitError) as error:
+            blockers.append(f"recovery diff inspection failed: {type(error).__name__}")
+            digest = ""
+    else:
         digest = ""
     return RecoveryInspection(
         feature_dir.name,

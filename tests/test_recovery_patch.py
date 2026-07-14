@@ -369,6 +369,13 @@ class RecoveryPatchTests(unittest.TestCase):
                 return_value=["existing.py", sensitive, "recovery.py"],
             ),
             mock.patch.object(recovery_patch, "_run_git_bytes") as git_diff,
+            mock.patch.object(recovery_patch, "resolve_feature") as resolve,
+            mock.patch.object(recovery_patch, "contract_digest") as contract,
+            mock.patch.object(
+                recovery_patch.validation,
+                "validate_scope",
+                wraps=recovery_patch.validation.validate_scope,
+            ) as scope,
             mock.patch.object(Path, "lstat", new=guarded_lstat),
             mock.patch.object(Path, "open", new=guarded_open),
         ):
@@ -377,9 +384,14 @@ class RecoveryPatchTests(unittest.TestCase):
             )
         self.assertFalse(report.can_apply)
         self.assertIn(
-            "recovery diff inspection failed: ValueError", report.blocking_reasons
+            "current changed path rejected: Sensitive paths cannot be approved as recovery paths",
+            report.blocking_reasons,
         )
+        self.assertEqual(report.current_changed_paths, ())
         git_diff.assert_not_called()
+        resolve.assert_not_called()
+        contract.assert_not_called()
+        self.assertEqual(scope.call_count, 1)
 
     def test_apply_reinspects_after_approval_event_before_state_mutation(self):
         recovery = self._add_recovery()

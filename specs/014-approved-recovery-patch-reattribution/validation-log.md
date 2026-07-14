@@ -76,3 +76,9 @@ review events are intentionally not written back into this file.
   saved state through the atomic state API on that failure, retains the first
   approval as unapplied audit history, and permits a later formal retry to bind
   a new approval and applied event.
+- New limited cycle 4 — spec-scope review required the current-path security
+  boundary to be explicit in `inspect`, rather than relying on digest defense in
+  depth. Inspection now normalizes every current path immediately after Git
+  status; rejection produces a structured blocker and skips contract, current
+  scope, and recovery diff processing. Tests prove only the earlier approved-path
+  scope check runs and no sensitive path is exposed in the report.
