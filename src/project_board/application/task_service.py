@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from project_board.application.project_service import UNSET, _UnsetType
 from project_board.domain import (
     ProjectNotFound,
+    TagNotFound,
     Task,
     TaskNotFound,
     TaskPriority,
@@ -14,6 +15,7 @@ from project_board.domain import (
     TaskValidationError,
 )
 from project_board.repositories.project_repository import ProjectRepository
+from project_board.repositories.tag_repository import TagRepository
 from project_board.repositories.task_repository import TaskListQuery, TaskRepository
 
 
@@ -28,11 +30,13 @@ class TaskService:
         self,
         task_repository: TaskRepository,
         project_repository: ProjectRepository,
+        tag_repository: TagRepository,
         *,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._tasks = task_repository
         self._projects = project_repository
+        self._tags = tag_repository
         self._clock = clock
 
     def create_task(
@@ -68,6 +72,11 @@ class TaskService:
 
     def list_tasks(self, project_id: int, query: TaskListQuery) -> list[Task]:
         self._require_project(project_id)
+        if (
+            query.tag_id is not None
+            and self._tags.get(project_id, query.tag_id) is None
+        ):
+            raise TagNotFound(project_id, query.tag_id)
         return self._tasks.list(project_id, query)
 
     def update_task(

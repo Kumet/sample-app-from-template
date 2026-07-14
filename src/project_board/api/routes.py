@@ -1,4 +1,4 @@
-"""FastAPI routes and sanitized error mapping for Project and Task CRUD."""
+"""FastAPI routes and sanitized error mapping for application operations."""
 
 from typing import Annotated, Any
 
@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 
 from project_board.api.dependencies import (
     ProjectServiceDependency,
+    TagServiceDependency,
     TaskServiceDependency,
 )
 from project_board.api.schemas import (
@@ -13,16 +14,22 @@ from project_board.api.schemas import (
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
+    TagCreate,
+    TagResponse,
+    TagUpdate,
     TaskCreate,
     TaskResponse,
     TaskUpdate,
 )
 from project_board.application import UNSET
 from project_board.domain import (
+    DuplicateTagName,
     ProjectHasTasksConflict,
     ProjectNotFound,
     ProjectValidationError,
     RepositoryError,
+    TagNotFound,
+    TagValidationError,
     TaskNotFound,
     TaskPriority,
     TaskStatus,
@@ -40,9 +47,15 @@ def _call_service(operation: Any, *args: Any, **kwargs: Any) -> Any:
         raise HTTPException(status_code=404, detail="Project not found") from error
     except TaskNotFound as error:
         raise HTTPException(status_code=404, detail="Task not found") from error
+    except TagNotFound as error:
+        raise HTTPException(status_code=404, detail="Tag not found") from error
     except ProjectHasTasksConflict as error:
         raise HTTPException(status_code=409, detail="Project has tasks") from error
-    except (ProjectValidationError, TaskValidationError) as error:
+    except DuplicateTagName as error:
+        raise HTTPException(
+            status_code=409, detail="Tag name already exists"
+        ) from error
+    except (ProjectValidationError, TagValidationError, TaskValidationError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RepositoryError as error:
         raise HTTPException(
@@ -65,6 +78,93 @@ def list_projects(service: ProjectServiceDependency) -> object:
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: int, service: ProjectServiceDependency) -> object:
     return _call_service(service.get_project, project_id)
+
+
+@router.post(
+    "/{project_id}/tags",
+    response_model=TagResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_tag(
+    project_id: int,
+    payload: Annotated[TagCreate, Body()],
+    service: TagServiceDependency,
+) -> object:
+    return _call_service(
+        service.create_tag,
+        project_id,
+        payload.name,
+        payload.color,
+    )
+
+
+@router.get("/{project_id}/tags", response_model=list[TagResponse])
+def list_tags(project_id: int, service: TagServiceDependency) -> object:
+    return _call_service(service.list_tags, project_id)
+
+
+@router.get("/{project_id}/tags/{tag_id}", response_model=TagResponse)
+def get_tag(
+    project_id: int,
+    tag_id: int,
+    service: TagServiceDependency,
+) -> object:
+    return _call_service(service.get_tag, project_id, tag_id)
+
+
+@router.patch("/{project_id}/tags/{tag_id}", response_model=TagResponse)
+def update_tag(
+    project_id: int,
+    tag_id: int,
+    payload: Annotated[TagUpdate, Body()],
+    service: TagServiceDependency,
+) -> object:
+    updates = {
+        field_name: getattr(payload, field_name)
+        for field_name in payload.model_fields_set
+    }
+    return _call_service(service.update_tag, project_id, tag_id, **updates)
+
+
+@router.delete(
+    "/{project_id}/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_tag(
+    project_id: int,
+    tag_id: int,
+    service: TagServiceDependency,
+) -> Response:
+    _call_service(service.delete_tag, project_id, tag_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/{project_id}/tasks/{task_id}/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def attach_tag(
+    project_id: int,
+    task_id: int,
+    tag_id: int,
+    service: TagServiceDependency,
+) -> Response:
+    _call_service(service.attach_tag, project_id, task_id, tag_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/{project_id}/tasks/{task_id}/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def detach_tag(
+    project_id: int,
+    task_id: int,
+    tag_id: int,
+    service: TagServiceDependency,
+) -> Response:
+    _call_service(service.detach_tag, project_id, task_id, tag_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -96,6 +196,7 @@ def list_tasks(
     priority: TaskPriority | None = None,
     due_before: Annotated[AwareUtcDatetime | None, Query()] = None,
     due_after: Annotated[AwareUtcDatetime | None, Query()] = None,
+    tag_id: Annotated[int | None, Query(gt=0)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: TaskSort = TaskSort.CREATED_AT,
@@ -109,6 +210,7 @@ def list_tasks(
                 priority=priority,
                 due_before=due_before,
                 due_after=due_after,
+                tag_id=tag_id,
                 limit=limit,
                 offset=offset,
                 sort=sort,

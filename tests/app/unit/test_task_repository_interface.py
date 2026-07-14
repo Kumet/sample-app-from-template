@@ -17,6 +17,7 @@ def test_task_list_query_has_contract_defaults() -> None:
     assert query.priority is None
     assert query.due_before is None
     assert query.due_after is None
+    assert query.tag_id is None
     assert query.limit == 50
     assert query.offset == 0
     assert query.sort is TaskSort.CREATED_AT
@@ -62,6 +63,16 @@ def test_task_list_query_rejects_out_of_bounds_limit(limit: int) -> None:
 def test_task_list_query_rejects_negative_offset() -> None:
     with pytest.raises(TaskValidationError, match="offset must be at least 0"):
         TaskListQuery(offset=-1)
+
+
+@pytest.mark.parametrize("tag_id", [0, -1])
+def test_task_list_query_rejects_non_positive_tag_id(tag_id: int) -> None:
+    with pytest.raises(TaskValidationError, match="tag_id must be a positive integer"):
+        TaskListQuery(tag_id=tag_id)
+
+
+def test_task_list_query_accepts_positive_tag_id() -> None:
+    assert TaskListQuery(tag_id=7).tag_id == 7
 
 
 def test_importing_repository_package_does_not_load_concrete_infrastructure() -> None:

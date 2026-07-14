@@ -13,6 +13,7 @@ from project_board.domain import (
     Project,
     ProjectHasTasksConflict,
     RepositoryError,
+    Tag,
     Task,
     TaskPriority,
     TaskStatus,
@@ -22,9 +23,17 @@ from project_board.infrastructure import (
     create_session_factory,
     initialize_schema,
 )
-from project_board.infrastructure.models import ProjectModel, TaskModel
+from project_board.infrastructure.models import (
+    ProjectModel,
+    TagModel,
+    TaskModel,
+    TaskTagModel,
+)
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
+)
+from project_board.repositories.sqlalchemy_tag_repository import (
+    SQLAlchemyTagRepository,
 )
 from project_board.repositories.sqlalchemy_task_repository import (
     SQLAlchemyTaskRepository,
@@ -67,6 +76,21 @@ def make_task(project_id: int, timestamp: datetime) -> Task:
         due_at=None,
         created_at=timestamp,
         updated_at=timestamp,
+    )
+
+
+def create_tag(
+    session: Session, project_id: int, name: str, timestamp: datetime
+) -> Tag:
+    return SQLAlchemyTagRepository(session).create(
+        Tag(
+            id=0,
+            project_id=project_id,
+            name=name,
+            color=None,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
     )
 
 
@@ -113,6 +137,8 @@ def test_project_delete_conflict_preserves_records_and_session_is_reusable(
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     project = projects.create(make_project(name="Protected", created_at=timestamp))
     task = tasks.create(make_task(project.id, timestamp))
+    tag = create_tag(session, project.id, "Protected tag", timestamp)
+    SQLAlchemyTagRepository(session).attach(project.id, task.id, tag.id)
 
     with pytest.raises(ProjectHasTasksConflict) as captured:
         projects.delete(project.id)
@@ -120,12 +146,36 @@ def test_project_delete_conflict_preserves_records_and_session_is_reusable(
     assert captured.value.project_id == project.id
     assert session.in_transaction() is False
     assert projects.get(project.id) == project
-    assert tasks.get(project.id, task.id) == task
+    assert tasks.get(project.id, task.id) == replace(task, tags=(tag,))
+    assert SQLAlchemyTagRepository(session).get(project.id, tag.id) == tag
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 1
 
     assert tasks.delete(project.id, task.id) is True
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 0
+    assert SQLAlchemyTagRepository(session).get(project.id, tag.id) == tag
     assert projects.delete(project.id) is True
     assert session.get(ProjectModel, project.id) is None
     assert session.get(TaskModel, task.id) is None
+    assert session.get(TagModel, tag.id) is None
+
+
+def test_task_free_project_delete_cascades_only_its_tags(session: Session) -> None:
+    projects = SQLAlchemyProjectRepository(session)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    selected = projects.create(make_project(name="Selected", created_at=timestamp))
+    other = projects.create(make_project(name="Other", created_at=timestamp))
+    selected_tags = (
+        create_tag(session, selected.id, "Alpha", timestamp),
+        create_tag(session, selected.id, "Beta", timestamp),
+    )
+    other_tag = create_tag(session, other.id, "Alpha", timestamp)
+
+    assert projects.delete(selected.id) is True
+
+    assert projects.get(selected.id) is None
+    assert all(session.get(TagModel, tag.id) is None for tag in selected_tags)
+    assert projects.get(other.id) == other
+    assert SQLAlchemyTagRepository(session).get(other.id, other_tag.id) == other_tag
 
 
 def test_failed_write_rolls_back_and_raises_stable_error(
@@ -205,10 +255,15 @@ def test_failed_delete_rolls_back_and_leaves_transaction_clean(
     repository = SQLAlchemyProjectRepository(session)
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     original = repository.create(make_project(name="Will remain", created_at=timestamp))
+    tag = create_tag(session, original.id, "Will remain", timestamp)
+    cascaded_tag_counts: list[int | None] = []
 
     def fail_after_write_is_flushed(
-        _flushed_session: Session, _flush_context: object
+        flushed_session: Session, _flush_context: object
     ) -> None:
+        cascaded_tag_counts.append(
+            flushed_session.scalar(select(func.count()).select_from(TagModel))
+        )
         raise SQLAlchemyError("forced delete failure after write flush")
 
     event.listen(
@@ -219,11 +274,16 @@ def test_failed_delete_rolls_back_and_leaves_transaction_clean(
         repository.delete(original.id)
 
     assert caught.value.args == ("Project persistence operation failed",)
+    assert cascaded_tag_counts == [0]
     assert session.in_transaction() is False
     assert not session.deleted
 
     with create_session_factory(isolated_engine)() as verification_session:
         persisted = verification_session.get(ProjectModel, original.id)
+        persisted_tag = verification_session.get(TagModel, tag.id)
 
     assert persisted is not None
     assert persisted.name == "Will remain"
+    assert persisted_tag is not None
+    assert persisted_tag.name == "Will remain"
+    assert repository.delete(original.id) is True

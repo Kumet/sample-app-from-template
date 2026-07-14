@@ -5,6 +5,7 @@ import pytest
 
 from project_board.domain import (
     ProjectHasTasksConflict,
+    Tag,
     Task,
     TaskNotFound,
     TaskPriority,
@@ -123,6 +124,28 @@ def test_task_is_frozen_and_replacement_reapplies_validation() -> None:
     updated = replace(task, title="  Updated  ", description=" ")
     assert updated.title == "Updated"
     assert updated.description is None
+
+
+def test_task_tags_default_to_an_empty_immutable_tuple() -> None:
+    assert make_task().tags == ()
+
+
+def test_task_copies_tags_into_an_immutable_tuple() -> None:
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    tag = Tag(
+        id=3,
+        project_id=2,
+        name="Backend",
+        color=None,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    source = [tag]
+
+    task = make_task(tags=source)
+    source.clear()
+
+    assert task.tags == (tag,)
 
 
 def test_task_not_found_exposes_requested_ownership() -> None:

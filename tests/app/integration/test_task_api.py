@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.engine import Engine
 
 from project_board.infrastructure import (
@@ -54,6 +54,7 @@ def test_task_create_defaults_and_nested_detail_round_trip(
     assert created["status"] == "todo"
     assert created["priority"] == "medium"
     assert created["due_at"] is None
+    assert created["tags"] == []
     assert created["created_at"].endswith("Z")
     assert created["updated_at"].endswith("Z")
 
@@ -258,6 +259,154 @@ def test_task_list_normalizes_aware_due_filters_to_utc(
     assert [task["title"] for task in after.json()] == ["UTC boundary"]
 
 
+def test_task_responses_include_public_tags_in_deterministic_order(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = task_api_database
+    project_id = create_project(client)
+    task = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Tagged"}
+    ).json()
+    zebra = client.post(
+        f"/api/projects/{project_id}/tags",
+        json={"name": "Zebra", "color": "#abcdef"},
+    ).json()
+    alpha = client.post(
+        f"/api/projects/{project_id}/tags", json={"name": "alpha"}
+    ).json()
+    for tag in (zebra, alpha):
+        response = client.put(
+            f"/api/projects/{project_id}/tasks/{task['id']}/tags/{tag['id']}"
+        )
+        assert response.status_code == 204
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        detail = client.get(f"/api/projects/{project_id}/tasks/{task['id']}")
+        listed = client.get(f"/api/projects/{project_id}/tasks")
+        updated = client.patch(
+            f"/api/projects/{project_id}/tasks/{task['id']}",
+            json={"title": "Updated"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert detail.status_code == listed.status_code == updated.status_code == 200
+    expected_tags = [alpha, zebra]
+    assert detail.json()["tags"] == expected_tags
+    assert listed.json()[0]["tags"] == expected_tags
+    assert updated.json()["tags"] == expected_tags
+    assert zebra["color"] == "#ABCDEF"
+    assert all("normalized_name" not in tag for tag in detail.json()["tags"])
+    # Project-local normalized names are unique, so equal primary keys cannot be
+    # created through the API. The executed bulk-load query must nevertheless use
+    # the ID as its deterministic secondary key.
+    assert any(
+        "order by task_tags.task_id asc, tags.normalized_name asc, tags.id asc"
+        in statement
+        for statement in statements
+    )
+
+
+def test_untagged_task_responses_always_include_empty_tags(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Untagged"}
+    ).json()
+
+    detail = client.get(f"/api/projects/{project_id}/tasks/{created['id']}")
+    listed = client.get(f"/api/projects/{project_id}/tasks")
+    updated = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}",
+        json={"description": "Still untagged"},
+    )
+
+    assert detail.status_code == 200
+    assert detail.json()["tags"] == []
+    assert listed.status_code == 200
+    assert listed.json()[0]["tags"] == []
+    assert updated.status_code == 200
+    assert updated.json()["tags"] == []
+
+
+def test_task_tag_filter_composes_before_sorting_and_pagination(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client, "Filtered")
+    other_project_id = create_project(client, "Other")
+    tag = client.post(
+        f"/api/projects/{project_id}/tags", json={"name": "Shared"}
+    ).json()
+    foreign = client.post(
+        f"/api/projects/{other_project_id}/tags", json={"name": "Foreign"}
+    ).json()
+    base = datetime(2026, 7, 14, tzinfo=UTC)
+
+    client.post(f"/api/projects/{project_id}/tasks", json={"title": "Untagged first"})
+    for title, task_status, due_at in (
+        ("First match", "in_progress", base + timedelta(days=1)),
+        ("Second match", "in_progress", base + timedelta(days=2)),
+        ("Wrong status", "done", base + timedelta(days=3)),
+    ):
+        task = client.post(
+            f"/api/projects/{project_id}/tasks",
+            json={
+                "title": title,
+                "status": task_status,
+                "priority": "high",
+                "due_at": due_at.isoformat(),
+            },
+        ).json()
+        path = f"/api/projects/{project_id}/tasks/{task['id']}/tags/{tag['id']}"
+        assert client.put(path).status_code == 204
+        assert client.put(path).status_code == 204
+
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={
+            "tag_id": tag["id"],
+            "status": "in_progress",
+            "priority": "high",
+            "due_after": base.isoformat(),
+            "due_before": (base + timedelta(days=3)).isoformat(),
+            "sort": "due_at",
+            "order": "desc",
+            "limit": 1,
+            "offset": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [task["title"] for task in response.json()] == ["First match"]
+    assert response.json()[0]["tags"] == [tag]
+    assert len(response.json()) == 1
+
+    missing = client.get(
+        f"/api/projects/{project_id}/tasks", params={"tag_id": 999_999}
+    )
+    mismatched = client.get(
+        f"/api/projects/{project_id}/tasks", params={"tag_id": foreign["id"]}
+    )
+    assert missing.status_code == mismatched.status_code == 404
+    assert missing.json() == mismatched.json() == {"detail": "Tag not found"}
+
+
 @pytest.mark.parametrize(
     ("params", "expected_titles"),
     [
@@ -308,6 +457,8 @@ def test_task_list_deterministic_due_and_semantic_priority_sorting(
         {"offset": "-1"},
         {"sort": "title"},
         {"order": "sideways"},
+        {"tag_id": "0"},
+        {"tag_id": "-1"},
     ],
 )
 def test_task_list_rejects_invalid_query_values(
