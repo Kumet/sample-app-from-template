@@ -1,5 +1,6 @@
 """Read-only SQLAlchemy aggregates for the Project dashboard."""
 
+from datetime import UTC, datetime
 from typing import NoReturn
 
 from sqlalchemy import and_, case, distinct, func, select
@@ -8,21 +9,46 @@ from sqlalchemy.orm import Session
 
 from project_board.domain import (
     TERMINAL_TASK_STATUSES,
+    CommentEventType,
     DashboardCommentCounts,
     DashboardDueCounts,
+    DashboardInvariantError,
     DashboardTagCount,
     DashboardTaskCounts,
     RepositoryError,
+    TaskCommentActivity,
     TaskPriority,
     TaskStatus,
 )
 from project_board.infrastructure.models import (
     TagModel,
+    TaskCommentActivityModel,
     TaskCommentModel,
     TaskModel,
     TaskTagModel,
 )
 from project_board.repositories.dashboard_repository import DashboardDueQuery
+
+MAX_RECENT_ACTIVITY_LIMIT = 50
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Restore UTC awareness lost by SQLite's datetime representation."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _validate_activity_limit(limit: int) -> None:
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not (0 <= limit <= MAX_RECENT_ACTIVITY_LIMIT)
+    ):
+        raise DashboardInvariantError(
+            f"Dashboard activity limit must be an integer from 0 to "
+            f"{MAX_RECENT_ACTIVITY_LIMIT}"
+        )
 
 
 class SQLAlchemyProjectDashboardRepository:
@@ -194,6 +220,59 @@ class SQLAlchemyProjectDashboardRepository:
         return DashboardCommentCounts(
             total=int(row.total),
             tasks_with_comments=int(row.tasks_with_comments),
+        )
+
+    def list_recent_activities(
+        self, project_id: int, limit: int
+    ) -> tuple[TaskCommentActivity, ...]:
+        """Return bounded payload-free Activity metadata for existing owned Tasks."""
+        _validate_activity_limit(limit)
+        if limit == 0:
+            return ()
+
+        statement = (
+            select(
+                TaskCommentActivityModel.id,
+                TaskCommentActivityModel.project_id,
+                TaskCommentActivityModel.task_id,
+                TaskCommentActivityModel.comment_id,
+                TaskCommentActivityModel.event_type,
+                TaskCommentActivityModel.occurred_at,
+            )
+            .select_from(TaskCommentActivityModel)
+            .join(
+                TaskModel,
+                and_(
+                    TaskModel.project_id == TaskCommentActivityModel.project_id,
+                    TaskModel.id == TaskCommentActivityModel.task_id,
+                ),
+            )
+            .where(
+                TaskCommentActivityModel.project_id == project_id,
+                TaskModel.project_id == project_id,
+            )
+            .order_by(
+                TaskCommentActivityModel.occurred_at.desc(),
+                TaskCommentActivityModel.id.desc(),
+            )
+            .limit(limit)
+        )
+
+        try:
+            rows = self._session.execute(statement).all()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
+
+        return tuple(
+            TaskCommentActivity(
+                id=row.id,
+                project_id=row.project_id,
+                task_id=row.task_id,
+                comment_id=row.comment_id,
+                event_type=CommentEventType(row.event_type),
+                occurred_at=_as_utc(row.occurred_at),
+            )
+            for row in rows
         )
 
     def _rollback_and_raise(self, error: SQLAlchemyError) -> NoReturn:

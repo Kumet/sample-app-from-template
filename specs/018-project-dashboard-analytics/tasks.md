@@ -27,7 +27,7 @@
   - Validation: integration
   - Dependencies: T001, T002
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/integration/**`
-- [ ] T004: Implement bounded recent Activity query and payload-free typed mapping.
+- [x] T004: Implement bounded recent Activity query and payload-free typed mapping.
   - Requirements: REQ-010, REQ-011, REQ-014, REQ-015
   - Acceptance criteria: AC-002, AC-008, AC-010
   - Validation: unit, integration

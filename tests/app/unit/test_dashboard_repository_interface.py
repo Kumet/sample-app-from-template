@@ -1,9 +1,19 @@
 from datetime import UTC, datetime, timedelta, timezone
+from typing import Any, cast
 
 import pytest
+from sqlalchemy.orm import Session
 
 from project_board.domain import DashboardInvariantError
 from project_board.repositories import DashboardDueQuery
+from project_board.repositories.sqlalchemy_dashboard_repository import (
+    SQLAlchemyProjectDashboardRepository,
+)
+
+
+class QueryForbiddenSession:
+    def execute(self, _statement: object) -> Any:
+        raise AssertionError("zero activity limit must not execute SQL")
 
 
 def test_due_query_accepts_one_normalized_utc_boundary_policy() -> None:
@@ -64,3 +74,23 @@ def test_due_query_rejects_policy_drift(
             today_end=today_end,
             upcoming_end=upcoming_end,
         )
+
+
+def test_zero_activity_limit_returns_without_querying_the_session() -> None:
+    repository = SQLAlchemyProjectDashboardRepository(
+        cast(Session, QueryForbiddenSession())
+    )
+
+    assert repository.list_recent_activities(project_id=1, limit=0) == ()
+
+
+@pytest.mark.parametrize("limit", [-1, 51, True, 1.5, "10"])
+def test_activity_query_rejects_unbounded_or_non_integer_limits(
+    limit: object,
+) -> None:
+    repository = SQLAlchemyProjectDashboardRepository(
+        cast(Session, QueryForbiddenSession())
+    )
+
+    with pytest.raises(DashboardInvariantError, match="activity limit"):
+        repository.list_recent_activities(1, limit)  # type: ignore[arg-type]

@@ -116,6 +116,26 @@ def add_comment(
     return comment
 
 
+def add_activity(
+    session: Session,
+    project_id: int,
+    task_id: int,
+    comment_id: int,
+    event_type: CommentEventType,
+    occurred_at: datetime,
+) -> int:
+    activity = TaskCommentActivityModel(
+        project_id=project_id,
+        task_id=task_id,
+        comment_id=comment_id,
+        event_type=event_type.value,
+        occurred_at=occurred_at,
+    )
+    session.add(activity)
+    session.flush()
+    return activity.id
+
+
 def due_query(as_of: datetime) -> DashboardDueQuery:
     today_end = datetime(2026, 7, 16, tzinfo=UTC)
     return DashboardDueQuery(
@@ -369,6 +389,115 @@ def test_comment_counts_include_only_current_comments_on_owned_tasks(
     assert empty_counts.tasks_with_comments == 0
 
 
+def test_recent_activities_are_bounded_ordered_typed_and_ownership_scoped(
+    session: Session,
+) -> None:
+    project_id = create_project(session, "Selected")
+    foreign_project_id = create_project(session, "Foreign")
+    task_id = add_task(
+        session,
+        project_id,
+        "Selected Task",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    foreign_task_id = add_task(
+        session,
+        foreign_project_id,
+        "Foreign Task",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    deleted_comment = add_comment(session, project_id, task_id, "Deleted body")
+    deleted_comment_id = deleted_comment.id
+    session.delete(deleted_comment)
+    older_id = add_activity(
+        session,
+        project_id,
+        task_id,
+        deleted_comment_id,
+        CommentEventType.DELETED,
+        datetime(2026, 7, 14, tzinfo=UTC),
+    )
+    tied_first_id = add_activity(
+        session,
+        project_id,
+        task_id,
+        deleted_comment_id,
+        CommentEventType.UPDATED,
+        datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    tied_second_id = add_activity(
+        session,
+        project_id,
+        task_id,
+        deleted_comment_id,
+        CommentEventType.CREATED,
+        datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    add_activity(
+        session,
+        foreign_project_id,
+        foreign_task_id,
+        999,
+        CommentEventType.CREATED,
+        datetime(2026, 7, 16, tzinfo=UTC),
+    )
+    session.commit()
+
+    activities = SQLAlchemyProjectDashboardRepository(session).list_recent_activities(
+        project_id, limit=2
+    )
+
+    assert [activity.id for activity in activities] == [
+        tied_second_id,
+        tied_first_id,
+    ]
+    assert older_id not in {activity.id for activity in activities}
+    assert all(activity.project_id == project_id for activity in activities)
+    assert all(activity.occurred_at.tzinfo is UTC for activity in activities)
+    assert [activity.event_type for activity in activities] == [
+        CommentEventType.CREATED,
+        CommentEventType.UPDATED,
+    ]
+    assert all(not hasattr(activity, "body") for activity in activities)
+
+
+def test_recent_activities_disappear_when_their_task_is_deleted(
+    session: Session,
+) -> None:
+    project_id = create_project(session, "Selected")
+    task_id = add_task(
+        session,
+        project_id,
+        "Soon deleted",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    add_activity(
+        session,
+        project_id,
+        task_id,
+        1,
+        CommentEventType.DELETED,
+        datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    session.commit()
+    task = session.get(TaskModel, task_id)
+    assert task is not None
+    session.delete(task)
+    session.commit()
+
+    activities = SQLAlchemyProjectDashboardRepository(session).list_recent_activities(
+        project_id, limit=10
+    )
+
+    assert activities == ()
+
+
 @pytest.mark.parametrize("task_count", [0, 25])
 def test_task_aggregates_use_three_parameterized_statements_independent_of_rows(
     session: Session, isolated_engine: Engine, task_count: int
@@ -465,3 +594,60 @@ def test_tag_and_comment_aggregates_use_two_parameterized_set_based_statements(
     assert "JOIN TASKS" in normalized[1]
     assert "COUNT(DISTINCT TASKS.ID)" in normalized[1]
     assert all(parameters for _statement, parameters in executed)
+
+
+@pytest.mark.parametrize("row_count", [0, 75])
+def test_recent_activity_uses_one_parameterized_bounded_statement(
+    session: Session, isolated_engine: Engine, row_count: int
+) -> None:
+    project_id = create_project(session, "Selected")
+    task_id = add_task(
+        session,
+        project_id,
+        "Selected Task",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    for index in range(row_count):
+        add_activity(
+            session,
+            project_id,
+            task_id,
+            index + 1,
+            tuple(CommentEventType)[index % len(CommentEventType)],
+            datetime(2026, 7, 15, tzinfo=UTC) + timedelta(seconds=index),
+        )
+    session.commit()
+    executed: list[tuple[str, object]] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        executed.append((statement, parameters))
+
+    event.listen(isolated_engine, "before_cursor_execute", record_statement)
+    try:
+        activities = SQLAlchemyProjectDashboardRepository(
+            session
+        ).list_recent_activities(project_id, limit=50)
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_statement)
+
+    assert len(activities) == min(row_count, 50)
+    assert len(executed) == 1
+    statement, parameters = executed[0]
+    normalized = " ".join(statement.upper().split())
+    assert normalized.startswith("SELECT ")
+    assert "JOIN TASKS" in normalized
+    assert "JOIN TASK_COMMENTS" not in normalized
+    assert "ORDER BY TASK_COMMENT_ACTIVITIES.OCCURRED_AT DESC" in normalized
+    assert "TASK_COMMENT_ACTIVITIES.ID DESC" in normalized
+    assert "LIMIT ?" in normalized
+    assert "50" not in statement
+    assert parameters
