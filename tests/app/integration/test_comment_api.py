@@ -15,8 +15,10 @@ from project_board.infrastructure import (
     initialize_schema,
 )
 from project_board.infrastructure.models import (
+    ProjectModel,
     TaskCommentActivityModel,
     TaskCommentModel,
+    TaskModel,
 )
 from project_board.main import create_app
 
@@ -390,6 +392,166 @@ def test_activity_api_conceals_missing_and_foreign_owners(
     assert client.get(activity_path(other_project_id, owner_task_id)).json() == {
         "detail": "Task not found"
     }
+
+
+def test_task_delete_physically_cascades_comment_rows_without_cross_project_effects(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = comment_api_database
+    owner_project_id, selected_task_id = create_task(client, "Owner")
+    remaining_task = client.post(
+        f"/api/projects/{owner_project_id}/tasks", json={"title": "Remaining"}
+    ).json()
+    other_project_id, other_task_id = create_task(client, "Other")
+
+    selected_comment = client.post(
+        comment_path(owner_project_id, selected_task_id),
+        json={"body": "Selected private body"},
+    ).json()
+    deleted_comment = client.post(
+        comment_path(owner_project_id, selected_task_id),
+        json={"body": "Deleted private body"},
+    ).json()
+    assert (
+        client.delete(
+            f"{comment_path(owner_project_id, selected_task_id)}/"
+            f"{deleted_comment['id']}"
+        ).status_code
+        == 204
+    )
+    remaining_comment = client.post(
+        comment_path(owner_project_id, remaining_task["id"]),
+        json={"body": "Remaining body"},
+    ).json()
+    other_comment = client.post(
+        comment_path(other_project_id, other_task_id),
+        json={"body": "Other body"},
+    ).json()
+
+    concealed_delete = client.delete(
+        f"/api/projects/{other_project_id}/tasks/{selected_task_id}"
+    )
+    assert concealed_delete.status_code == 404
+    assert concealed_delete.json() == {"detail": "Task not found"}
+
+    response = client.delete(
+        f"/api/projects/{owner_project_id}/tasks/{selected_task_id}"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    with Session(engine) as session:
+        assert session.get(TaskModel, selected_task_id) is None
+        assert (
+            session.scalars(
+                select(TaskCommentModel).where(
+                    TaskCommentModel.project_id == owner_project_id,
+                    TaskCommentModel.task_id == selected_task_id,
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.scalars(
+                select(TaskCommentActivityModel).where(
+                    TaskCommentActivityModel.project_id == owner_project_id,
+                    TaskCommentActivityModel.task_id == selected_task_id,
+                )
+            ).all()
+            == []
+        )
+        assert session.get(TaskCommentModel, selected_comment["id"]) is None
+        assert session.get(TaskCommentModel, remaining_comment["id"]) is not None
+        assert session.get(TaskCommentModel, other_comment["id"]) is not None
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(TaskCommentActivityModel)
+                .where(
+                    TaskCommentActivityModel.task_id.in_(
+                        (remaining_task["id"], other_task_id)
+                    )
+                )
+            )
+            == 2
+        )
+
+    assert client.get(comment_path(owner_project_id, remaining_task["id"])).json() == [
+        remaining_comment
+    ]
+    assert client.get(comment_path(other_project_id, other_task_id)).json() == [
+        other_comment
+    ]
+
+
+def test_project_delete_stays_blocked_until_task_cascade_removes_child_rows(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = comment_api_database
+    selected_project_id, selected_task_id = create_task(client, "Selected")
+    other_project_id, other_task_id = create_task(client, "Other")
+    selected_comment = client.post(
+        comment_path(selected_project_id, selected_task_id),
+        json={"body": "Selected child"},
+    ).json()
+    other_comment = client.post(
+        comment_path(other_project_id, other_task_id), json={"body": "Other child"}
+    ).json()
+
+    conflict = client.delete(f"/api/projects/{selected_project_id}")
+
+    assert conflict.status_code == 409
+    assert conflict.json() == {"detail": "Project has tasks"}
+    with Session(engine) as session:
+        assert session.get(ProjectModel, selected_project_id) is not None
+        assert session.get(TaskModel, selected_task_id) is not None
+        assert session.get(TaskCommentModel, selected_comment["id"]) is not None
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(TaskCommentActivityModel)
+                .where(TaskCommentActivityModel.task_id == selected_task_id)
+            )
+            == 1
+        )
+
+    task_delete = client.delete(
+        f"/api/projects/{selected_project_id}/tasks/{selected_task_id}"
+    )
+    project_delete = client.delete(f"/api/projects/{selected_project_id}")
+
+    assert task_delete.status_code == 204
+    assert project_delete.status_code == 204
+    with Session(engine) as session:
+        assert session.get(ProjectModel, selected_project_id) is None
+        assert session.get(TaskModel, selected_task_id) is None
+        assert (
+            session.scalars(
+                select(TaskCommentModel).where(
+                    TaskCommentModel.project_id == selected_project_id
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.scalars(
+                select(TaskCommentActivityModel).where(
+                    TaskCommentActivityModel.project_id == selected_project_id
+                )
+            ).all()
+            == []
+        )
+        assert session.get(ProjectModel, other_project_id) is not None
+        assert session.get(TaskModel, other_task_id) is not None
+        assert session.get(TaskCommentModel, other_comment["id"]) is not None
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(TaskCommentActivityModel)
+                .where(TaskCommentActivityModel.task_id == other_task_id)
+            )
+            == 1
+        )
 
 
 @pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])

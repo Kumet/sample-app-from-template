@@ -51,7 +51,7 @@
   - Validation: unit, integration, full
   - Dependencies: T003, T004, T005, T006
   - Allowed paths: `src/project_board/repositories/**`, `src/project_board/api/**`, `tests/app/**`
-- [ ] T008: Prove Task cascades, clarified Project deletion, physical rows, and isolation.
+- [x] T008: Prove Task cascades, clarified Project deletion, physical rows, and isolation.
   - Requirements: REQ-006, REQ-007, REQ-013, REQ-018
   - Acceptance criteria: AC-002, AC-003, AC-008, AC-012, AC-013
   - Validation: integration, full
