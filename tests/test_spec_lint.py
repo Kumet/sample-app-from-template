@@ -10,10 +10,29 @@ from agent.spec_lint import lint_feature
 
 POLICY = RepositoryPolicy("main", frozenset({"test", "validate"}), 20, 3, 3, 3, 120,
                           False, (), ())
+CONTAINER_POLICY = RepositoryPolicy(
+    "main",
+    frozenset({"test", "validate", "container-build", "container-smoke"}),
+    20,
+    3,
+    3,
+    3,
+    120,
+    False,
+    (),
+    (),
+)
 
 
 class SpecLintTests(unittest.TestCase):
-    def feature(self, root: Path, *, cycle=False, trace=True) -> Path:
+    def feature(
+        self,
+        root: Path,
+        *,
+        cycle=False,
+        trace=True,
+        validations='unit="test"\nfull="validate"\n',
+    ) -> Path:
         feature = root / "specs" / "012-test"
         feature.mkdir(parents=True)
         (feature / "spec.md").write_text(
@@ -30,7 +49,7 @@ class SpecLintTests(unittest.TestCase):
         (feature / "validation.toml").write_text(
             'version=2\nrisk="low"\nauto_merge=false\nmax_tasks=20\nmax_attempts_per_task=3\n'
             'max_final_validation_attempts=3\nmax_review_attempts=3\nmax_ci_attempts=3\n'
-            '[validations]\nunit="test"\nfull="validate"\n[traceability]\n' + trace_text +
+            '[validations]\n' + validations + '[traceability]\n' + trace_text +
             '[dependencies]\n' + deps + '[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
             encoding="utf-8")
         return feature
@@ -45,3 +64,42 @@ class SpecLintTests(unittest.TestCase):
             self.assertFalse(report.passed)
             self.assertTrue(any("cycle" in error for error in report.errors))
             self.assertTrue(any("traceability" in error.lower() for error in report.errors))
+
+    def test_version_two_contract_accepts_explicit_container_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            feature = self.feature(
+                Path(directory),
+                validations=(
+                    'unit="test"\n'
+                    'container-build="container-build"\n'
+                    'container-smoke="container-smoke"\n'
+                    'full="validate"\n'
+                ),
+            )
+            self.assertTrue(lint_feature(feature, CONTAINER_POLICY).passed)
+
+    def test_contract_without_container_targets_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            feature = self.feature(Path(directory))
+            self.assertTrue(lint_feature(feature, CONTAINER_POLICY).passed)
+
+    def test_spec_lint_rejects_non_exact_container_target(self):
+        rejected = (
+            "container-build-extra",
+            "Container-Build",
+            "container-build; command",
+        )
+        for target in rejected:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
+                feature = self.feature(
+                    Path(directory),
+                    validations=f'unit="test"\ncontainer="{target}"\nfull="validate"\n',
+                )
+                report = lint_feature(feature, CONTAINER_POLICY)
+                self.assertFalse(report.passed)
+                self.assertTrue(
+                    any(
+                        "not allowlisted" in error or "Invalid Make target" in error
+                        for error in report.errors
+                    )
+                )
