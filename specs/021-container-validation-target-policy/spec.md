@@ -29,14 +29,14 @@ validation path or weakening exact Make-target allowlist enforcement.
 
 ## Acceptance criteria
 
-- [ ] AC-001: Version 2 contracts can map one or more validation names to
+- [x] AC-001: Version 2 contracts can map one or more validation names to
   `container-build` and `container-smoke`, producing only the corresponding
   `make` command tuples.
-- [ ] AC-002: Existing allowed targets remain accepted and arbitrary targets,
+- [x] AC-002: Existing allowed targets remain accepted and arbitrary targets,
   `container-build-extra`, and `Container-Build` remain rejected.
-- [ ] AC-003: Injection-shaped targets such as `container-build; command`, target
+- [x] AC-003: Injection-shaped targets such as `container-build; command`, target
   strings with arguments, and multiple-target strings are rejected.
-- [ ] AC-004: A contract without container targets has identical parsed command
+- [x] AC-004: A contract without container targets has identical parsed command
   behavior, and the ordinary `validate` target has no Docker dependency.
 - [ ] AC-005: Targeted regression tests, full validation, all review shards, and
   CI pass on the same reviewed HEAD before merge.

@@ -19,3 +19,6 @@
 - Exact container targets, both-target contracts, all legacy targets,
   non-container contracts, exact case-sensitive rejection, injection rejection,
   and Docker-independent `validate` dependencies are covered.
+- Full validation on implementation HEAD `460b5dd5cde6255228b9c21d151a0f1eb12fdf19`:
+  PASS, including quality policy, secret filename check, and 174 framework tests.
+- No Docker command was invoked by `make validate`.
