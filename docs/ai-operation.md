@@ -186,3 +186,20 @@ Ordinary task or pre-commit `validation` events never satisfy the final gate.
 All reviewer exceptions pass through centralized redaction before event,
 diagnostic, notification, or report persistence; EventStore recursively redacts
 again as defense in depth.
+
+## Test-weakening evidence
+
+Mechanical weakening inspection records an explicit verdict with separate
+`blocking_findings` and `review_candidates`. Blocking findings are
+high-confidence conditions such as test deletion, an added skip marker, or a CI
+failure condition being disabled; they stop delivery before review. Review
+candidates are low-confidence signals such as a removed assertion diff line.
+They remain visible to the tests review shard but are not proof of weakening.
+
+The tests reviewer must corroborate a candidate against the current exact-HEAD
+diff. Replacing an old assertion with an updated expectation or stronger
+assertions is not weakening merely because the old line is removed. Other file
+shards do not turn a test candidate into a blocking finding, while integration
+may still verify the evidence identity and gate composition. Review input uses
+one authoritative weakening record for the current HEAD and fails closed for
+conflicting or malformed current-HEAD evidence.

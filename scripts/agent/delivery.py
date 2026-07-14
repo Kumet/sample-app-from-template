@@ -306,8 +306,8 @@ def deliver(
         patch = git_utils.run_git(
             isolated.path, ["diff", f"{policy.default_branch}...HEAD", "--no-ext-diff"]
         ).stdout
-        weakening_findings = weakening.inspect_patch(patch)
-        if any(f.required for f in weakening_findings):
+        weakening_inspection = weakening.inspect_patch(patch)
+        if weakening_inspection.blocking_findings:
             raise RuntimeError("High-confidence test weakening detected")
         head_before_validation = git_utils.run_git(
             isolated.path, ["rev-parse", "HEAD"]
@@ -379,16 +379,14 @@ def deliver(
                 isolated.path, isolated_feature, event_store.read(), current
             )
         head_before_validation = binding.head_sha
-        event_store.append(
+        _record_weakening_pass(
+            event_store,
+            weakening_inspection,
             feature=feature_dir.name,
             repository=str(repo),
             branch=isolated.branch,
             worktree=str(isolated.path),
-            phase="delivery",
-            kind="weakening",
-            result="PASS",
             head_sha=head_before_validation,
-            data={"findings": [f.__dict__ for f in weakening_findings]},
         )
         evidence = repo / ".agent-work" / feature_dir.name / "delivery"
         evidence.mkdir(parents=True, exist_ok=True)
@@ -570,24 +568,22 @@ def deliver(
         patch = git_utils.run_git(
             isolated.path, ["diff", f"{policy.default_branch}...HEAD", "--no-ext-diff"]
         ).stdout
-        weakening_findings = weakening.inspect_patch(patch)
-        if any(f.required for f in weakening_findings):
+        weakening_inspection = weakening.inspect_patch(patch)
+        if weakening_inspection.blocking_findings:
             raise RuntimeError(
                 "High-confidence test weakening detected after review repair"
             )
         gated_head = git_utils.run_git(
             isolated.path, ["rev-parse", "HEAD"]
         ).stdout.strip()
-        event_store.append(
+        _record_weakening_pass(
+            event_store,
+            weakening_inspection,
             feature=feature_dir.name,
             repository=str(repo),
             branch=isolated.branch,
             worktree=str(isolated.path),
-            phase="delivery",
-            kind="weakening",
-            result="PASS",
             head_sha=gated_head,
-            data={"findings": [f.__dict__ for f in weakening_findings]},
         )
         require_pre_push(
             isolated.path, isolated_feature, event_store.read(), gated_head
@@ -611,7 +607,7 @@ def deliver(
         assessment = assess(
             config.risk,
             paths,
-            list(review_result.findings) + weakening_findings,
+            list(review_result.findings) + list(weakening_inspection.findings),
             policy,
             config.risk_domains,
         )
@@ -629,7 +625,7 @@ def deliver(
                 feature_dir.name,
                 assessment,
                 review_result,
-                weakening_findings,
+                weakening_inspection.findings,
                 event_store.read(),
                 gated_head,
                 final_binding,
@@ -711,7 +707,7 @@ def deliver(
             policy,
             checks_passed,
             review_result.result == "pass",
-            weakening_findings,
+            list(weakening_inspection.findings),
         ):
             require_mergeable(event_store.read(), gated_sha)
             github.merge(pr.number)
@@ -738,6 +734,36 @@ def deliver(
         # Successful cleanup is intentionally left explicit; a delivery result
         # or failure must remain inspectable until the caller requests cleanup.
         pass
+
+
+def _record_weakening_pass(
+    event_store,
+    inspection,
+    *,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    head_sha: str,
+):
+    data = inspection.event_data()
+    for event in reversed(event_store.read()):
+        if event.kind != "weakening" or event.head_sha != head_sha:
+            continue
+        if event.result == "PASS" and event.data == data:
+            return event
+        break
+    return event_store.append(
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        phase="delivery",
+        kind="weakening",
+        result="PASS",
+        head_sha=head_sha,
+        data=data,
+    )
 
 
 def _pr_body(

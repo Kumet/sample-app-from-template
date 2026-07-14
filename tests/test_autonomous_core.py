@@ -252,9 +252,17 @@ class AutonomousCoreTests(unittest.TestCase):
 
     def test_weakening_detection(self):
         patch = "+++ b/tests/test_a.py\n+@unittest.skip('later')\n-    assert value\n"
-        findings = weakening.inspect_patch(patch)
-        self.assertTrue(any(f.required and f.category == "test-skip" for f in findings))
-        self.assertTrue(any(f.category == "assertion-removal" for f in findings))
+        inspection = weakening.inspect_patch(patch)
+        skip_finding = next(
+            f for f in inspection.blocking_findings if f.category == "test-skip"
+        )
+        self.assertTrue(skip_finding.required)
+        self.assertTrue(
+            any(
+                f.category == "assertion-removal"
+                for f in inspection.review_candidates
+            )
+        )
 
     def test_review_schema_validation(self):
         passed = parse_review('{"result":"pass","findings":[]}')
