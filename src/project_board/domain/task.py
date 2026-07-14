@@ -28,6 +28,14 @@ class TaskPriority(StrEnum):
     HIGH = "high"
 
 
+TERMINAL_TASK_STATUSES = frozenset({TaskStatus.DONE})
+
+
+def is_terminal_task_status(status: TaskStatus) -> bool:
+    """Return whether a Task status is terminal under the domain policy."""
+    return status in TERMINAL_TASK_STATUSES
+
+
 def _normalize_title(title: str) -> str:
     normalized = title.strip()
     if not normalized:

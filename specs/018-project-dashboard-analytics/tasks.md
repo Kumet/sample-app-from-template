@@ -9,7 +9,7 @@
 
 ## Tasks
 
-- [ ] T001: Add typed dashboard aggregates, terminal policy, invariants, and repository protocol.
+- [x] T001: Add typed dashboard aggregates, terminal policy, invariants, and repository protocol.
   - Requirements: REQ-002, REQ-004, REQ-005, REQ-006, REQ-007, REQ-013
   - Acceptance criteria: AC-003, AC-004, AC-005, AC-009
   - Validation: unit, app
