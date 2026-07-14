@@ -16,4 +16,28 @@
 
 ## Runs
 
-- Pending.
+- 2026-07-14 — Feature 015 spec-lint passed with no errors or warnings.
+- 2026-07-14 — Python compilation passed for weakening, delivery, review, and
+  the Feature 015 regression module.
+- 2026-07-14 — Targeted weakening/review/gate suite passed: 14 tests.
+- 2026-07-14 — Full framework test suite passed: 139 tests.
+- 2026-07-14 — `make validate` passed: quality policy, secret filename check,
+  lint/typecheck adapters, and all framework tests.
+- 2026-07-14 — Scope audit and `git diff --check` passed for the approved
+  implementation, tests, documentation, prompt, and Feature 015 artifacts.
+- Review call policy remains `max_review_calls = 8`; the prompt version changed
+  from 3 to 4, invalidating old review identities without changing the identity
+  schema.
+- Identical canonical weakening PASS evidence for one exact HEAD is reused
+  rather than appended again, keeping resumable review identity stable.
+
+## Validation loops
+
+- Loop 1 — an optional `make format-check` probe failed because the generic
+  template intentionally has no such target. No code or gate was changed in
+  response; the repository-defined `make validate` command was used and passed.
+- Loop 2 — bumping the identity schema exposed five legacy fixtures that
+  intentionally construct schema version 4 identities. The schema bump was not
+  required because prompt version is already identity-bound; identity schema 4
+  was retained and prompt version 4 provides correct cache invalidation. The
+  full suite then passed.

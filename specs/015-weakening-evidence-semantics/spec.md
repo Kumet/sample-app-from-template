@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved
+Implemented
 
 ## Purpose
 
@@ -44,19 +44,19 @@ independent review of genuine test-strength regressions.
 
 ## Acceptance criteria
 
-- [ ] AC-001: Assertion expectation replacement and added assertions produce no
+- [x] AC-001: Assertion expectation replacement and added assertions produce no
   mechanical blocking finding while low-confidence removal candidates remain
   available to tests review.
-- [ ] AC-002: New PASS events expose an empty `blocking_findings` list and a
+- [x] AC-002: New PASS events expose an empty `blocking_findings` list and a
   separate `review_candidates` list with an explicit mechanical verdict.
-- [ ] AC-003: Test deletion, skip/disable addition, and CI weakening retain their
+- [x] AC-003: Test deletion, skip/disable addition, and CI weakening retain their
   high-confidence fail-closed behavior.
-- [ ] AC-004: Reviewer guidance requires current-diff corroboration, recognizes
+- [x] AC-004: Reviewer guidance requires current-diff corroboration, recognizes
   replacement/strengthening assertions, and confines candidate evaluation to
   the proper shard.
-- [ ] AC-005: Runtime review evidence contains one authoritative current-HEAD
+- [x] AC-005: Runtime review evidence contains one authoritative current-HEAD
   weakening record and rejects ambiguous or invalid evidence.
-- [ ] AC-006: Prompt identity changes invalidate old review results while the
+- [x] AC-006: Prompt identity changes invalidate old review results while the
   call budget, shard execution, integration ordering, and size limit remain.
 - [ ] AC-007: Targeted regressions, full validation, and every independent
   review shard pass without weakening existing gates.
