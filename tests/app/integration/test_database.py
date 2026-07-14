@@ -36,6 +36,8 @@ def test_schema_initialization_is_explicit(isolated_engine: Engine) -> None:
             "projects",
             "schema_probe",
             "tags",
+            "task_comment_activities",
+            "task_comments",
             "task_tags",
             "tasks",
         ]
@@ -82,9 +84,23 @@ finally:
 
     # Keep the pre-Task schema guarantee explicit while also proving that the
     # newly registered Task model is initialized in a fresh interpreter.
-    assert result.stdout.splitlines() == ["projects", "tags", "task_tags", "tasks"]
+    assert result.stdout.splitlines() == [
+        "projects",
+        "tags",
+        "task_comment_activities",
+        "task_comments",
+        "task_tags",
+        "tasks",
+    ]
     assert "projects" in initialized_tables
-    assert initialized_tables == ["projects", "tags", "task_tags", "tasks"]
+    assert initialized_tables == [
+        "projects",
+        "tags",
+        "task_comment_activities",
+        "task_comments",
+        "task_tags",
+        "tasks",
+    ]
 
 
 def test_session_factory_uses_only_its_configured_database(tmp_path: Path) -> None:

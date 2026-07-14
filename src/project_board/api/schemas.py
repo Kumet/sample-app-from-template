@@ -12,6 +12,11 @@ from pydantic import (
     model_validator,
 )
 
+from project_board.domain.comment import (
+    MAX_COMMENT_BODY_LENGTH,
+    CommentEventType,
+    normalize_comment_body,
+)
 from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.project import (
     MAX_PROJECT_DESCRIPTION_LENGTH,
@@ -46,6 +51,62 @@ def _normalize_aware_utc_datetime(value: datetime) -> datetime:
 AwareUtcDatetime: TypeAlias = Annotated[
     datetime, AfterValidator(_normalize_aware_utc_datetime)
 ]
+
+
+class CommentCreate(BaseModel):
+    """Payload accepted when creating a Comment under a Task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(max_length=MAX_COMMENT_BODY_LENGTH)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def normalize_body(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return normalize_comment_body(value)
+
+
+class CommentUpdate(BaseModel):
+    """Payload accepted when replacing the mutable Comment body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(max_length=MAX_COMMENT_BODY_LENGTH)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def normalize_body(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return normalize_comment_body(value)
+
+
+class CommentResponse(BaseModel):
+    """Serialized Task Comment returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    task_id: int
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ActivityResponse(BaseModel):
+    """Serialized, payload-free Task Comment lifecycle event."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    task_id: int
+    comment_id: int
+    event_type: CommentEventType
+    occurred_at: datetime
 
 
 class ProjectCreate(BaseModel):

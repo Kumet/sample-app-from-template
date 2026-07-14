@@ -13,8 +13,10 @@ and CI.
 
 The Python 3.11+ application implements persistent Project CRUD, nested Task
 CRUD, Project-scoped Tag CRUD, and Task-Tag assignment through a REST API backed
-by local SQLite and SQLAlchemy 2.x. Task lists support filtering (including by
-Tag), pagination, and deterministic sorting. Task responses include their Tags.
+by local SQLite and SQLAlchemy 2.x. Tasks support Project-scoped Comments and a
+read-only history of Comment create, update, and delete activity. Task lists
+support filtering (including by Tag), pagination, and deterministic sorting.
+Task responses include their Tags but do not embed Comments or Activity.
 `GET /health` remains available and does not query the database. The Kanban UI,
 CLI, import/export, and backup/restore are not implemented yet.
 
@@ -46,12 +48,12 @@ python3 -m uvicorn project_board.main:app --reload
 ```
 
 On application startup, the development app explicitly creates missing Project,
-Task, Tag, and Task-Tag association tables and indexes, then stores data in
-`project_board.sqlite3` in the current working directory. Existing Project and
-Task rows are preserved when the Tag schema and Task ownership index are added.
+Task, Tag, Task-Tag association, Task Comment, and Comment Activity tables and
+indexes, then stores data in `project_board.sqlite3` in the current working
+directory. Existing Project, Task, and Tag schema and rows are preserved.
 SQLite foreign-key enforcement is enabled for every application connection so
-Tasks cannot reference missing Projects and Task-Tag associations cannot cross
-Project boundaries.
+Tasks cannot reference missing Projects and Task-Tag associations, Comments,
+and Activity cannot cross Project and Task ownership boundaries.
 
 Metadata-based schema creation is intended only for development and tests. It
 does not version or upgrade an existing production schema, and this feature does
@@ -209,6 +211,49 @@ untagged Task. Tags in Task responses are ordered by case-folded name and ID.
 Task lists load Tags in bulk for the returned page rather than issuing one Tag
 query per Task.
 
+## Task Comment and Activity API
+
+Every Comment belongs to the Project and Task identified by the nested URL. A
+Comment body is required, trimmed, and limited to 2000 characters. Comment
+creation, update, and deletion each append a corresponding payload-free
+`comment_created`, `comment_updated`, or `comment_deleted` Activity in the same
+transaction.
+
+```bash
+# Create a Comment on Task 1
+curl -X POST http://127.0.0.1:8000/api/projects/1/tasks/1/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Ready for review"}'
+
+# List Comments in ascending creation order
+curl 'http://127.0.0.1:8000/api/projects/1/tasks/1/comments?order=asc&limit=50&offset=0'
+
+# Retrieve and update Comment 1
+curl http://127.0.0.1:8000/api/projects/1/tasks/1/comments/1
+curl -X PATCH http://127.0.0.1:8000/api/projects/1/tasks/1/comments/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Review complete"}'
+
+# Permanently delete Comment 1
+curl -X DELETE http://127.0.0.1:8000/api/projects/1/tasks/1/comments/1
+
+# List only deletion Activity for Task 1
+curl 'http://127.0.0.1:8000/api/projects/1/tasks/1/activities?event_type=comment_deleted&order=asc&limit=50&offset=0'
+```
+
+Comment creation returns HTTP 201; retrieval, listing, and updates return HTTP
+200; deletion returns HTTP 204 with no body. Comment PATCH accepts only the
+required `body`. Comment and Activity lists accept `limit` from 1 to 100
+(default 50), a non-negative `offset` (default 0), and `order=asc|desc` (default
+`asc`). Activity lists additionally accept an optional `event_type` filter.
+Missing or cross-Project/Task resources return HTTP 404 without disclosing
+ownership, and invalid bodies or query values return HTTP 422.
+
+Activity has no mutation endpoint and never includes a Comment body. Deleting a
+Comment retains its deletion Activity while the Task exists. Deleting a Task
+cascades all of its Comments and Comment Activity without affecting other Tasks;
+the existing rule that a Project with Tasks cannot be deleted remains unchanged.
+
 Tests and other callers can initialize an isolated SQLite database explicitly:
 
 ```python
@@ -259,7 +304,8 @@ of scope.
 
 - Python 3.11 or later
 - FastAPI and Uvicorn for the REST API runtime
-- SQLite and SQLAlchemy 2.x for local Project, Task, and Tag persistence
+- SQLite and SQLAlchemy 2.x for local Project, Task, Tag, Comment, and Activity
+  persistence
 - pytest, Ruff, and mypy
 - `pyproject.toml` package management
 - Make-based quality commands

@@ -6,8 +6,16 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
-from project_board.application import ProjectService, TagService, TaskService
+from project_board.application import (
+    ProjectService,
+    TagService,
+    TaskCommentService,
+    TaskService,
+)
 from project_board.infrastructure import SessionFactory
+from project_board.repositories.sqlalchemy_comment_repository import (
+    SQLAlchemyTaskCommentRepository,
+)
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
 )
@@ -62,3 +70,19 @@ def get_tag_service(
 
 
 TagServiceDependency = Annotated[TagService, Depends(get_tag_service)]
+
+
+def get_task_comment_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> TaskCommentService:
+    """Build the nested Comment service against request-scoped repositories."""
+    return TaskCommentService(
+        SQLAlchemyTaskCommentRepository(session),
+        SQLAlchemyProjectRepository(session),
+        SQLAlchemyTaskRepository(session),
+    )
+
+
+TaskCommentServiceDependency = Annotated[
+    TaskCommentService, Depends(get_task_comment_service)
+]
