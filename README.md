@@ -126,9 +126,10 @@ The dashboard returns an aware UTC `as_of` timestamp; zero-inclusive Task
 counts by status and priority; mutually exclusive active-Task due buckets; Tag
 counts; current Comment totals; and payload-free recent Comment Activity. Done
 Tasks remain in Task totals but are excluded from due buckets. Tags are ordered
-by case-folded name and ID, and recent Activity is ordered newest first. The
-`activity_limit` query value defaults to 10 and accepts integers from 0 to 50.
-A missing Project returns HTTP 404 and an invalid limit returns HTTP 422.
+by case-folded name and ID. Recent Activity is ordered by `occurred_at`
+descending, then by ID descending. The `activity_limit` query value defaults to
+10 and accepts integers from 0 to 50. A missing Project returns HTTP 404 and an
+invalid limit returns HTTP 422.
 
 ## Tag API
 

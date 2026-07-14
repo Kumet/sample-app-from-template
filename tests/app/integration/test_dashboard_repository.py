@@ -437,14 +437,6 @@ def test_recent_activities_are_bounded_ordered_typed_and_ownership_scoped(
     deleted_comment = add_comment(session, project_id, task_id, "Deleted body")
     deleted_comment_id = deleted_comment.id
     session.delete(deleted_comment)
-    older_id = add_activity(
-        session,
-        project_id,
-        task_id,
-        deleted_comment_id,
-        CommentEventType.DELETED,
-        datetime(2026, 7, 14, tzinfo=UTC),
-    )
     tied_first_id = add_activity(
         session,
         project_id,
@@ -461,6 +453,14 @@ def test_recent_activities_are_bounded_ordered_typed_and_ownership_scoped(
         CommentEventType.CREATED,
         datetime(2026, 7, 15, tzinfo=UTC),
     )
+    older_id = add_activity(
+        session,
+        project_id,
+        task_id,
+        deleted_comment_id,
+        CommentEventType.DELETED,
+        datetime(2026, 7, 14, tzinfo=UTC),
+    )
     add_activity(
         session,
         foreign_project_id,
@@ -472,19 +472,26 @@ def test_recent_activities_are_bounded_ordered_typed_and_ownership_scoped(
     session.commit()
 
     activities = SQLAlchemyProjectDashboardRepository(session).list_recent_activities(
-        project_id, limit=2
+        project_id, limit=3
     )
 
     assert [activity.id for activity in activities] == [
         tied_second_id,
         tied_first_id,
+        older_id,
     ]
-    assert older_id not in {activity.id for activity in activities}
+    assert older_id > tied_second_id
+    assert [activity.occurred_at for activity in activities] == [
+        datetime(2026, 7, 15, tzinfo=UTC),
+        datetime(2026, 7, 15, tzinfo=UTC),
+        datetime(2026, 7, 14, tzinfo=UTC),
+    ]
     assert all(activity.project_id == project_id for activity in activities)
     assert all(activity.occurred_at.tzinfo is UTC for activity in activities)
     assert [activity.event_type for activity in activities] == [
         CommentEventType.CREATED,
         CommentEventType.UPDATED,
+        CommentEventType.DELETED,
     ]
     assert all(not hasattr(activity, "body") for activity in activities)
 

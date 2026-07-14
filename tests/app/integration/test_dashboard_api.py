@@ -1,16 +1,34 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Annotated
 
 import pytest
+from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
+from project_board.api.dependencies import (
+    get_project_dashboard_service,
+    get_session,
+)
+from project_board.application import ProjectDashboardService
 from project_board.infrastructure import (
     create_database_engine,
     create_session_factory,
     initialize_schema,
 )
 from project_board.main import create_app
+from project_board.repositories.sqlalchemy_dashboard_repository import (
+    SQLAlchemyProjectDashboardRepository,
+)
+from project_board.repositories.sqlalchemy_project_repository import (
+    SQLAlchemyProjectRepository,
+)
+
+FIXED_CLOCK_VALUE = datetime(2026, 7, 15, 10, 2, 3, tzinfo=timezone(timedelta(hours=9)))
+FIXED_AS_OF = datetime(2026, 7, 15, 1, 2, 3, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -18,6 +36,19 @@ def dashboard_api(tmp_path: Path) -> Iterator[tuple[TestClient, Engine]]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'dashboard-api.sqlite3'}")
     initialize_schema(engine)
     application = create_app(session_factory=create_session_factory(engine))
+
+    def fixed_dashboard_service(
+        session: Annotated[Session, Depends(get_session)],
+    ) -> ProjectDashboardService:
+        return ProjectDashboardService(
+            SQLAlchemyProjectDashboardRepository(session),
+            SQLAlchemyProjectRepository(session),
+            clock=lambda: FIXED_CLOCK_VALUE,
+        )
+
+    application.dependency_overrides[get_project_dashboard_service] = (
+        fixed_dashboard_service
+    )
 
     with TestClient(application) as client:
         yield client, engine
@@ -49,7 +80,10 @@ def test_empty_dashboard_has_complete_zero_shape_and_owned_tags(
     assert response.status_code == 200
     body = response.json()
     assert body["project_id"] == project_id
-    assert body["as_of"].endswith("Z")
+    assert body["as_of"] == "2026-07-15T01:02:03Z"
+    serialized_as_of = datetime.fromisoformat(body["as_of"])
+    assert serialized_as_of == FIXED_AS_OF
+    assert serialized_as_of.tzinfo is UTC
     assert body["tasks"] == {
         "total": 0,
         "by_status": {"todo": 0, "in_progress": 0, "done": 0},
