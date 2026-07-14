@@ -18,3 +18,4 @@ the framework and identify their exact HEAD.
 - Migration/schema change: prohibited
 - Risk: medium (`infrastructure`), auto-merge disabled
 - Implementation: not started at this entry
+| 1 | T001 | PASS | task validation passed |

@@ -9,7 +9,7 @@
 
 ## Tasks
 
-- [ ] T001: Extend the infrastructure-neutral typed Task query contract and unit tests.
+- [x] T001: Extend the infrastructure-neutral typed Task query contract and unit tests.
   - Requirements: REQ-003, REQ-005, REQ-006, REQ-008, REQ-013, REQ-015
   - Acceptance criteria: AC-003, AC-005, AC-006, AC-012
   - Validation: unit, app

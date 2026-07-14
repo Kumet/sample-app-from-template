@@ -13,6 +13,9 @@ from project_board.repositories import SortOrder, TaskListQuery, TaskSort
 def test_task_list_query_has_contract_defaults() -> None:
     query = TaskListQuery()
 
+    assert query.q is None
+    assert query.statuses == ()
+    assert query.priorities == ()
     assert query.status is None
     assert query.priority is None
     assert query.due_before is None
@@ -22,6 +25,53 @@ def test_task_list_query_has_contract_defaults() -> None:
     assert query.offset == 0
     assert query.sort is TaskSort.CREATED_AT
     assert query.order is SortOrder.ASC
+
+
+@pytest.mark.parametrize("q", ["x", "x" * 100])
+def test_task_list_query_trims_valid_search_boundaries(q: str) -> None:
+    assert TaskListQuery(q=f"  {q}  ").q == q
+
+
+@pytest.mark.parametrize("q", ["", "   ", "x" * 101])
+def test_task_list_query_rejects_invalid_search_length(q: str) -> None:
+    with pytest.raises(
+        TaskValidationError, match="q must be between 1 and 100 characters"
+    ):
+        TaskListQuery(q=q)
+
+
+def test_task_list_query_normalizes_and_deduplicates_repeated_filters() -> None:
+    query = TaskListQuery(
+        statuses=(TaskStatus.TODO, TaskStatus.DONE, TaskStatus.TODO),
+        priorities=(TaskPriority.HIGH, TaskPriority.LOW, TaskPriority.HIGH),
+    )
+
+    assert query.statuses == (TaskStatus.TODO, TaskStatus.DONE)
+    assert query.priorities == (TaskPriority.HIGH, TaskPriority.LOW)
+
+
+def test_task_list_query_accepts_typed_string_filter_values() -> None:
+    query = TaskListQuery(
+        statuses=("todo", "in_progress"),  # type: ignore[arg-type]
+        priorities=("medium",),  # type: ignore[arg-type]
+    )
+
+    assert query.statuses == (TaskStatus.TODO, TaskStatus.IN_PROGRESS)
+    assert query.priorities == (TaskPriority.MEDIUM,)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("statuses", ("blocked",), "Invalid Task status"),
+        ("priorities", ("urgent",), "Invalid Task priority"),
+    ],
+)
+def test_task_list_query_rejects_invalid_repeated_filters(
+    field_name: str, value: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(TaskValidationError, match=message):
+        TaskListQuery(**{field_name: value})
 
 
 def test_task_list_query_keeps_enum_filters() -> None:
@@ -54,6 +104,28 @@ def test_task_list_query_rejects_naive_due_filters(field_name: str) -> None:
         TaskListQuery(**{field_name: datetime(2026, 1, 1)})
 
 
+@pytest.mark.parametrize(
+    ("due_after", "due_before"),
+    [
+        (
+            datetime(2026, 1, 2, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        (
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+    ],
+)
+def test_task_list_query_rejects_non_increasing_due_range(
+    due_after: datetime, due_before: datetime
+) -> None:
+    with pytest.raises(
+        TaskValidationError, match="due_after must be before due_before"
+    ):
+        TaskListQuery(due_after=due_after, due_before=due_before)
+
+
 @pytest.mark.parametrize("limit", [0, 101])
 def test_task_list_query_rejects_out_of_bounds_limit(limit: int) -> None:
     with pytest.raises(TaskValidationError, match="limit must be between 1 and 100"):
@@ -82,6 +154,36 @@ import json
 import sys
 
 import project_board.repositories
+
+watched_modules = (
+    "sqlalchemy",
+    "project_board.repositories.sqlalchemy_project_repository",
+    "project_board.repositories.sqlalchemy_task_repository",
+    "project_board.infrastructure.database",
+    "project_board.infrastructure.models",
+)
+print(json.dumps([name for name in watched_modules if name in sys.modules]))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        cwd=repository_root,
+        env={"PYTHONPATH": str(repository_root / "src")},
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == []
+
+
+def test_importing_domain_package_does_not_load_concrete_infrastructure() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    script = """
+import json
+import sys
+
+import project_board.domain
 
 watched_modules = (
     "sqlalchemy",

@@ -30,6 +30,9 @@ class SortOrder(StrEnum):
 class TaskListQuery:
     """Infrastructure-neutral inputs for a bounded Task list query."""
 
+    q: str | None = None
+    statuses: tuple[TaskStatus, ...] = ()
+    priorities: tuple[TaskPriority, ...] = ()
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_before: datetime | None = None
@@ -41,6 +44,34 @@ class TaskListQuery:
     order: SortOrder = SortOrder.ASC
 
     def __post_init__(self) -> None:
+        if self.q is not None:
+            normalized_q = self.q.strip()
+            if not 1 <= len(normalized_q) <= 100:
+                raise TaskValidationError(
+                    "Task list q must be between 1 and 100 characters"
+                )
+            object.__setattr__(self, "q", normalized_q)
+
+        try:
+            statuses = tuple(
+                dict.fromkeys(TaskStatus(value) for value in self.statuses)
+            )
+        except ValueError as error:
+            raise TaskValidationError(
+                f"Invalid Task status: {error.args[0]}"
+            ) from error
+        object.__setattr__(self, "statuses", statuses)
+
+        try:
+            priorities = tuple(
+                dict.fromkeys(TaskPriority(value) for value in self.priorities)
+            )
+        except ValueError as error:
+            raise TaskValidationError(
+                f"Invalid Task priority: {error.args[0]}"
+            ) from error
+        object.__setattr__(self, "priorities", priorities)
+
         if not 1 <= self.limit <= 100:
             raise TaskValidationError("Task list limit must be between 1 and 100")
         if self.offset < 0:
@@ -57,6 +88,13 @@ class TaskListQuery:
             except ValueError as error:
                 raise TaskValidationError(str(error)) from error
             object.__setattr__(self, field_name, normalized)
+
+        if (
+            self.due_after is not None
+            and self.due_before is not None
+            and self.due_after >= self.due_before
+        ):
+            raise TaskValidationError("Task list due_after must be before due_before")
 
 
 class TaskRepository(Protocol):
