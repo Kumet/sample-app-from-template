@@ -86,6 +86,34 @@ def test_project_api_patch_with_null_clears_description(
     assert response.json()["description"] is None
 
 
+def test_project_delete_returns_conflict_until_owned_tasks_are_deleted(
+    api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = api_database
+    project = client.post("/api/projects", json={"name": "Protected"}).json()
+    task = client.post(
+        f"/api/projects/{project['id']}/tasks",
+        json={"title": "Blocking task"},
+    ).json()
+
+    conflict_response = client.delete(f"/api/projects/{project['id']}")
+
+    assert conflict_response.status_code == 409
+    assert conflict_response.json() == {"detail": "Project has tasks"}
+    assert client.get(f"/api/projects/{project['id']}").json() == project
+    assert (
+        client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json() == task
+    )
+
+    assert (
+        client.delete(f"/api/projects/{project['id']}/tasks/{task['id']}").status_code
+        == 204
+    )
+    delete_response = client.delete(f"/api/projects/{project['id']}")
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+
+
 def test_project_list_is_ordered_by_creation_time_then_id(
     api_database: tuple[TestClient, Engine],
 ) -> None:

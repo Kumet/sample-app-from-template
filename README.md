@@ -11,9 +11,10 @@ and CI.
 
 ## Current status
 
-The Python 3.11+ application implements persistent Project CRUD through a REST
-API backed by local SQLite and SQLAlchemy 2.x. `GET /health` remains available
-and does not query the database. Task and Tag management, the Kanban UI, CLI,
+The Python 3.11+ application implements persistent Project CRUD and nested Task
+CRUD through a REST API backed by local SQLite and SQLAlchemy 2.x. Task lists
+support filtering, pagination, and deterministic sorting. `GET /health` remains
+available and does not query the database. Tag management, the Kanban UI, CLI,
 import/export, and backup/restore are not implemented yet.
 
 ## Requirements and setup
@@ -43,12 +44,16 @@ Start the development server from the repository root:
 python3 -m uvicorn project_board.main:app --reload
 ```
 
-On application startup, the development app explicitly creates the Project
-schema if needed and stores data in `project_board.sqlite3` in the current
-working directory. Schema creation is intended only for development and tests;
-this feature does not define a production migration workflow. Stop the server
-before removing the local database when a clean development database is
-needed.
+On application startup, the development app explicitly creates missing Project
+and Task tables and indexes, then stores data in `project_board.sqlite3` in the
+current working directory. Existing Project rows are preserved when the Task
+table is added. SQLite foreign-key enforcement is enabled for every application
+connection so Tasks cannot reference missing Projects.
+
+Metadata-based schema creation is intended only for development and tests. It
+does not version or upgrade an existing production schema, and this feature does
+not define a production migration workflow. Stop the server before removing the
+local database when a clean development database is needed.
 
 In another terminal, confirm health:
 
@@ -89,12 +94,56 @@ curl -X PATCH http://127.0.0.1:8000/api/projects/1 \
   -H 'Content-Type: application/json' \
   -d '{"description":null}'
 
-# Permanently delete Project 1
+# Permanently delete Project 1 (only when it has no Tasks)
 curl -X DELETE http://127.0.0.1:8000/api/projects/1
 ```
 
 Create returns HTTP 201, deletion returns HTTP 204 with no body, and operations
-on a missing Project return HTTP 404. Invalid input returns HTTP 422.
+on a missing Project return HTTP 404. Invalid input returns HTTP 422. Deleting a
+Project that still owns Tasks returns HTTP 409 and leaves both the Project and
+its Tasks unchanged; explicitly delete its Tasks before deleting the Project.
+
+## Task API
+
+Every Task belongs to the Project identified by the nested URL. Titles are
+required, trimmed, and limited to 200 characters. Descriptions are optional,
+trimmed, and limited to 2000 characters; a blank description is stored as
+`null`. Status is `todo`, `in_progress`, or `done` and defaults to `todo`.
+Priority is `low`, `medium`, or `high` and defaults to `medium`. Optional due
+dates must include a timezone and are normalized to UTC.
+
+```bash
+# Create a Task in Project 1
+curl -X POST http://127.0.0.1:8000/api/projects/1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Implement Task CRUD","priority":"high","due_at":"2026-07-31T09:00:00+09:00"}'
+
+# List Project 1 Tasks, filtered and sorted by due date
+curl 'http://127.0.0.1:8000/api/projects/1/tasks?status=todo&sort=due_at&order=asc&limit=50&offset=0'
+
+# Retrieve Task 1
+curl http://127.0.0.1:8000/api/projects/1/tasks/1
+
+# Partially update Task 1; null clears optional fields
+curl -X PATCH http://127.0.0.1:8000/api/projects/1/tasks/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"in_progress","due_at":null}'
+
+# Permanently delete Task 1
+curl -X DELETE http://127.0.0.1:8000/api/projects/1/tasks/1
+```
+
+Task create returns HTTP 201 and deletion returns HTTP 204 with no body. Missing
+Projects or Tasks and cross-Project Task lookups return HTTP 404 without
+disclosing another Project's ownership. Invalid bodies and query values return
+HTTP 422. PATCH requires at least one mutable field; `project_id`, IDs, and
+timestamps cannot be changed.
+
+Task lists accept exact `status` and `priority` filters, strict `due_before` and
+`due_after` timestamps, `limit` from 1 to 100 (default 50), and a non-negative
+`offset`. Sort fields are `created_at`, `updated_at`, `due_at`, and `priority`,
+with `asc` or `desc` order. Results use Task ID ascending as a stable tie-breaker;
+due-date nulls are always last and priority follows `low < medium < high`.
 
 Tests and other callers can initialize an isolated SQLite database explicitly:
 
@@ -131,7 +180,7 @@ GitHub Actions installs the same development dependencies, runs
 ## Intended features
 
 - Create, view, edit, and delete projects.
-- Create tasks within projects and move them through Todo, Doing, and Done.
+- Create tasks within projects and move them through Todo, In Progress, and Done.
 - Set task priority, an optional due date, and tags.
 - Search and filter by keyword, status, tag, and due date.
 - Use the same local data through the web UI and CLI.
@@ -146,7 +195,7 @@ of scope.
 
 - Python 3.11 or later
 - FastAPI and Uvicorn for the REST API runtime
-- SQLite and SQLAlchemy 2.x for local Project persistence
+- SQLite and SQLAlchemy 2.x for local Project and Task persistence
 - pytest, Ruff, and mypy
 - `pyproject.toml` package management
 - Make-based quality commands

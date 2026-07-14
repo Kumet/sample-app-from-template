@@ -6,9 +6,10 @@ database.
 """
 
 from importlib import import_module
+from sqlite3 import Connection as SQLiteConnection
 from typing import TypeAlias
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -19,13 +20,26 @@ class Base(DeclarativeBase):
 SessionFactory: TypeAlias = sessionmaker[Session]
 
 
+def _enable_sqlite_foreign_keys(
+    dbapi_connection: SQLiteConnection, _connection_record: object
+) -> None:
+    """Enable SQLite foreign-key checks for one newly opened connection."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
 def create_database_engine(database_url: str) -> Engine:
     """Create an engine for a SQLite database without initializing its schema."""
     if not database_url.startswith("sqlite:"):
         msg = "Only SQLite database URLs are supported"
         raise ValueError(msg)
 
-    return create_engine(database_url, connect_args={"check_same_thread": False})
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
 
 
 def create_session_factory(engine: Engine) -> SessionFactory:

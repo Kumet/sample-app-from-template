@@ -25,5 +25,5 @@ class ProjectRepository(Protocol):
         ...
 
     def delete(self, project_id: int) -> bool:
-        """Physically delete a Project and report whether it existed."""
+        """Delete an empty Project, or raise when it still owns Tasks."""
         ...

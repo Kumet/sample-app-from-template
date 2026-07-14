@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from project_board.domain import Project, RepositoryError
-from project_board.infrastructure.models import ProjectModel
+from project_board.domain import Project, ProjectHasTasksConflict, RepositoryError
+from project_board.infrastructure.models import ProjectModel, TaskModel
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -81,6 +81,12 @@ class SQLAlchemyProjectRepository:
             model = self._session.get(ProjectModel, project_id)
             if model is None:
                 return False
+            task_id = self._session.scalar(
+                select(TaskModel.id).where(TaskModel.project_id == project_id).limit(1)
+            )
+            if task_id is not None:
+                self._session.rollback()
+                raise ProjectHasTasksConflict(project_id)
             self._session.delete(model)
             self._session.commit()
         except SQLAlchemyError as error:

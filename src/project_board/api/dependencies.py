@@ -1,4 +1,4 @@
-"""Request-scoped dependency construction for the Project API."""
+"""Request-scoped dependency construction for the Project and Task APIs."""
 
 from collections.abc import Iterator
 from typing import Annotated
@@ -6,10 +6,13 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
-from project_board.application import ProjectService
+from project_board.application import ProjectService, TaskService
 from project_board.infrastructure import SessionFactory
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
+)
+from project_board.repositories.sqlalchemy_task_repository import (
+    SQLAlchemyTaskRepository,
 )
 
 
@@ -28,3 +31,16 @@ def get_project_service(
 
 
 ProjectServiceDependency = Annotated[ProjectService, Depends(get_project_service)]
+
+
+def get_task_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> TaskService:
+    """Build the nested Task service against request-scoped repositories."""
+    return TaskService(
+        SQLAlchemyTaskRepository(session),
+        SQLAlchemyProjectRepository(session),
+    )
+
+
+TaskServiceDependency = Annotated[TaskService, Depends(get_task_service)]

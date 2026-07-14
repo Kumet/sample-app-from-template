@@ -10,6 +10,7 @@ import pytest
 from project_board.application import ProjectService
 from project_board.domain import (
     Project,
+    ProjectHasTasksConflict,
     ProjectNotFound,
     ProjectValidationError,
     RepositoryError,
@@ -197,6 +198,21 @@ def test_delete_project_raises_not_found_for_missing_id() -> None:
 
     with pytest.raises(ProjectNotFound):
         service.delete_project(4)
+
+
+def test_delete_project_propagates_task_conflict_unchanged() -> None:
+    conflict = ProjectHasTasksConflict(4)
+
+    class ConflictingRepository(StubProjectRepository):
+        def delete(self, project_id: int) -> bool:
+            raise conflict
+
+    service = ProjectService(ConflictingRepository([make_project(4)]))
+
+    with pytest.raises(ProjectHasTasksConflict) as captured:
+        service.delete_project(4)
+
+    assert captured.value is conflict
 
 
 def test_repository_errors_propagate_unchanged() -> None:
