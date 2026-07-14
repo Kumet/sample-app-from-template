@@ -1,24 +1,14 @@
 # Validation log: 021-container-validation-target-policy
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"021-container-validation-target-policy","generated_at":"2026-07-14T23:44:09.874501+00:00","included_event_sequence":0,"snapshot_format_version":2,"validation_contract_digest":"6cc75b6f1036eee0a044a514af67544a78d72c8910ba28326119d7fe27eb909e"} -->
 
-## Approved baseline
+This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
-- Source: human-approved Feature 021 prompt.
-- Starting template main: `df7aedf3f3ef4a5223a63c4a80a23c520e292e63`.
-- Sample repository: read-only and unchanged.
-- Policy strategy: add two exact allowlist entries; do not change
-  `scripts/agent/**` or ordinary `make validate` behavior.
+## Summary
+
+Final included event result: NOT_STARTED.
 
 ## Runs
 
-- Spec lint before implementation: PASS, no warnings.
-- Targeted command: `python3.11 -m unittest -v tests.test_spec_lint tests.test_autonomous_core`.
-- Repair loop 1: FAIL because the new rejection test referenced an unimported
-  `ContractError` name. The assertion was aligned with the existing test style
-  by checking its `ValueError` base class; production behavior was unchanged.
-- Targeted rerun: PASS, 37 tests.
-- Exact container targets, both-target contracts, all legacy targets,
-  non-container contracts, exact case-sensitive rejection, injection rejection,
-  and Docker-independent `validate` dependencies are covered.
-- Full validation on implementation HEAD `460b5dd5cde6255228b9c21d151a0f1eb12fdf19`:
-  PASS, including quality policy, secret filename check, and 174 framework tests.
-- No Docker command was invoked by `make validate`.
+| # | Event | Result | HEAD | Notes |
+|---:|---|---|---|---|
+
