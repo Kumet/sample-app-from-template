@@ -2,11 +2,13 @@
 
 ## Status
 
-Local Project Board implements the first vertical product slice: Project CRUD
-through FastAPI, an application service and repository abstraction, and a
-SQLAlchemy 2.x repository over local SQLite. The health endpoint remains
-independent of persistence. Task and Tag behavior, web UI, CLI, import/export,
-backup/restore, and production migration policy remain future work.
+Local Project Board implements Project CRUD and nested Task CRUD through
+FastAPI, application services and repository abstractions, and SQLAlchemy 2.x
+repositories over local SQLite. Task lists include bounded filtering,
+pagination, and deterministic sorting, and Projects with Tasks are protected
+from deletion. The health endpoint remains independent of persistence. Tag
+behavior, web UI, CLI, import/export, backup/restore, and production migration
+policy remain future work.
 
 ## System overview
 
@@ -16,79 +18,107 @@ provides local persistence. The user-facing web interface is rendered from
 templates and enhanced only where useful with HTMX or small JavaScript modules.
 
 The current runtime surface is composed in `project_board.main`. It creates the
-FastAPI application, preserves `GET /health`, installs the Project API router,
-and wires a SQLite session factory into request-scoped dependencies.
+FastAPI application, preserves `GET /health`, installs the Project and nested
+Task routes, and wires a SQLite session factory into request-scoped
+dependencies.
 
 ```text
-FastAPI Project routes / Pydantic schemas
-                    |
-                    v
-          Project application service
-                    |
-                    v
-          ProjectRepository protocol
-                    ^
-                    |
-       SQLAlchemyProjectRepository
-                    |
-       ORM model / session / SQLite
+FastAPI Project and Task routes / Pydantic schemas
+                         |
+                         v
+           ProjectService / TaskService
+                         |
+                         v
+ ProjectRepository / TaskRepository protocols
+                         ^
+                         |
+        SQLAlchemy repository implementations
+                         |
+       separate ORM models / session / SQLite
 ```
 
-Dependencies point inward. The API calls `ProjectService` and never executes
-SQL or uses ORM models. The service depends on the `ProjectRepository` protocol,
-not its SQLAlchemy implementation. Domain Project objects and errors have no
-FastAPI, SQLAlchemy, or SQLite dependency, and the ORM Project model is a
-separate persistence type.
+Dependencies point inward. The API calls `ProjectService` and `TaskService` and
+never executes SQL, owns transactions, or uses ORM models. Services depend on
+repository protocols, not SQLAlchemy implementations. Domain Project and Task
+objects, enums, datetime rules, and errors have no FastAPI, SQLAlchemy, or
+SQLite dependency, and ORM models remain separate persistence types.
 
-## Implemented Project layers
+## Implemented application layers
 
 ### API layer
 
 `project_board.api` contains Pydantic request/response schemas, Project routes,
-and dependency construction. Each request receives its own SQLAlchemy session;
-the dependency constructs a repository and `ProjectService`, then reliably
-closes the session. Routes call only service use cases. They map not-found and
-validation errors to 404 and 422, and expose repository failures only as a
-generic 500 response.
+nested Task routes, list-query validation, and dependency construction. Each
+request receives its own SQLAlchemy session; dependencies construct the needed
+repositories and service, then reliably close the session. Routes call only
+service use cases. They map missing resources to 404, Project deletion conflicts
+to 409, validation errors to 422, and repository failures to a generic sanitized
+500 response.
 
 ### Application service layer
 
 `project_board.application` coordinates create, list, retrieve, partial update,
-and physical deletion use cases. It depends on the repository protocol and
-turns missing results into the stable `ProjectNotFound` domain error. It has no
-FastAPI, SQLAlchemy, engine, or session dependency.
+and physical deletion for Projects and Tasks. `TaskService` validates that the
+parent Project exists, preserves omitted update fields, supports explicit null
+for optional fields, and enforces nested ownership through the Task repository.
+The services turn missing results into stable domain errors and have no FastAPI,
+SQLAlchemy, engine, or session dependency.
 
 ### Domain layer
 
-`project_board.domain` owns the persistence-independent Project value and its
-normalization, length, and UTC timestamp rules. It also defines stable Project
-validation, not-found, and repository errors. Task, status, priority, due-date,
-Tag, and user-facing timezone rules remain unimplemented.
+`project_board.domain` owns persistence-independent Project and Task values,
+Task status and priority enums, normalization and length rules, and centralized
+timezone-aware UTC normalization. It also defines stable validation, not-found,
+Project-has-Tasks conflict, and repository errors. Tag and user-facing timezone
+presentation rules remain unimplemented.
 
 ### Repository layer
 
-`project_board.repositories` defines the `ProjectRepository` protocol and its
-SQLAlchemy implementation. This implementation is the only layer that queries,
-commits, or rolls back Project persistence. It maps between the ORM model and
-domain Project, orders lists by `created_at` and `id`, physically deletes rows,
-and converts unexpected database failures into a sanitized `RepositoryError`
-after rollback.
+`project_board.repositories` defines the `ProjectRepository` and
+`TaskRepository` protocols plus separate SQLAlchemy implementations. Concrete
+repositories are the only layer that queries, commits, or rolls back
+persistence. They map between ORM and domain types, physically delete rows, and
+convert unexpected database failures into a sanitized `RepositoryError` after
+rollback so the caller-owned session remains reusable.
+
+The Task repository scopes every lookup and mutation by both Project and Task
+ID. Its single list query applies exact status/priority and strict due-date
+filters, enforces a maximum page size of 100, and avoids per-row Project loads.
+Allow-listed sort expressions implement semantic priority order, due-date nulls
+last in either direction, and ascending Task ID as the stable tie-breaker.
+
+Project deletion checks for an owned Task in the same write transaction. If one
+exists, the repository rolls back and raises a stable conflict without deleting
+either record. There is no Task cascade; after Tasks are explicitly deleted,
+normal Project deletion can proceed.
 
 ### SQLite infrastructure
 
 `project_board.infrastructure` owns the SQLAlchemy declarative base, distinct
-Project ORM model, SQLite engine and session factories, and
-`initialize_schema(engine)`. Merely importing modules or constructing an engine
-does not create schema. The default development app explicitly initializes
-`project_board.sqlite3` during application startup. Production migrations,
-import/export, and backup/restore are not defined by this feature.
+Project and Task ORM models, SQLite engine and session factories, and
+`initialize_schema(engine)`. Every SQLite connection enables foreign-key
+enforcement. Task storage has a non-cascading foreign key to Projects and
+indexes on `project_id`, `(project_id, status)`, `(project_id, priority)`, and
+`(project_id, due_at)`.
+
+Merely importing modules or constructing an engine does not create schema. The
+default development app explicitly initializes `project_board.sqlite3` during
+application startup. SQLAlchemy metadata creates missing development/test
+tables and indexes without dropping existing Project rows. This is not a
+versioned production migration mechanism; production schema upgrades remain an
+explicitly unresolved risk and require a separate approved feature. No migration
+dependency is present.
 
 ## Test isolation and health
 
-Repository and API integration tests create a fresh SQLite file beneath each
-test's pytest temporary directory, explicitly initialize its schema, and inject
-the corresponding session factory. They never connect to the default
-development database. Engines and sessions are disposed or closed after use.
+Unit and integration coverage exercises domain and service rules, schema and
+foreign-key behavior, repository CRUD/list ordering, rollback and reusable
+sessions, API validation and ownership isolation, persistence across restart,
+import isolation, Project CRUD regression, and health regression. Integration
+tests create fresh SQLite files beneath pytest temporary directories, explicitly
+initialize schema, and inject the corresponding session factory. They never
+connect to the default development database. Engines and sessions are disposed
+or closed after use.
 
 `GET /health` still returns HTTP 200 with `{"status":"ok"}`. The handler does
 not consult the database or any external service.
@@ -97,9 +127,9 @@ not consult the database or any external service.
 
 The web UI and CLI will be separate delivery adapters over the same application
 service and domain layers. Jinja2/templates, HTMX or small JavaScript modules,
-Task and Tag persistence, and local import/export and backup/restore require
-their own approved specifications. Future adapters must not create parallel
-business-logic or persistence paths.
+Tag persistence, and local import/export and backup/restore require their own
+approved specifications. Future adapters must not create parallel business
+logic or persistence paths.
 
 ### Templates/static assets
 
@@ -112,10 +142,10 @@ the Web/API boundary and shared services rather than recreate domain rules.
 The dependency direction is from the outside toward the domain:
 
 ```text
-FastAPI API -> ProjectService -> ProjectRepository protocol -> Domain
-                                  ^
-                                  |
-                    SQLAlchemy repository -> ORM / SQLite
+FastAPI API -> ProjectService / TaskService -> repository protocols -> Domain
+                                                  ^
+                                                  |
+                              SQLAlchemy repositories -> ORM / SQLite
 ```
 
 Future Web UI and CLI adapters will enter through application services. They
