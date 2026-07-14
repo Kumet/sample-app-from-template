@@ -1,21 +1,21 @@
 # Validation log: 018-project-dashboard-analytics
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"018-project-dashboard-analytics","generated_at":"2026-07-14T21:31:48.867344+00:00","included_event_sequence":8,"snapshot_format_version":2,"validation_contract_digest":"82a2b074477fb4aff88d477e9015fe08d2d54c678a32a3679cc0a5b4cdf0aadd"} -->
 
-## Specification phase
+This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
-- Source: human-approved Feature 018 prompt dated 2026-07-15; no GitHub Issue.
-- Clarification: identifier 018 avoids occupied framework Features 006-017.
-- Existing contracts fixed: integer IDs, `/api/projects` prefix,
-  `TaskStatus.DONE` terminal policy, enum ordering, normalized Tag ordering,
-  payload-free Activity response, request-scoped Session, and UTC helper.
-- Risk: medium; infrastructure domain; auto-merge disabled.
-- Schema/migration/dependency changes: forbidden and not planned.
-- Implementation: not started at this snapshot.
-| 1 | T001 | PASS | task validation passed |
-| 1 | T002 | PASS | task validation passed |
-| 1 | T003 | PASS | task validation passed |
-| 1 | T004 | FAIL | uery_rejects_unbounded_or_non_integer_limits( + limit: object, +) -> None: + repository = SQLAlchemyProjectDashboardRepository( + cast(Session, QueryForbiddenSession()) + ) + + with pytest.raises(DashboardInvariantError, match="activity limit"): + repository.list_recent_activities(1, limit) # type: ignore[arg-type] ERROR: Selected model is at capacity. Please try a different model. ERROR: Selected model is at capacity. Please try a different model. tokens used 64,088 |
-| 2 | T004 | PASS | task validation passed |
-| 1 | T005 | PASS | task validation passed |
-| 1 | T006 | PASS | task validation passed |
-| 1 | T007 | PASS | task validation passed |
-| 1 | T008 | PASS | task validation passed |
+## Summary
+
+Final included event result: PASS.
+
+## Runs
+
+| # | Event | Result | HEAD | Notes |
+|---:|---|---|---|---|
+| 1 | task/task-complete | PASS | `04466829a9bc` | T001 |
+| 2 | task/task-complete | PASS | `91a09fdc3bfa` | T002 |
+| 3 | task/task-complete | PASS | `8ac0fb2299eb` | T003 |
+| 4 | task/task-complete | PASS | `2f5cf008371d` | T004 |
+| 5 | task/task-complete | PASS | `6b58a77ce7b9` | T005 |
+| 6 | task/task-complete | PASS | `b276feb0df08` | T006 |
+| 7 | task/task-complete | PASS | `5570ee11e6e0` | T007 |
+| 8 | task/task-complete | PASS | `bb16bb2bf7be` | T008 |
