@@ -1,5 +1,5 @@
 # Validation log: 003-task-tags
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T14:53:24.318758+00:00","included_event_sequence":27,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T15:00:32.150561+00:00","included_event_sequence":42,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -38,3 +38,18 @@ Final included event result: PASS.
 | 25 | review/review-shard | PASS | `cb2fbfe98cae` |  |
 | 26 | review/review-shard | PASS | `cb2fbfe98cae` |  |
 | 27 | review/review-shard | PASS | `cb2fbfe98cae` |  |
+| 28 | evidence/tracked-evidence-snapshot | PASS | `8de8d0436b1b` |  |
+| 29 | post-evidence/final-validation-attempt | PASS | `8de8d0436b1b` |  |
+| 30 | post-evidence/final-validation-accepted | PASS | `8de8d0436b1b` |  |
+| 31 | delivery/weakening | PASS | `8de8d0436b1b` |  |
+| 32 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 33 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 34 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 35 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 36 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 37 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 38 | review/review-shard | FAIL | `8de8d0436b1b` |  |
+| 39 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 40 | review/review-shard | FAIL | `8de8d0436b1b` |  |
+| 41 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 42 | review/review-shard | PASS | `8de8d0436b1b` |  |
