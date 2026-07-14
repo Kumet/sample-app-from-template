@@ -133,6 +133,9 @@ def test_tag_list_uses_deterministic_normalized_name_order(
         {"name": "Tag", "color": "#GGGGGG"},
         {"name": "Tag", "color": 123456},
         {"name": "Tag", "id": 1},
+        {"name": "Tag", "project_id": 1},
+        {"name": "Tag", "created_at": "2026-07-14T00:00:00Z"},
+        {"name": "Tag", "updated_at": "2026-07-14T00:00:00Z"},
         {"name": "Tag", "normalized_name": "tag"},
     ],
 )
@@ -208,6 +211,22 @@ def test_duplicate_tag_create_and_rename_map_to_stable_conflict(
     )
 
 
+def test_case_only_self_rename_succeeds_through_tag_api(
+    tag_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = tag_api_database
+    project_id = create_project(client)
+    tag = create_tag(client, project_id, "Backend")
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tags/{tag['id']}",
+        json={"name": "BACKEND"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "BACKEND"
+
+
 def test_tag_endpoints_hide_cross_project_ownership_and_missing_resources(
     tag_api_database: tuple[TestClient, Engine],
 ) -> None:
@@ -279,9 +298,10 @@ def test_task_tag_association_maps_missing_and_cross_project_owners_to_404(
         (f"/api/projects/{owner_id}/tasks/{task_id}/tags/999", "Tag not found"),
     )
     for path, detail in cases:
-        response = client.put(path)
-        assert response.status_code == 404
-        assert response.json() == {"detail": detail}
+        for method in (client.put, client.delete):
+            response = method(path)
+            assert response.status_code == 404
+            assert response.json() == {"detail": detail}
 
 
 def test_tag_repository_failure_response_is_generic_and_sanitized(

@@ -47,7 +47,7 @@
   - Validation: unit, app, integration
   - Dependencies: T003, T005
   - Allowed paths: `src/project_board/application/**`, `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T007: Add Tag CRUD and Task-Tag association API schemas, wiring, routes, and error mapping.
+- [x] T007: Add Tag CRUD and Task-Tag association API schemas, wiring, routes, and error mapping.
   - Requirements: REQ-004, REQ-005, REQ-006, REQ-007, REQ-010, REQ-021, REQ-023
   - Acceptance criteria: AC-003, AC-004, AC-005, AC-007, AC-017
   - Validation: app, integration
