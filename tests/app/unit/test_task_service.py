@@ -17,6 +17,8 @@ from project_board.domain import (
     Project,
     ProjectNotFound,
     RepositoryError,
+    Tag,
+    TagNotFound,
     Task,
     TaskNotFound,
     TaskPriority,
@@ -32,6 +34,9 @@ from project_board.infrastructure.models import TaskModel
 from project_board.repositories import TaskListQuery
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
+)
+from project_board.repositories.sqlalchemy_tag_repository import (
+    SQLAlchemyTagRepository,
 )
 from project_board.repositories.sqlalchemy_task_repository import (
     SQLAlchemyTaskRepository,
@@ -59,6 +64,10 @@ def make_task(task_id: int = 1, project_id: int = 1, **changes: object) -> Task:
     }
     values.update(changes)
     return Task(**values)  # type: ignore[arg-type]
+
+
+def make_tag(tag_id: int = 1, project_id: int = 1) -> Tag:
+    return Tag(tag_id, project_id, "Backend", "#112233", NOW, NOW)
 
 
 class StubProjectRepository:
@@ -119,13 +128,43 @@ class StubTaskRepository:
         return self.tasks.pop((project_id, task_id), None) is not None
 
 
+class StubTagRepository:
+    def __init__(self, tags: list[Tag] | None = None) -> None:
+        self.tags = {(tag.project_id, tag.id): tag for tag in tags or []}
+        self.requested_key: tuple[int, int] | None = None
+
+    def get(self, project_id: int, tag_id: int) -> Tag | None:
+        self.requested_key = (project_id, tag_id)
+        return self.tags.get((project_id, tag_id))
+
+    def create(self, tag: Tag) -> Tag:
+        raise NotImplementedError
+
+    def list(self, project_id: int) -> list[Tag]:
+        raise NotImplementedError
+
+    def update(self, tag: Tag) -> Tag | None:
+        raise NotImplementedError
+
+    def delete(self, project_id: int, tag_id: int) -> bool:
+        raise NotImplementedError
+
+    def attach(self, project_id: int, task_id: int, tag_id: int) -> None:
+        raise NotImplementedError
+
+    def detach(self, project_id: int, task_id: int, tag_id: int) -> None:
+        raise NotImplementedError
+
+
 def make_service(
     tasks: StubTaskRepository,
     projects: StubProjectRepository | None = None,
+    tags: StubTagRepository | None = None,
 ) -> TaskService:
     return TaskService(
         tasks,
         projects or StubProjectRepository([make_project()]),
+        tags or StubTagRepository(),
         clock=lambda: LATER,
     )
 
@@ -140,7 +179,17 @@ def sqlite_task_service(
     projects = SQLAlchemyProjectRepository(session)
     tasks = SQLAlchemyTaskRepository(session)
     project = projects.create(make_project())
-    yield TaskService(tasks, projects, clock=lambda: LATER), session, engine, project.id
+    yield (
+        TaskService(
+            tasks,
+            projects,
+            SQLAlchemyTagRepository(session),
+            clock=lambda: LATER,
+        ),
+        session,
+        engine,
+        project.id,
+    )
     session.close()
     engine.dispose()
 
@@ -253,6 +302,33 @@ def test_list_tasks_requires_project_and_delegates_query() -> None:
             1, query
         )
     assert missing_project_repository.listed_query is None
+
+
+def test_list_tasks_validates_owned_tag_before_delegating_filter() -> None:
+    owned = make_task(4)
+    repository = StubTaskRepository([owned])
+    tags = StubTagRepository([make_tag(7)])
+    query = TaskListQuery(tag_id=7)
+
+    assert make_service(repository, tags=tags).list_tasks(1, query) == [owned]
+    assert tags.requested_key == (1, 7)
+    assert repository.listed_query == (1, query)
+
+
+@pytest.mark.parametrize("tag", [None, make_tag(7, project_id=2)])
+def test_list_tasks_rejects_missing_or_foreign_tag_without_querying_tasks(
+    tag: Tag | None,
+) -> None:
+    repository = StubTaskRepository([make_task(4)])
+    tags = StubTagRepository([] if tag is None else [tag])
+
+    with pytest.raises(TagNotFound) as captured:
+        make_service(repository, tags=tags).list_tasks(1, TaskListQuery(tag_id=7))
+
+    assert captured.value.project_id == 1
+    assert captured.value.tag_id == 7
+    assert tags.requested_key == (1, 7)
+    assert repository.listed_query is None
 
 
 def test_update_task_changes_only_supplied_fields() -> None:

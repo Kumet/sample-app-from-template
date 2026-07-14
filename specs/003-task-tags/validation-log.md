@@ -23,3 +23,4 @@ committed as the tracked pre-final evidence snapshot.
 | 1 | T006 | PASS | task validation passed |
 | 1 | T007 | FAIL | class=unknown strategy=codex-repair Codex produced no repository changes |
 | 2 | T007 | PASS | task validation passed |
+| 1 | T008 | PASS | task validation passed |

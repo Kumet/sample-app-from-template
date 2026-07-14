@@ -53,7 +53,7 @@
   - Validation: app, integration
   - Dependencies: T005, T006
   - Allowed paths: `src/project_board/api/**`, `src/project_board/main.py`, `tests/app/**`
-- [ ] T008: Integrate ordered Tags into Task responses and add composable `tag_id` list filtering.
+- [x] T008: Integrate ordered Tags into Task responses and add composable `tag_id` list filtering.
   - Requirements: REQ-012, REQ-013, REQ-014, REQ-024
   - Acceptance criteria: AC-009, AC-010, AC-011, AC-019
   - Validation: unit, app, integration

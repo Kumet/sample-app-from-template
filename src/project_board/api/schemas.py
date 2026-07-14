@@ -284,3 +284,4 @@ class TaskResponse(BaseModel):
     due_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    tags: list[TagResponse]

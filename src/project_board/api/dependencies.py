@@ -43,6 +43,7 @@ def get_task_service(
     return TaskService(
         SQLAlchemyTaskRepository(session),
         SQLAlchemyProjectRepository(session),
+        SQLAlchemyTagRepository(session),
     )
 
 
