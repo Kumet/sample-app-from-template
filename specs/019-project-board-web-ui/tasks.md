@@ -33,7 +33,7 @@
   - Validation: app, integration
   - Dependencies: T003
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T005: Implement Task query, pagination, stale-request handling, and Task CRUD.
+- [x] T005: Implement Task query, pagination, stale-request handling, and Task CRUD.
   - Requirements: REQ-006, REQ-007
   - Acceptance criteria: AC-004, AC-005
   - Validation: app, integration

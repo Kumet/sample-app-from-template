@@ -365,6 +365,7 @@ function resetProjectDependents() {
   state.dashboard = null;
   state.tasks.items = [];
   state.tasks.total = 0;
+  state.tasks.query.tagId = null;
   state.tasks.query.offset = 0;
   state.selectedTaskId = null;
   state.taskDetail = null;
@@ -501,6 +502,352 @@ function renderDashboard() {
   content.replaceChildren(fragment);
 }
 
+function taskApiPath(projectId, taskId = null) {
+  const suffix = taskId === null ? "/tasks" : `/tasks/${taskId}`;
+  if (taskId !== null && (!Number.isInteger(taskId) || taskId <= 0)) {
+    throw new ApiError("The selected Task is invalid.", { kind: "client" });
+  }
+  return projectApiPath(projectId, suffix);
+}
+
+function taskQueryParameters() {
+  const query = state.tasks.query;
+  const parameters = new URLSearchParams();
+  if (query.q !== "") {
+    parameters.set("q", query.q);
+  }
+  for (const status of query.status) {
+    parameters.append("status", status);
+  }
+  for (const priority of query.priority) {
+    parameters.append("priority", priority);
+  }
+  if (query.tagId !== null) {
+    parameters.set("tag_id", String(query.tagId));
+  }
+  if (query.dueAfter !== null) {
+    parameters.set("due_after", query.dueAfter);
+  }
+  if (query.dueBefore !== null) {
+    parameters.set("due_before", query.dueBefore);
+  }
+  parameters.set("sort", query.sort);
+  parameters.set("order", query.order);
+  parameters.set("limit", String(query.limit));
+  parameters.set("offset", String(query.offset));
+  return parameters;
+}
+
+function taskListPath(projectId) {
+  return `${taskApiPath(projectId)}?${taskQueryParameters().toString()}`;
+}
+
+function renderTasks() {
+  const list = document.getElementById("task-list");
+  const fragment = document.createDocumentFragment();
+  for (const task of state.tasks.items) {
+    const item = element("li");
+    const button = element("button", task.title);
+    button.type = "button";
+    if (task.id === state.selectedTaskId) {
+      button.setAttribute("aria-current", "true");
+    }
+    button.addEventListener("click", () => selectTask(task.id));
+    const details = element("dl");
+    addDefinition(details, "Status", task.status);
+    addDefinition(details, "Priority", task.priority);
+    addDefinition(details, "Due", task.due_at ?? "No due date");
+    item.append(button, details);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  list.setAttribute("aria-busy", String(state.loading.tasks));
+  setExplicitState("tasks", state.tasks.items.length);
+
+  const offset = state.tasks.query.offset;
+  const count = state.tasks.items.length;
+  const first = count === 0 ? 0 : offset + 1;
+  const last = offset + count;
+  state.tasks.total = last;
+  document.getElementById("task-page-status").textContent =
+    count === 0 ? "No Tasks on this page." : `Showing Tasks ${first}–${last}.`;
+  document.getElementById("previous-tasks-button").disabled =
+    state.loading.tasks || offset === 0;
+  document.getElementById("next-tasks-button").disabled =
+    state.loading.tasks || count < state.tasks.query.limit;
+}
+
+function resetTaskDetail() {
+  cancelResourceRequest("taskDetail");
+  state.selectedTaskId = null;
+  state.taskDetail = null;
+  document.getElementById("task-detail").hidden = true;
+  document.getElementById("task-detail-content").replaceChildren();
+}
+
+function localDateTimeValue(value) {
+  if (value === null) {
+    return "";
+  }
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function renderTaskDetail() {
+  const section = document.getElementById("task-detail");
+  section.hidden = state.selectedTaskId === null;
+  if (state.selectedTaskId === null) {
+    return;
+  }
+  const loading = document.getElementById("task-detail-loading");
+  const error = document.getElementById("task-detail-error");
+  loading.hidden = !state.loading.taskDetail;
+  error.hidden = state.errors.taskDetail === null;
+  if (state.errors.taskDetail !== null) {
+    error.textContent = state.errors.taskDetail.message;
+  }
+  const content = document.getElementById("task-detail-content");
+  content.setAttribute("aria-busy", String(state.loading.taskDetail));
+  if (state.taskDetail === null) {
+    content.replaceChildren();
+    return;
+  }
+  const task = state.taskDetail;
+  const details = element("dl");
+  addDefinition(details, "Title", task.title);
+  addDefinition(details, "Description", task.description ?? "No description");
+  addDefinition(details, "Status", task.status);
+  addDefinition(details, "Priority", task.priority);
+  addDefinition(details, "Due", task.due_at ?? "No due date");
+  addDefinition(details, "Created", task.created_at);
+  addDefinition(details, "Updated", task.updated_at);
+  content.replaceChildren(details);
+  document.getElementById("task-edit-title").value = task.title;
+  document.getElementById("task-edit-description").value =
+    task.description ?? "";
+  document.getElementById("task-edit-status").value = task.status;
+  document.getElementById("task-edit-priority").value = task.priority;
+  document.getElementById("task-edit-due-at").value = localDateTimeValue(
+    task.due_at,
+  );
+}
+
+async function loadTasks() {
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    state.tasks.items = [];
+    state.tasks.total = 0;
+    renderTasks();
+    return;
+  }
+  const pending = requestLatest("tasks", taskListPath(projectId));
+  renderTasks();
+  try {
+    const result = await pending;
+    if (!result.accepted || state.selectedProjectId !== projectId) {
+      return;
+    }
+    state.tasks.items = result.data;
+    if (
+      state.selectedTaskId !== null &&
+      !state.tasks.items.some((task) => task.id === state.selectedTaskId)
+    ) {
+      resetTaskDetail();
+    }
+    renderTasks();
+  } catch (error) {
+    renderTasks();
+    showError(error);
+  }
+}
+
+async function loadTaskDetail(taskId) {
+  const projectId = state.selectedProjectId;
+  if (projectId === null || taskId !== state.selectedTaskId) {
+    return;
+  }
+  const pending = requestLatest("taskDetail", taskApiPath(projectId, taskId));
+  renderTaskDetail();
+  try {
+    const result = await pending;
+    if (
+      !result.accepted ||
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    state.taskDetail = result.data;
+    renderTaskDetail();
+  } catch (error) {
+    renderTaskDetail();
+    showError(error);
+  }
+}
+
+function selectTask(taskId) {
+  if (!state.tasks.items.some((task) => task.id === taskId)) {
+    return;
+  }
+  state.selectedTaskId = taskId;
+  state.taskDetail = null;
+  clearError();
+  renderTasks();
+  renderTaskDetail();
+  loadTaskDetail(taskId);
+}
+
+function utcDateTimeOrNull(value) {
+  return value === "" ? null : new Date(value).toISOString();
+}
+
+function taskPayload(form) {
+  const data = new FormData(form);
+  const description = String(data.get("description") ?? "");
+  return {
+    title: String(data.get("title") ?? ""),
+    description: description === "" ? null : description,
+    status: String(data.get("status") ?? "todo"),
+    priority: String(data.get("priority") ?? "medium"),
+    due_at: utcDateTimeOrNull(String(data.get("due_at") ?? "")),
+  };
+}
+
+function taskQueryFromForm(form) {
+  const data = new FormData(form);
+  const tagValue = String(data.get("tag_id") ?? "");
+  const dueAfter = String(data.get("due_after") ?? "");
+  const dueBefore = String(data.get("due_before") ?? "");
+  return {
+    q: String(data.get("q") ?? "").trim(),
+    status: data.getAll("status").map(String),
+    priority: data.getAll("priority").map(String),
+    tagId: tagValue === "" ? null : Number(tagValue),
+    dueAfter: dueAfter === "" ? null : utcDateTimeOrNull(dueAfter),
+    dueBefore: dueBefore === "" ? null : utcDateTimeOrNull(dueBefore),
+    sort: String(data.get("sort") ?? "created_at"),
+    order: String(data.get("order") ?? "asc"),
+    limit: 50,
+    offset: 0,
+  };
+}
+
+function applyTaskFilters(event) {
+  event.preventDefault();
+  state.tasks.query = taskQueryFromForm(event.currentTarget);
+  resetTaskDetail();
+  loadTasks();
+}
+
+async function createTask(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    return;
+  }
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const created = await runMutation("createTask", () =>
+      apiRequest(taskApiPath(projectId), {
+        method: "POST",
+        json: taskPayload(form),
+      }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    form.reset();
+    document.getElementById("task-create-panel").hidden = true;
+    showStatus(`Created Task ${created.title}.`);
+    await Promise.all([loadTasks(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function updateTask(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (projectId === null || taskId === null) {
+    return;
+  }
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const updated = await runMutation(`updateTask:${taskId}`, () =>
+      apiRequest(taskApiPath(projectId, taskId), {
+        method: "PATCH",
+        json: taskPayload(form),
+      }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    state.taskDetail = updated;
+    renderTaskDetail();
+    showStatus(`Updated Task ${updated.title}.`);
+    await Promise.all([loadTasks(), loadDashboard(), loadTaskDetail(taskId)]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function requestTaskDeletion() {
+  if (state.taskDetail === null) {
+    return;
+  }
+  const dialog = document.getElementById("destructive-confirmation-dialog");
+  dialog.dataset.action = "delete-task";
+  document.getElementById("confirmation-message").textContent =
+    `Delete Task ${state.taskDetail.title}? This action cannot be undone.`;
+  dialog.showModal();
+}
+
+async function deleteSelectedTask() {
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  const task = state.taskDetail;
+  if (projectId === null || taskId === null || task === null) {
+    return;
+  }
+  const button = document.getElementById("delete-task-button");
+  clearError();
+  button.disabled = true;
+  try {
+    await runMutation(`deleteTask:${taskId}`, () =>
+      apiRequest(taskApiPath(projectId, taskId), { method: "DELETE" }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    resetTaskDetail();
+    renderTasks();
+    showStatus(`Deleted Task ${task.title}.`);
+    await Promise.all([loadTasks(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadProjects() {
   const pending = requestLatest("projects", "/api/projects");
   renderProjectList();
@@ -520,6 +867,8 @@ async function loadProjects() {
     renderProjectList();
     renderSelectedProject();
     renderDashboard();
+    renderTasks();
+    renderTaskDetail();
   } catch (error) {
     renderProjectList();
     showError(error);
@@ -561,8 +910,11 @@ function selectProject(projectId) {
   renderProjectList();
   renderSelectedProject();
   renderDashboard();
+  renderTasks();
+  renderTaskDetail();
   showStatus(`Selected Project ${selectedProject().name}.`);
   loadDashboard();
+  loadTasks();
 }
 
 function projectPayload(form) {
@@ -680,6 +1032,8 @@ async function deleteSelectedProject() {
     renderProjectList();
     renderSelectedProject();
     renderDashboard();
+    renderTasks();
+    renderTaskDetail();
     showStatus(`Deleted Project ${project.name}.`);
     await loadProjects();
   } catch (error) {
@@ -726,13 +1080,74 @@ function setupProjectUi() {
         dialog.dataset.action === "delete-project"
       ) {
         deleteSelectedProject();
+      } else if (
+        dialog.returnValue === "confirm" &&
+        dialog.dataset.action === "delete-task"
+      ) {
+        deleteSelectedTask();
       }
       delete dialog.dataset.action;
     });
 }
 
+function setupTaskUi() {
+  document.getElementById("new-task-button").addEventListener("click", () => {
+    if (state.selectedProjectId === null) {
+      return;
+    }
+    document.getElementById("task-create-panel").hidden = false;
+    document.getElementById("task-create-title").focus();
+  });
+  document
+    .getElementById("cancel-task-create-button")
+    .addEventListener("click", () => {
+      document.getElementById("task-create-panel").hidden = true;
+    });
+  document
+    .getElementById("task-create-form")
+    .addEventListener("submit", createTask);
+  document
+    .getElementById("task-edit-form")
+    .addEventListener("submit", updateTask);
+  document
+    .getElementById("delete-task-button")
+    .addEventListener("click", requestTaskDeletion);
+  document
+    .getElementById("task-filter-form")
+    .addEventListener("submit", applyTaskFilters);
+  document
+    .getElementById("task-filter-form")
+    .addEventListener("reset", () => {
+      queueMicrotask(() => {
+        state.tasks.query = taskQueryFromForm(
+          document.getElementById("task-filter-form"),
+        );
+        resetTaskDetail();
+        loadTasks();
+      });
+    });
+  document
+    .getElementById("previous-tasks-button")
+    .addEventListener("click", () => {
+      state.tasks.query.offset = Math.max(
+        0,
+        state.tasks.query.offset - state.tasks.query.limit,
+      );
+      loadTasks();
+    });
+  document
+    .getElementById("next-tasks-button")
+    .addEventListener("click", () => {
+      state.tasks.query.offset += state.tasks.query.limit;
+      loadTasks();
+    });
+}
+
 setupProjectUi();
+setupTaskUi();
 renderProjectList();
 renderSelectedProject();
 renderDashboard();
+renderTasks();
+renderTaskDetail();
 loadProjects();
