@@ -84,7 +84,7 @@ class RecoveryPatchTests(unittest.TestCase):
         self.config = SimpleNamespace(
             commands={"unit": ("make", "test")},
             allowed=("*.py",),
-            forbidden=(".agent-work/**", ".agent-worktrees/**"),
+            forbidden=(".env", ".agent-work/**", ".agent-worktrees/**"),
         )
         self.task = Task("T001", "Recover", False, ("REQ-001",), ("unit",), 0)
 
@@ -125,7 +125,17 @@ class RecoveryPatchTests(unittest.TestCase):
             "events": events.read_bytes() if events.exists() else None,
             "marker": marker.read_bytes(),
             "index": hashlib.sha256(index.read_bytes()).hexdigest(),
+            "worktree_files": self._worktree_file_fingerprint(),
         }
+
+    def _worktree_file_fingerprint(self) -> dict[str, str]:
+        values = {}
+        for path in sorted(self.isolated.path.rglob("*")):
+            relative = str(path.relative_to(self.isolated.path))
+            if relative == ".git" or path.is_dir():
+                continue
+            values[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return values
 
     def test_preview_is_non_mutating_and_binds_complete_recovery(self):
         self._add_recovery()
@@ -292,6 +302,48 @@ class RecoveryPatchTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 recovery_patch.parse_approved_paths(value)
+
+    def test_command_path_rejects_secret_and_runtime_paths(self):
+        with self.assertRaisesRegex(ValueError, "Forbidden files changed"):
+            recovery_patch.preview(
+                self.repo,
+                self.feature_dir,
+                self.config,
+                recovery_patch.parse_approved_paths(".env"),
+                "Do not allow this secret path",
+            )
+        with self.assertRaisesRegex(ValueError, "Runtime paths cannot be approved"):
+            recovery_patch.parse_approved_paths(".agent-work/state.json")
+
+    def test_apply_reinspects_after_approval_event_before_state_mutation(self):
+        recovery = self._add_recovery()
+        original_state = self.state_path.read_bytes()
+        original_append = EventStore.append
+
+        def append_then_change(store, **kwargs):
+            event = original_append(store, **kwargs)
+            if kwargs["kind"] == "recovery-patch-approved":
+                recovery.write_text("changed after approval\n", encoding="utf-8")
+            return event
+
+        with mock.patch.object(EventStore, "append", new=append_then_change):
+            with self.assertRaisesRegex(
+                ValueError, "changed after approval evidence was recorded"
+            ):
+                recovery_patch.apply(
+                    self.repo,
+                    self.feature_dir,
+                    self.config,
+                    ("recovery.py",),
+                    "Human approved format-only recovery",
+                )
+
+        self.assertEqual(self.state_path.read_bytes(), original_state)
+        events = EventStore(self.state_path.with_name("events.jsonl")).read()
+        self.assertEqual(
+            [(event.kind, event.result) for event in events],
+            [("recovery-patch-approved", "PASS")],
+        )
 
     def test_missing_or_tampered_evidence_fails_closed(self):
         self._add_recovery()

@@ -116,6 +116,9 @@ def apply(
         detail=redact(reason, MAX_REASON_LENGTH),
         data=data,
     )
+    confirmed = inspect(repo, feature_dir, config, approved_paths)
+    if confirmed != inspection:
+        raise ValueError("Recovery patch changed after approval evidence was recorded")
     updated = replace(
         saved,
         head_commit=inspection.current_head,
