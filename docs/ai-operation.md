@@ -203,3 +203,10 @@ shards do not turn a test candidate into a blocking finding, while integration
 may still verify the evidence identity and gate composition. Review input uses
 one authoritative weakening record for the current HEAD and fails closed for
 conflicting or malformed current-HEAD evidence.
+
+Every reviewer invocation requires that canonical weakening PASS to belong to
+the same exact HEAD, feature, branch, and isolated worktree as the accepted final
+validation. Review and CI repairs create a new commit, so they repeat final
+validation and weakening inspection before any reviewer is started for the new
+HEAD. Missing or stale weakening evidence stops before consuming the bounded
+review-call budget.
