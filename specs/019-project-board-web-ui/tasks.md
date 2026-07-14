@@ -9,7 +9,7 @@
 
 ## Tasks
 
-- [ ] T001: Add package-relative fixed Web routes and HTML/static security headers.
+- [x] T001: Add package-relative fixed Web routes and HTML/static security headers.
   - Requirements: REQ-001, REQ-002, REQ-003
   - Acceptance criteria: AC-001, AC-002
   - Validation: unit, app
