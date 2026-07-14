@@ -45,7 +45,7 @@
   - Validation: unit, integration, full
   - Dependencies: T003, T004
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T007: Complete API compatibility, boundaries, pagination, and regression coverage.
+- [x] T007: Complete API compatibility, boundaries, pagination, and regression coverage.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-018
   - Acceptance criteria: AC-001, AC-002, AC-003, AC-006, AC-007, AC-008, AC-009, AC-014
   - Validation: unit, app, integration, full

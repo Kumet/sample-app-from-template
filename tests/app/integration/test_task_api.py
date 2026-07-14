@@ -259,6 +259,120 @@ def test_task_list_normalizes_aware_due_filters_to_utc(
     assert [task["title"] for task in after.json()] == ["UTC boundary"]
 
 
+def test_task_list_preserves_default_and_explicit_pagination_contract(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = task_api_database
+    project_id = create_project(client, "Paginated")
+    other_project_id = create_project(client, "Other")
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    rows = [
+        {
+            "project_id": project_id,
+            "title": f"Task {index:03d}",
+            "description": None,
+            "status": "todo",
+            "priority": "medium",
+            "due_at": None,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        for index in range(101)
+    ]
+    rows.append(
+        {
+            **rows[0],
+            "project_id": other_project_id,
+            "title": "Foreign task",
+        }
+    )
+    with engine.begin() as connection:
+        connection.execute(TaskModel.__table__.insert(), rows)
+
+    default_page = client.get(f"/api/projects/{project_id}/tasks")
+    maximum_page = client.get(
+        f"/api/projects/{project_id}/tasks", params={"limit": 100}
+    )
+    final_page = client.get(
+        f"/api/projects/{project_id}/tasks", params={"limit": 100, "offset": 100}
+    )
+
+    assert default_page.status_code == maximum_page.status_code == 200
+    assert final_page.status_code == 200
+    assert len(default_page.json()) == 50
+    assert len(maximum_page.json()) == 100
+    assert [task["id"] for task in default_page.json()] == sorted(
+        task["id"] for task in default_page.json()
+    )
+    assert [task["title"] for task in final_page.json()] == ["Task 100"]
+    assert set(default_page.json()[0]) == {
+        "id",
+        "project_id",
+        "title",
+        "description",
+        "status",
+        "priority",
+        "due_at",
+        "created_at",
+        "updated_at",
+        "tags",
+    }
+    assert all(task["project_id"] == project_id for task in maximum_page.json())
+
+
+@pytest.mark.parametrize("q", ["x", "x" * 100])
+def test_task_list_accepts_trimmed_search_length_boundaries(
+    task_api_database: tuple[TestClient, Engine], q: str
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    match = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={"title": q, "description": None},
+    )
+    assert match.status_code == 201
+
+    response = client.get(f"/api/projects/{project_id}/tasks", params={"q": f"  {q}  "})
+
+    assert response.status_code == 200
+    assert [task["id"] for task in response.json()] == [match.json()["id"]]
+
+
+@pytest.mark.parametrize("q", ["", "   ", "x" * 101])
+def test_task_list_rejects_invalid_search_length_boundaries(
+    task_api_database: tuple[TestClient, Engine], q: str
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+
+    response = client.get(f"/api/projects/{project_id}/tasks", params={"q": q})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("due_after", "due_before"),
+    [
+        ("2026-07-14T00:00:00Z", "2026-07-14T00:00:00Z"),
+        ("2026-07-15T00:00:00Z", "2026-07-14T00:00:00Z"),
+    ],
+)
+def test_task_list_rejects_non_increasing_due_ranges(
+    task_api_database: tuple[TestClient, Engine],
+    due_after: str,
+    due_before: str,
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"due_after": due_after, "due_before": due_before},
+    )
+
+    assert response.status_code == 422
+
+
 def test_task_responses_include_public_tags_in_deterministic_order(
     task_api_database: tuple[TestClient, Engine],
 ) -> None:
@@ -532,13 +646,19 @@ def test_task_list_project_and_tag_404s_do_not_disclose_foreign_data(
 @pytest.mark.parametrize(
     ("params", "expected_titles"),
     [
+        ({"sort": "created_at", "order": "asc"}, ["Low", "High", "No due"]),
+        ({"sort": "created_at", "order": "desc"}, ["No due", "High", "Low"]),
+        ({"sort": "updated_at", "order": "asc"}, ["Low", "High", "No due"]),
+        ({"sort": "updated_at", "order": "desc"}, ["No due", "High", "Low"]),
         ({"sort": "due_at", "order": "asc"}, ["High", "Low", "No due"]),
         ({"sort": "due_at", "order": "desc"}, ["Low", "High", "No due"]),
         ({"sort": "priority", "order": "asc"}, ["Low", "No due", "High"]),
         ({"sort": "priority", "order": "desc"}, ["High", "No due", "Low"]),
+        ({"sort": "title", "order": "asc"}, ["High", "Low", "No due"]),
+        ({"sort": "title", "order": "desc"}, ["No due", "Low", "High"]),
     ],
 )
-def test_task_list_deterministic_due_and_semantic_priority_sorting(
+def test_task_list_supports_every_sort_field_and_order(
     task_api_database: tuple[TestClient, Engine],
     params: dict[str, str],
     expected_titles: list[str],
