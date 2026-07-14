@@ -17,7 +17,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/unit/**`
-- [ ] T002: Add Tag and association ORM models, ownership constraints, indexes, and safe schema initialization.
+- [x] T002: Add Tag and association ORM models, ownership constraints, indexes, and safe schema initialization.
   - Requirements: REQ-009, REQ-011, REQ-018, REQ-019, REQ-026
   - Acceptance criteria: AC-008, AC-014, AC-015
   - Validation: integration, full

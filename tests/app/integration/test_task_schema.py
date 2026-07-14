@@ -63,7 +63,12 @@ def test_initialization_adds_tasks_without_replacing_project_rows(
 
     initialize_schema(isolated_engine)
 
-    assert inspect(isolated_engine).get_table_names() == ["projects", "tasks"]
+    assert inspect(isolated_engine).get_table_names() == [
+        "projects",
+        "tags",
+        "task_tags",
+        "tasks",
+    ]
     with isolated_engine.connect() as connection:
         assert connection.execute(text("SELECT id, name FROM projects")).one() == (
             41,
@@ -124,6 +129,7 @@ def test_task_table_has_required_columns_foreign_key_and_indexes(
         "ix_tasks_project_id_due_at": ("project_id", "due_at"),
         "ix_tasks_project_id_priority": ("project_id", "priority"),
         "ix_tasks_project_id_status": ("project_id", "status"),
+        "uq_tasks_project_id_id": ("project_id", "id"),
     }
 
 

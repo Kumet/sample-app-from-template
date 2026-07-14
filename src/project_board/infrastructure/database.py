@@ -9,7 +9,7 @@ from importlib import import_module
 from sqlite3 import Connection as SQLiteConnection
 from typing import TypeAlias
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -48,6 +48,33 @@ def create_session_factory(engine: Engine) -> SessionFactory:
 
 
 def initialize_schema(engine: Engine) -> None:
-    """Explicitly create all tables registered in application metadata."""
-    import_module("project_board.infrastructure.models")
-    Base.metadata.create_all(engine)
+    """Create development/test tables and safely extend existing Task schemas."""
+    models = import_module("project_board.infrastructure.models")
+    task_tags_table = models.TaskTagModel.__table__
+
+    # Composite association foreign keys require their parent ownership keys.
+    # Create every parent table first, including any test-only metadata tables.
+    parent_tables = [
+        table for table in Base.metadata.sorted_tables if table is not task_tags_table
+    ]
+    Base.metadata.create_all(engine, tables=parent_tables)
+
+    task_ownership_index = next(
+        index
+        for index in models.TaskModel.__table__.indexes
+        if index.name == "uq_tasks_project_id_id"
+    )
+    task_ownership_index.create(engine, checkfirst=True)
+
+    ownership_indexes = {
+        index["name"]: index for index in inspect(engine).get_indexes("tasks")
+    }
+    ownership_index = ownership_indexes.get("uq_tasks_project_id_id")
+    if ownership_index is None or (
+        tuple(ownership_index["column_names"]) != ("project_id", "id")
+        or not ownership_index["unique"]
+    ):
+        msg = "tasks must have a unique (project_id, id) ownership index"
+        raise RuntimeError(msg)
+
+    task_tags_table.create(engine, checkfirst=True)
