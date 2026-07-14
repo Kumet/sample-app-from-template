@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import evidence_snapshot
 from .events import Event
-from .review import ReviewIdentity
+from . import review
 
 REQUIRED_GATES = ("final-validation-accepted", "weakening", "review", "ci")
 REQUIRED_REVIEW_SHARDS = (
@@ -102,9 +102,7 @@ def require_pre_push(
             aggregate.result == "PASS"
             and latest_review_event.get(shard) is aggregate
             and identities
-            and all(
-                _valid_identity_pass(events, head_sha, value) for value in identities
-            )
+            and _valid_aggregate_gate(events, aggregate, head_sha)
         ):
             passed.add(shard)
     missing = set(REQUIRED_REVIEW_SHARDS) - passed
@@ -124,17 +122,102 @@ def require_pre_push(
         )
 
 
-def _valid_identity_pass(events: list[Event], head_sha: str, digest: str) -> bool:
-    for event in reversed(events):
+def _valid_aggregate_gate(
+    events: list[Event], aggregate: Event, head_sha: str
+) -> bool:
+    if aggregate.head_sha != head_sha:
+        return False
+    data = aggregate.data or {}
+    identities = data.get("chunk_identities")
+    if (
+        not isinstance(identities, list)
+        or not identities
+        or not all(isinstance(value, str) and value for value in identities)
+        or len(set(identities)) != len(identities)
+    ):
+        return False
+    canonical_fields = {
+        "gate_verdict",
+        "schema_valid",
+        "chunk_event_sequences",
+        "findings",
+        "required_findings",
+        "non_required_findings",
+        "aggregate_digest",
+    }
+    present = canonical_fields.intersection(data)
+    if not present:
+        # Preserve compatibility with old identity-bound PASS aggregates.
+        return all(
+            _valid_identity_gate(events, aggregate, head_sha, digest)
+            for digest in identities
+        )
+    if present != canonical_fields:
+        return False
+    sequences = data.get("chunk_event_sequences")
+    if (
+        data.get("schema_valid") is not True
+        or data.get("gate_verdict") != "PASS"
+        or not isinstance(sequences, list)
+        or len(sequences) != len(identities)
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in sequences
+        )
+        or len(set(sequences)) != len(sequences)
+    ):
+        return False
+    results = []
+    for digest, sequence in zip(identities, sequences, strict=True):
+        value = _valid_identity_gate(
+            events, aggregate, head_sha, digest, sequence=sequence
+        )
+        if value is None:
+            return False
+        results.append(value)
+    try:
+        aggregate_result, expected = review.aggregate_evidence_fields(
+            tuple(results), tuple(identities), tuple(sequences)
+        )
+    except (TypeError, ValueError):
+        return False
+    if aggregate_result.result.upper() != aggregate.result:
+        return False
+    return all(data.get(key) == value for key, value in expected.items())
+
+
+def _valid_identity_gate(
+    events: list[Event],
+    aggregate: Event,
+    head_sha: str,
+    digest: str,
+    *,
+    sequence: int | None = None,
+):
+    candidates = (
+        [event for event in events if event.sequence == sequence]
+        if sequence is not None
+        else list(reversed(events[: aggregate.sequence - 1]))
+    )
+    for event in candidates:
         data = event.data or {}
-        identity = data.get("identity")
         if (
-            event.kind == "review-shard"
-            and event.result == "PASS"
-            and event.head_sha == head_sha
-            and data.get("identity_digest") == digest
-            and isinstance(identity, dict)
-            and ReviewIdentity.from_payload(identity).digest == digest
+            event.kind != "review-shard"
+            or data.get("aggregate") is True
+            or event.sequence >= aggregate.sequence
+            or event.head_sha != head_sha
+            or event.feature != aggregate.feature
+            or event.repository != aggregate.repository
+            or event.branch != aggregate.branch
+            or event.worktree != aggregate.worktree
+            or data.get("shard") != (aggregate.data or {}).get("shard")
+            or data.get("identity_digest") != digest
         ):
-            return True
-    return False
+            continue
+        try:
+            result = review.result_from_chunk_event(event, digest)
+        except (TypeError, ValueError):
+            continue
+        if result.gate_passed:
+            return result
+    return None

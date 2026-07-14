@@ -181,6 +181,8 @@ class DeliveryTests(unittest.TestCase):
                 data={
                     "shard": "spec-scope",
                     "identity_digest": identity.digest,
+                    "identity": identity.payload(),
+                    "result": "pass",
                     "findings": [],
                 },
             )
