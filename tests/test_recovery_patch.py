@@ -336,6 +336,37 @@ class RecoveryPatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Runtime paths cannot be approved"):
             recovery_patch.parse_approved_paths(".agent-work/state.json")
 
+    def test_existing_saved_path_and_committed_recovery_are_not_approvable(self):
+        existing = recovery_patch.inspect(
+            self.repo, self.feature_dir, self.config, ("existing.py",)
+        )
+        self.assertFalse(existing.can_apply)
+        self.assertIn(
+            "approved paths do not exactly match newly changed paths",
+            existing.blocking_reasons,
+        )
+
+        self._add_recovery()
+        self._git(self.isolated.path, "add", "--", "recovery.py")
+        self._git(
+            self.isolated.path,
+            "commit",
+            "-q",
+            "-m",
+            "committed recovery before approval",
+        )
+        committed = recovery_patch.inspect(
+            self.repo, self.feature_dir, self.config, ("recovery.py",)
+        )
+        self.assertFalse(committed.can_apply)
+        self.assertIn(
+            "worktree HEAD differs from saved state", committed.blocking_reasons
+        )
+        self.assertIn(
+            "approved paths do not exactly match newly changed paths",
+            committed.blocking_reasons,
+        )
+
     def test_sensitive_saved_path_is_rejected_before_diff_or_file_io(self):
         sensitive = "configs/credentials/token.py"
         with (

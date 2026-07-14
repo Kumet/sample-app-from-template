@@ -16,8 +16,8 @@ review events are intentionally not written back into this file.
 
 - 2026-07-14 — Feature 014 spec-lint passed with no errors or warnings.
 - 2026-07-14 — Python compilation passed for all framework modules.
-- 2026-07-14 — Targeted recovery-patch suite passed: 13 tests.
-- 2026-07-14 — Full framework test suite passed: 128 tests.
+- 2026-07-14 — Targeted recovery-patch suite passed: 14 tests.
+- 2026-07-14 — Full framework test suite passed: 129 tests.
 - 2026-07-14 — `make validate` passed: quality policy, secret filename check,
   lint/typecheck adapters, and all framework tests.
 - 2026-07-14 — Scope audit passed for 9 approved paths; `git diff --check`
@@ -86,3 +86,7 @@ review events are intentionally not written back into this file.
   basenames not covered by suffix rules. Case-insensitive path admission now
   rejects RSA/DSA/ECDSA/Ed25519 private-key names, `authorized_keys`, htpasswd,
   pgpass, JKS, and keystore files at every depth before content inspection.
+- New test-only cycle 2 — tests review required direct REQ-003 coverage.
+  Regressions now prove an already-saved path cannot be implicitly approved and
+  a recovery file committed before approval is rejected by both HEAD and
+  newly-changed-path bindings; production code was unchanged.
