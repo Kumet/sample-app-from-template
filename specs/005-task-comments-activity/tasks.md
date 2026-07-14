@@ -57,7 +57,7 @@
   - Validation: integration, full
   - Dependencies: T002, T003, T005, T006
   - Allowed paths: `src/project_board/infrastructure/**`, `src/project_board/repositories/**`, `tests/app/integration/**`
-- [ ] T009: Add import-isolation, N+1 statement-count, and prior-feature regression coverage.
+- [x] T009: Add import-isolation, N+1 statement-count, and prior-feature regression coverage.
   - Requirements: REQ-019, REQ-020, REQ-022, REQ-023
   - Acceptance criteria: AC-014, AC-015, AC-016
   - Validation: unit, app, integration, full

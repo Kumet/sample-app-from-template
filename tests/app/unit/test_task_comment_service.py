@@ -161,13 +161,23 @@ def make_service(
     )
 
 
-def test_importing_comment_service_does_not_load_persistence_implementations() -> None:
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "project_board.application",
+        "project_board.application.task_comment_service",
+    ],
+)
+def test_importing_comment_service_does_not_load_persistence_implementations(
+    module_name: str,
+) -> None:
     repository_root = Path(__file__).resolve().parents[3]
-    script = """
+    script = f"""
+import importlib
 import json
 import sys
 
-import project_board.application.task_comment_service
+importlib.import_module({module_name!r})
 
 watched_modules = (
     "sqlalchemy",
