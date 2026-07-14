@@ -298,6 +298,9 @@ class RecoveryPatchTests(unittest.TestCase):
             "/x.py",
             "*.py",
             ".agent-work/state.json",
+            "nested/.agent-work/state.json",
+            "nested/.agent-worktrees/014-test/file.py",
+            "nested/.agent-worktree-owned",
             "a.py a.py",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):

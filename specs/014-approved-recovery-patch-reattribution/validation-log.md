@@ -44,3 +44,7 @@ review events are intentionally not written back into this file.
   between approval evidence and state mutation. Apply now repeats the complete
   inspection after appending approval evidence and refuses state mutation if any
   binding or digest changed; the new tests prove the state remains byte-identical.
+- Loop 3 — spec-scope review found runtime path-name rejection only covered the
+  repository root. Path validation now rejects `.agent-work`,
+  `.agent-worktrees`, and `.agent-worktree-owned` as components at every depth,
+  with nested-path regressions.

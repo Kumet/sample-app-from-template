@@ -459,7 +459,10 @@ def _normalize_path(path: str) -> str:
     parts = path.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise ValueError("Invalid approved recovery path")
-    if path.startswith((".agent-work/", ".agent-worktrees/")) or path == ".agent-worktree-owned":
+    if any(
+        part in {".agent-work", ".agent-worktrees", ".agent-worktree-owned"}
+        for part in parts
+    ):
         raise ValueError("Runtime paths cannot be approved as recovery paths")
     return path
 
