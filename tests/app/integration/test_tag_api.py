@@ -95,6 +95,7 @@ def test_tag_api_crud_normalizes_public_fields_and_returns_empty_delete(
     assert updated["name"] == "API"
     assert updated["color"] is None
     assert updated["created_at"] == created["created_at"]
+    assert updated["updated_at"] != created["updated_at"]
 
     delete_response = client.delete(f"/api/projects/{project_id}/tags/{created['id']}")
     assert delete_response.status_code == 204

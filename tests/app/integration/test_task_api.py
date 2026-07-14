@@ -296,6 +296,30 @@ def test_task_responses_include_public_tags_in_deterministic_order(
     assert all("normalized_name" not in tag for tag in detail.json()["tags"])
 
 
+def test_untagged_task_responses_always_include_empty_tags(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Untagged"}
+    ).json()
+
+    detail = client.get(f"/api/projects/{project_id}/tasks/{created['id']}")
+    listed = client.get(f"/api/projects/{project_id}/tasks")
+    updated = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}",
+        json={"description": "Still untagged"},
+    )
+
+    assert detail.status_code == 200
+    assert detail.json()["tags"] == []
+    assert listed.status_code == 200
+    assert listed.json()[0]["tags"] == []
+    assert updated.status_code == 200
+    assert updated.json()["tags"] == []
+
+
 def test_task_tag_filter_composes_before_sorting_and_pagination(
     task_api_database: tuple[TestClient, Engine],
 ) -> None:
