@@ -14,7 +14,7 @@ def test_fixed_web_handlers_read_packaged_assets() -> None:
     assert b'href="/static/app.css"' in index.body
     assert b'src="/static/app.js"' in index.body
     assert stylesheet.body
-    assert script.body == b'"use strict";\n'
+    assert script.body.startswith(b'"use strict";\n')
 
     assert index.media_type == "text/html"
     assert stylesheet.media_type == "text/css"

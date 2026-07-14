@@ -21,7 +21,7 @@
   - Validation: unit, app
   - Dependencies: T001
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T003: Implement the safe shared API client, state model, error handling, and request identity controls.
+- [x] T003: Implement the safe shared API client, state model, error handling, and request identity controls.
   - Requirements: REQ-010, REQ-011
   - Acceptance criteria: AC-007, AC-008
   - Validation: unit, app
