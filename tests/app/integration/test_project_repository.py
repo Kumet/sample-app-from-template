@@ -9,15 +9,25 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from project_board.domain import Project, RepositoryError
+from project_board.domain import (
+    Project,
+    ProjectHasTasksConflict,
+    RepositoryError,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 from project_board.infrastructure import (
     create_database_engine,
     create_session_factory,
     initialize_schema,
 )
-from project_board.infrastructure.models import ProjectModel
+from project_board.infrastructure.models import ProjectModel, TaskModel
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
+)
+from project_board.repositories.sqlalchemy_task_repository import (
+    SQLAlchemyTaskRepository,
 )
 
 
@@ -43,6 +53,20 @@ def make_project(*, name: str, created_at: datetime, project_id: int = 0) -> Pro
         description="Description",
         created_at=created_at,
         updated_at=created_at,
+    )
+
+
+def make_task(project_id: int, timestamp: datetime) -> Task:
+    return Task(
+        id=0,
+        project_id=project_id,
+        title="Blocking task",
+        description=None,
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+        created_at=timestamp,
+        updated_at=timestamp,
     )
 
 
@@ -79,6 +103,29 @@ def test_repository_restores_timezone_aware_utc_values(session: Session) -> None
     assert loaded is not None
     assert loaded.created_at.tzinfo is UTC
     assert loaded.updated_at.tzinfo is UTC
+
+
+def test_project_delete_conflict_preserves_records_and_session_is_reusable(
+    session: Session,
+) -> None:
+    projects = SQLAlchemyProjectRepository(session)
+    tasks = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    project = projects.create(make_project(name="Protected", created_at=timestamp))
+    task = tasks.create(make_task(project.id, timestamp))
+
+    with pytest.raises(ProjectHasTasksConflict) as captured:
+        projects.delete(project.id)
+
+    assert captured.value.project_id == project.id
+    assert session.in_transaction() is False
+    assert projects.get(project.id) == project
+    assert tasks.get(project.id, task.id) == task
+
+    assert tasks.delete(project.id, task.id) is True
+    assert projects.delete(project.id) is True
+    assert session.get(ProjectModel, project.id) is None
+    assert session.get(TaskModel, task.id) is None
 
 
 def test_failed_write_rolls_back_and_raises_stable_error(

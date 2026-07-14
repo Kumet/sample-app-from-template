@@ -53,7 +53,7 @@
   - Validation: unit, app, integration
   - Dependencies: T003, T005
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T008: Protect Project deletion with 409 conflict while Tasks exist.
+- [x] T008: Protect Project deletion with 409 conflict while Tasks exist.
   - Requirements: REQ-014, REQ-015, REQ-016, REQ-019, REQ-023
   - Acceptance criteria: AC-016, AC-017, AC-018, AC-021, AC-023
   - Validation: unit, app, integration

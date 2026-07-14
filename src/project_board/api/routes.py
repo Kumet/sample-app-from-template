@@ -19,6 +19,7 @@ from project_board.api.schemas import (
 )
 from project_board.application import UNSET
 from project_board.domain import (
+    ProjectHasTasksConflict,
     ProjectNotFound,
     ProjectValidationError,
     RepositoryError,
@@ -39,6 +40,8 @@ def _call_service(operation: Any, *args: Any, **kwargs: Any) -> Any:
         raise HTTPException(status_code=404, detail="Project not found") from error
     except TaskNotFound as error:
         raise HTTPException(status_code=404, detail="Task not found") from error
+    except ProjectHasTasksConflict as error:
+        raise HTTPException(status_code=409, detail="Project has tasks") from error
     except (ProjectValidationError, TaskValidationError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RepositoryError as error:
