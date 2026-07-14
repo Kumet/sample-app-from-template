@@ -45,8 +45,15 @@ SENSITIVE_FILENAMES = {
     ".pypirc",
     ".git-credentials",
     ".dockerconfigjson",
+    ".htpasswd",
+    ".pgpass",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "authorized_keys",
 }
-SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 
 
 @dataclass(frozen=True)

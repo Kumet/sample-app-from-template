@@ -315,6 +315,16 @@ class RecoveryPatchTests(unittest.TestCase):
             "nested/api-keys/value.txt",
             "nested/api_keys/value.txt",
             "nested/tokens/value.txt",
+            "nested/id_rsa",
+            "nested/ID_DSA",
+            "nested/id_ecdsa",
+            "nested/ID_ED25519",
+            "nested/authorized_keys",
+            "nested/AUTHORIZED_KEYS",
+            "nested/.htpasswd",
+            "nested/.PGPASS",
+            "nested/private.jks",
+            "nested/PRIVATE.KEYSTORE",
             "a.py a.py",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):

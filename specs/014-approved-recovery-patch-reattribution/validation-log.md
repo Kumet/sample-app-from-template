@@ -82,3 +82,7 @@ review events are intentionally not written back into this file.
   status; rejection produces a structured blocker and skips contract, current
   scope, and recovery diff processing. Tests prove only the earlier approved-path
   scope check runs and no sensitive path is exposed in the report.
+- New limited cycle 5 — security review identified extensionless SSH/auth
+  basenames not covered by suffix rules. Case-insensitive path admission now
+  rejects RSA/DSA/ECDSA/Ed25519 private-key names, `authorized_keys`, htpasswd,
+  pgpass, JKS, and keystore files at every depth before content inspection.
