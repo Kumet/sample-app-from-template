@@ -406,6 +406,7 @@ def deliver(
                 ),
             )
             shard_results = []
+            chunk_events = []
 
             def obtain_prepared(shard, prepared):
                 result, stderr, reused = obtain_cached_or_run_prepared_review(
@@ -422,6 +423,12 @@ def deliver(
                     shard=shard,
                 )
                 if reused:
+                    cached = review.reusable_gate_event(
+                        event_store.read(), prepared.identity.digest
+                    )
+                    if cached is None:
+                        raise RuntimeError("Reused review evidence is no longer valid")
+                    chunk_events.append(cached)
                     return result
                 prefix = f"review-{review_budget.used}-{shard}"
                 (evidence / f"{prefix}-prompt-metadata.json").write_text(
@@ -449,14 +456,14 @@ def deliver(
                         "head_sha": head,
                         "shard": shard,
                         "identity_digest": prepared.identity.digest,
-                        "result": result.result,
-                        "findings": [f.__dict__ for f in result.findings],
+                        "identity": prepared.identity.payload(),
+                        **result.evidence_fields(),
                     }
                 )
                 (evidence / f"{prefix}.json").write_text(
                     json.dumps(payload, indent=2) + "\n", encoding="utf-8"
                 )
-                event_store.append(
+                chunk_event = event_store.append(
                     feature=feature_dir.name,
                     repository=str(repo),
                     branch=isolated.branch,
@@ -467,10 +474,10 @@ def deliver(
                     head_sha=head,
                     data={
                         **payload,
-                        "identity": prepared.identity.payload(),
                         "attempt": review_budget.used,
                     },
                 )
+                chunk_events.append(chunk_event)
                 return result
 
             def obtain(shard, context=None):
@@ -485,14 +492,16 @@ def deliver(
                     prepared_items = tuple(
                         review.bind_context(item, context) for item in prepared_items
                     )
+                chunk_start = len(chunk_events)
                 chunk_results = [
                     obtain_prepared(shard, item) for item in prepared_items
                 ]
-                findings = tuple(
-                    finding for item in chunk_results for finding in item.findings
+                shard_chunk_events = chunk_events[chunk_start:]
+                result, aggregate_data = review.aggregate_evidence_fields(
+                    tuple(chunk_results),
+                    tuple(item.identity.digest for item in prepared_items),
+                    tuple(event.sequence for event in shard_chunk_events),
                 )
-                failed = any(finding.required for finding in findings)
-                result = review.ReviewResult("fail" if failed else "pass", findings)
                 event_store.append(
                     feature=feature_dir.name,
                     repository=str(repo),
@@ -505,10 +514,7 @@ def deliver(
                     data={
                         "shard": shard,
                         "aggregate": True,
-                        "chunk_identities": [
-                            item.identity.digest for item in prepared_items
-                        ],
-                        "findings": [f.__dict__ for f in findings],
+                        **aggregate_data,
                     },
                 )
                 return result
@@ -521,6 +527,10 @@ def deliver(
             )
             if any(f.required for f in file_findings):
                 return review.ReviewResult("fail", file_findings)
+            if any(not item.result.gate_passed for item in shard_results):
+                raise RuntimeError(
+                    "Independent review file shard failed without structured findings"
+                )
             integration = obtain(
                 "integration",
                 {
@@ -528,6 +538,7 @@ def deliver(
                         {
                             "shard": item.shard,
                             "result": item.result.result,
+                            "gate_verdict": item.result.gate_verdict,
                             "signature": item.result.signature(),
                         }
                         for item in shard_results
@@ -537,6 +548,10 @@ def deliver(
             shard_results.append(
                 review_shards.ShardResult("integration", head, integration)
             )
+            if not integration.gate_passed and not integration.required_findings:
+                raise RuntimeError(
+                    "Independent integration review failed without structured findings"
+                )
             return review_shards.aggregate(shard_results, head)
 
         def repair_review(findings):
@@ -900,6 +915,13 @@ def _pr_body(
     result_digest = (
         final_binding.validation_result_digest if final_binding else "missing"
     )
+    review_findings = "\n".join(
+        f"- Finding {index}: severity={finding.severity}; "
+        f"required={str(finding.required).lower()}; "
+        f"category={finding.category}; file={finding.file}; "
+        f"description={finding.description}"
+        for index, finding in enumerate(review_result.findings, start=1)
+    ) or "- None"
     return (
         f"## Feature\n\n`{feature}`\n\n## Risk\n\n{assessment.effective}: "
         f"{', '.join(assessment.reasons)}\n\n## Validation\n\n"
@@ -911,7 +933,7 @@ def _pr_body(
         f"Validation result digest: `{result_digest}`. "
         f"Validated HEAD: `{validated_head}`.\n\n"
         f"## Independent review\n\n{review_result.result}; "
-        f"{len(review_result.findings)} findings.\n\n"
+        f"{len(review_result.findings)} findings.\n\n{review_findings}\n\n"
         f"Review identity digest: `{review_identity_digest}`.\n\n"
         f"## Test weakening\n\n{len(weakening_findings)} findings.\n"
     )
@@ -1264,9 +1286,7 @@ def obtain_cached_or_run_prepared_review(
     shard: str,
 ):
     """Reuse one exact PASS or execute the pending prepared reviewer."""
-    cached = review_shards.reusable_event(
-        event_store.read(), prepared.identity.digest
-    )
+    cached = review.reusable_gate_event(event_store.read(), prepared.identity.digest)
     if cached is not None:
         review_shards.record_reuse_decision(
             event_store,
@@ -1279,7 +1299,7 @@ def obtain_cached_or_run_prepared_review(
             shard=shard,
             identity_digest=prepared.identity.digest,
         )
-        return review_shards.result_from_event(cached), "", True
+        return review.result_from_chunk_event(cached, prepared.identity.digest), "", True
     result, stderr = run_prepared_review_with_retries(
         repo,
         prepared,

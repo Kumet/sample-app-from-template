@@ -210,3 +210,19 @@ validation. Review and CI repairs create a new commit, so they repeat final
 validation and weakening inspection before any reviewer is started for the new
 HEAD. Missing or stale weakening evidence stops before consuming the bounded
 review-call budget.
+
+## Review result and gate verdict
+
+New review chunk evidence preserves the reviewer's raw `reviewer_result` and
+records a separate mechanically derived `gate_verdict`. A raw FAIL containing
+only structured `required=false` findings keeps that FAIL and those findings in
+append-only evidence and PR summaries, but its gate verdict may pass. A required
+finding, unexplained FAIL, invalid schema, subprocess failure, incomplete
+identity, or mismatched exact HEAD fails closed.
+
+Shard aggregates bind the complete chunk identity and event-sequence set. The
+pre-push gate checks each chunk's schema, exact identity, finding partition, and
+gate verdict as well as the aggregate. It never trusts aggregate PASS alone.
+Integration still runs only after all file-shard gate verdicts pass. Exact cache
+reuse accepts current canonical gate-PASS chunks and compatible legacy raw PASS
+chunks; legacy raw FAIL chunks must be regenerated.
