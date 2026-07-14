@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local Project Board</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a href="#main-content">Skip to main content</a>
+
+    <header>
+      <h1>Local Project Board</h1>
+      <p>Manage local Projects, Tasks, Tags, Comments, and Activity.</p>
+    </header>
+
+    <div id="global-status" role="status" aria-live="polite" aria-atomic="true">
+      Ready.
+    </div>
+    <div id="global-error" role="alert" aria-live="assertive" aria-atomic="true" hidden></div>
+
+    <nav aria-labelledby="projects-heading">
+      <h2 id="projects-heading">Projects</h2>
+      <button id="new-project-button" type="button" aria-controls="project-create-panel">
+        New Project
+      </button>
+
+      <section id="project-create-panel" aria-labelledby="project-create-heading" hidden>
+        <h3 id="project-create-heading">Create Project</h3>
+        <form id="project-create-form">
+          <div>
+            <label for="project-create-name">Name</label>
+            <input id="project-create-name" name="name" maxlength="100" required>
+          </div>
+          <div>
+            <label for="project-create-description">Description</label>
+            <textarea id="project-create-description" name="description" maxlength="1000"></textarea>
+          </div>
+          <button type="submit">Create Project</button>
+          <button id="cancel-project-create-button" type="button">Cancel</button>
+        </form>
+      </section>
+
+      <p id="projects-loading" role="status" aria-live="polite">Loading Projects…</p>
+      <p id="projects-empty" hidden>No Projects yet. Create one to get started.</p>
+      <p id="projects-error" role="alert" hidden>Projects could not be loaded.</p>
+      <ul id="project-list" aria-label="Available Projects" aria-busy="true"></ul>
+    </nav>
+
+    <main id="main-content" tabindex="-1">
+      <section id="no-project-view" aria-labelledby="no-project-heading">
+        <h2 id="no-project-heading">Select a Project</h2>
+        <p>Choose a Project to view its dashboard and Tasks.</p>
+      </section>
+
+      <div id="project-view" hidden>
+        <section aria-labelledby="selected-project-heading">
+          <h2 id="selected-project-heading">Project details</h2>
+          <p id="selected-project-description"></p>
+          <button id="edit-project-button" type="button" aria-controls="project-edit-panel">
+            Edit Project
+          </button>
+          <button id="delete-project-button" type="button">
+            Delete Project
+          </button>
+
+          <section id="project-edit-panel" aria-labelledby="project-edit-heading" hidden>
+            <h3 id="project-edit-heading">Edit Project</h3>
+            <form id="project-edit-form">
+              <div>
+                <label for="project-edit-name">Name</label>
+                <input id="project-edit-name" name="name" maxlength="100" required>
+              </div>
+              <div>
+                <label for="project-edit-description">Description</label>
+                <textarea id="project-edit-description" name="description" maxlength="1000"></textarea>
+              </div>
+              <button type="submit">Save Project</button>
+              <button id="cancel-project-edit-button" type="button">Cancel</button>
+            </form>
+          </section>
+        </section>
+
+        <section aria-labelledby="dashboard-heading">
+          <h2 id="dashboard-heading">Dashboard</h2>
+          <p id="dashboard-as-of"></p>
+          <p id="dashboard-loading" role="status" aria-live="polite" hidden>Loading dashboard…</p>
+          <p id="dashboard-empty" hidden>No dashboard data is available.</p>
+          <p id="dashboard-error" role="alert" hidden>Dashboard data could not be loaded.</p>
+          <div id="dashboard-content" aria-busy="false"></div>
+        </section>
+
+        <section aria-labelledby="tasks-heading">
+          <h2 id="tasks-heading">Tasks</h2>
+          <button id="new-task-button" type="button" aria-controls="task-create-panel">
+            New Task
+          </button>
+
+          <form id="task-filter-form" role="search" aria-labelledby="task-filter-heading">
+            <h3 id="task-filter-heading">Find Tasks</h3>
+            <div>
+              <label for="task-query">Keywords</label>
+              <input id="task-query" name="q" type="search">
+            </div>
+            <fieldset>
+              <legend>Status</legend>
+              <label><input name="status" type="checkbox" value="todo"> Todo</label>
+              <label><input name="status" type="checkbox" value="in_progress"> Doing</label>
+              <label><input name="status" type="checkbox" value="done"> Done</label>
+            </fieldset>
+            <fieldset>
+              <legend>Priority</legend>
+              <label><input name="priority" type="checkbox" value="low"> Low</label>
+              <label><input name="priority" type="checkbox" value="medium"> Medium</label>
+              <label><input name="priority" type="checkbox" value="high"> High</label>
+            </fieldset>
+            <div>
+              <label for="task-tag-filter">Tag</label>
+              <select id="task-tag-filter" name="tag_id">
+                <option value="">Any Tag</option>
+              </select>
+            </div>
+            <div>
+              <label for="task-due-after">Due on or after</label>
+              <input id="task-due-after" name="due_after" type="datetime-local">
+            </div>
+            <div>
+              <label for="task-due-before">Due on or before</label>
+              <input id="task-due-before" name="due_before" type="datetime-local">
+            </div>
+            <div>
+              <label for="task-sort">Sort by</label>
+              <select id="task-sort" name="sort">
+                <option value="created_at" selected>Created</option>
+                <option value="updated_at">Updated</option>
+                <option value="due_at">Due date</option>
+                <option value="title">Title</option>
+                <option value="status">Status</option>
+                <option value="priority">Priority</option>
+              </select>
+            </div>
+            <div>
+              <label for="task-order">Order</label>
+              <select id="task-order" name="order">
+                <option value="asc" selected>Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+            </div>
+            <button type="submit">Apply filters</button>
+            <button id="reset-task-filters-button" type="reset">Reset filters</button>
+          </form>
+
+          <section id="task-create-panel" aria-labelledby="task-create-heading" hidden>
+            <h3 id="task-create-heading">Create Task</h3>
+            <form id="task-create-form">
+              <div>
+                <label for="task-create-title">Title</label>
+                <input id="task-create-title" name="title" maxlength="200" required>
+              </div>
+              <div>
+                <label for="task-create-description">Description</label>
+                <textarea id="task-create-description" name="description" maxlength="2000"></textarea>
+              </div>
+              <div>
+                <label for="task-create-status">Status</label>
+                <select id="task-create-status" name="status">
+                  <option value="todo" selected>Todo</option>
+                  <option value="in_progress">Doing</option>
+                  <option value="done">Done</option>
+                </select>
+              </div>
+              <div>
+                <label for="task-create-priority">Priority</label>
+                <select id="task-create-priority" name="priority">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              <div>
+                <label for="task-create-due-at">Due date and time</label>
+                <input id="task-create-due-at" name="due_at" type="datetime-local">
+              </div>
+              <button type="submit">Create Task</button>
+              <button id="cancel-task-create-button" type="button">Cancel</button>
+            </form>
+          </section>
+
+          <p id="tasks-loading" role="status" aria-live="polite" hidden>Loading Tasks…</p>
+          <p id="tasks-empty" hidden>No Tasks match the current filters.</p>
+          <p id="tasks-error" role="alert" hidden>Tasks could not be loaded.</p>
+          <ol id="task-list" aria-label="Tasks" aria-busy="false"></ol>
+          <nav aria-label="Task pages">
+            <button id="previous-tasks-button" type="button">Previous Tasks</button>
+            <span id="task-page-status" role="status" aria-live="polite"></span>
+            <button id="next-tasks-button" type="button">Next Tasks</button>
+          </nav>
+        </section>
+
+        <section id="task-detail" aria-labelledby="task-detail-heading" hidden>
+          <h2 id="task-detail-heading">Task details</h2>
+          <p id="task-detail-loading" role="status" aria-live="polite" hidden>Loading Task…</p>
+          <p id="task-detail-error" role="alert" hidden>Task details could not be loaded.</p>
+          <div id="task-detail-content"></div>
+
+          <form id="task-edit-form" aria-labelledby="task-edit-heading">
+            <h3 id="task-edit-heading">Edit Task</h3>
+            <div>
+              <label for="task-edit-title">Title</label>
+              <input id="task-edit-title" name="title" maxlength="200" required>
+            </div>
+            <div>
+              <label for="task-edit-description">Description</label>
+              <textarea id="task-edit-description" name="description" maxlength="2000"></textarea>
+            </div>
+            <div>
+              <label for="task-edit-status">Status</label>
+              <select id="task-edit-status" name="status">
+                <option value="todo">Todo</option>
+                <option value="in_progress">Doing</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div>
+              <label for="task-edit-priority">Priority</label>
+              <select id="task-edit-priority" name="priority">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div>
+              <label for="task-edit-due-at">Due date and time</label>
+              <input id="task-edit-due-at" name="due_at" type="datetime-local">
+            </div>
+            <button type="submit">Save Task</button>
+            <button id="delete-task-button" type="button">Delete Task</button>
+          </form>
+
+          <section aria-labelledby="task-tags-heading">
+            <h3 id="task-tags-heading">Task Tags</h3>
+            <ul id="task-tag-list"></ul>
+            <p id="task-tags-empty" hidden>This Task has no Tags.</p>
+            <form id="task-tag-attach-form">
+              <label for="task-tag-select">Tag to attach</label>
+              <select id="task-tag-select" name="tag_id"></select>
+              <button type="submit">Attach Tag</button>
+            </form>
+          </section>
+
+          <section aria-labelledby="comments-heading">
+            <h3 id="comments-heading">Comments</h3>
+            <form id="comment-create-form">
+              <label for="comment-create-body">New Comment</label>
+              <textarea id="comment-create-body" name="body" maxlength="2000" required></textarea>
+              <button type="submit">Add Comment</button>
+            </form>
+            <p id="comments-loading" role="status" aria-live="polite" hidden>Loading Comments…</p>
+            <p id="comments-empty" hidden>No Comments yet.</p>
+            <p id="comments-error" role="alert" hidden>Comments could not be loaded.</p>
+            <ol id="comment-list"></ol>
+            <nav aria-label="Comment pages">
+              <button id="previous-comments-button" type="button">Previous Comments</button>
+              <span id="comment-page-status" role="status" aria-live="polite"></span>
+              <button id="next-comments-button" type="button">Next Comments</button>
+            </nav>
+          </section>
+
+          <section aria-labelledby="activity-heading">
+            <h3 id="activity-heading">Activity</h3>
+            <p id="activity-loading" role="status" aria-live="polite" hidden>Loading Activity…</p>
+            <p id="activity-empty" hidden>No Activity yet.</p>
+            <p id="activity-error" role="alert" hidden>Activity could not be loaded.</p>
+            <ol id="activity-list"></ol>
+            <nav aria-label="Activity pages">
+              <button id="previous-activity-button" type="button">Previous Activity</button>
+              <span id="activity-page-status" role="status" aria-live="polite"></span>
+              <button id="next-activity-button" type="button">Next Activity</button>
+            </nav>
+          </section>
+        </section>
+
+        <section aria-labelledby="tags-heading">
+          <h2 id="tags-heading">Project Tags</h2>
+          <form id="tag-create-form">
+            <div>
+              <label for="tag-create-name">Tag name</label>
+              <input id="tag-create-name" name="name" maxlength="50" required>
+            </div>
+            <div>
+              <label for="tag-create-color">Color</label>
+              <input id="tag-create-color" name="color" type="text" aria-describedby="tag-color-help">
+              <p id="tag-color-help">Optional validated color value.</p>
+            </div>
+            <button type="submit">Create Tag</button>
+          </form>
+          <p id="tags-loading" role="status" aria-live="polite" hidden>Loading Tags…</p>
+          <p id="tags-empty" hidden>No Tags yet.</p>
+          <p id="tags-error" role="alert" hidden>Tags could not be loaded.</p>
+          <ul id="tag-list"></ul>
+        </section>
+      </div>
+    </main>
+
+    <dialog id="destructive-confirmation-dialog" aria-labelledby="confirmation-heading" aria-describedby="confirmation-message">
+      <h2 id="confirmation-heading">Confirm deletion</h2>
+      <p id="confirmation-message">This action cannot be undone.</p>
+      <form method="dialog">
+        <button type="submit" value="cancel">Cancel</button>
+        <button id="confirm-delete-button" type="submit" value="confirm">Delete</button>
+      </form>
+    </dialog>
+  </body>
+</html>
