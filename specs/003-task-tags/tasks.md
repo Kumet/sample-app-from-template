@@ -11,7 +11,7 @@
 
 ## Tasks
 
-- [ ] T001: Implement Tag domain rules, errors, and repository interface.
+- [x] T001: Implement Tag domain rules, errors, and repository interface.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-022
   - Acceptance criteria: AC-001, AC-002, AC-018
   - Validation: unit, app
