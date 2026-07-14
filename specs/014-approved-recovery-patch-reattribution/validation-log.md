@@ -16,8 +16,8 @@ review events are intentionally not written back into this file.
 
 - 2026-07-14 — Feature 014 spec-lint passed with no errors or warnings.
 - 2026-07-14 — Python compilation passed for all framework modules.
-- 2026-07-14 — Targeted recovery-patch suite passed: 12 tests.
-- 2026-07-14 — Full framework test suite passed: 127 tests.
+- 2026-07-14 — Targeted recovery-patch suite passed: 13 tests.
+- 2026-07-14 — Full framework test suite passed: 128 tests.
 - 2026-07-14 — `make validate` passed: quality policy, secret filename check,
   lint/typecheck adapters, and all framework tests.
 - 2026-07-14 — Scope audit passed for 9 approved paths; `git diff --check`
@@ -71,3 +71,8 @@ review events are intentionally not written back into this file.
   proves both direct digest and full inspection reject it before recovery Git
   diff, sensitive-path `lstat`, or sensitive-path `open`; production code was
   unchanged.
+- New limited cycle 3 — spec-scope review found a partial-state window when the
+  applied-event append fails after state persistence. Apply now restores the
+  saved state through the atomic state API on that failure, retains the first
+  approval as unapplied audit history, and permits a later formal retry to bind
+  a new approval and applied event.

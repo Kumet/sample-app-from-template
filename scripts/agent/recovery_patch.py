@@ -154,21 +154,25 @@ def apply(
         recovery_diff_digest=inspection.diff_digest,
     )
     write_state(state_path, updated)
-    applied = events.append(
-        feature=feature_dir.name,
-        repository=str(repo),
-        branch=inspection.branch,
-        worktree=inspection.worktree,
-        phase="approval",
-        kind="recovery-patch-applied",
-        result="PASS",
-        head_sha=inspection.current_head,
-        detail="Approved recovery patch re-attributed to failed state",
-        data={
-            **data,
-            "approval_event_sequence": approval.sequence,
-        },
-    )
+    try:
+        applied = events.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=inspection.branch,
+            worktree=inspection.worktree,
+            phase="approval",
+            kind="recovery-patch-applied",
+            result="PASS",
+            head_sha=inspection.current_head,
+            detail="Approved recovery patch re-attributed to failed state",
+            data={
+                **data,
+                "approval_event_sequence": approval.sequence,
+            },
+        )
+    except Exception:
+        write_state(state_path, saved)
+        raise
     result = inspection.payload()
     result.update(
         {

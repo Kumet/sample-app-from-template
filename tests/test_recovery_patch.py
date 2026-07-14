@@ -411,6 +411,57 @@ class RecoveryPatchTests(unittest.TestCase):
             [("recovery-patch-approved", "PASS")],
         )
 
+    def test_applied_event_failure_restores_state_and_allows_formal_retry(self):
+        self._add_recovery()
+        original_state = self.state_path.read_bytes()
+        original_append = EventStore.append
+        calls = 0
+
+        def fail_applied(store, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected applied event failure")
+            return original_append(store, **kwargs)
+
+        with mock.patch.object(EventStore, "append", new=fail_applied):
+            with self.assertRaisesRegex(OSError, "injected applied event failure"):
+                recovery_patch.apply(
+                    self.repo,
+                    self.feature_dir,
+                    self.config,
+                    ("recovery.py",),
+                    "Human approved format-only recovery",
+                )
+
+        self.assertEqual(self.state_path.read_bytes(), original_state)
+        events = EventStore(self.state_path.with_name("events.jsonl")).read()
+        self.assertEqual(
+            [(event.kind, event.result) for event in events],
+            [("recovery-patch-approved", "PASS")],
+        )
+
+        result = recovery_patch.apply(
+            self.repo,
+            self.feature_dir,
+            self.config,
+            ("recovery.py",),
+            "Retry the formally approved recovery",
+        )
+        self.assertEqual(result["approval_event_sequence"], 2)
+        self.assertEqual(result["applied_event_sequence"], 3)
+        retried = state.read_state(self.state_path)
+        self.assertEqual(retried.recovery_event_sequence, 2)
+        events = EventStore(self.state_path.with_name("events.jsonl")).read()
+        self.assertEqual(
+            [(event.kind, event.result) for event in events],
+            [
+                ("recovery-patch-approved", "PASS"),
+                ("recovery-patch-approved", "PASS"),
+                ("recovery-patch-applied", "PASS"),
+            ],
+        )
+
     def test_missing_or_tampered_evidence_fails_closed(self):
         self._add_recovery()
         recovery_patch.apply(
