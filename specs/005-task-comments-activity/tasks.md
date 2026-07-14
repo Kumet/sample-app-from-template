@@ -33,7 +33,7 @@
   - Validation: unit, app
   - Dependencies: T001, T003
   - Allowed paths: `src/project_board/application/**`, `src/project_board/domain/**`, `tests/app/unit/**`
-- [ ] T005: Add Comment request/response schemas, dependency wiring, and CRUD API routes.
+- [x] T005: Add Comment request/response schemas, dependency wiring, and CRUD API routes.
   - Requirements: REQ-002, REQ-009, REQ-010, REQ-011, REQ-013, REQ-021
   - Acceptance criteria: AC-004, AC-005, AC-006, AC-008
   - Validation: app, integration

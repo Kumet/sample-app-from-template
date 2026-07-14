@@ -7,10 +7,14 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 from project_board.api.dependencies import (
     ProjectServiceDependency,
     TagServiceDependency,
+    TaskCommentServiceDependency,
     TaskServiceDependency,
 )
 from project_board.api.schemas import (
     AwareUtcDatetime,
+    CommentCreate,
+    CommentResponse,
+    CommentUpdate,
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
@@ -30,12 +34,19 @@ from project_board.domain import (
     RepositoryError,
     TagNotFound,
     TagValidationError,
+    TaskCommentNotFound,
+    TaskCommentValidationError,
     TaskNotFound,
     TaskPriority,
     TaskStatus,
     TaskValidationError,
 )
-from project_board.repositories import SortOrder, TaskListQuery, TaskSort
+from project_board.repositories import (
+    CommentListQuery,
+    SortOrder,
+    TaskListQuery,
+    TaskSort,
+)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -47,6 +58,8 @@ def _call_service(operation: Any, *args: Any, **kwargs: Any) -> Any:
         raise HTTPException(status_code=404, detail="Project not found") from error
     except TaskNotFound as error:
         raise HTTPException(status_code=404, detail="Task not found") from error
+    except TaskCommentNotFound as error:
+        raise HTTPException(status_code=404, detail="Comment not found") from error
     except TagNotFound as error:
         raise HTTPException(status_code=404, detail="Tag not found") from error
     except ProjectHasTasksConflict as error:
@@ -55,7 +68,12 @@ def _call_service(operation: Any, *args: Any, **kwargs: Any) -> Any:
         raise HTTPException(
             status_code=409, detail="Tag name already exists"
         ) from error
-    except (ProjectValidationError, TagValidationError, TaskValidationError) as error:
+    except (
+        ProjectValidationError,
+        TagValidationError,
+        TaskCommentValidationError,
+        TaskValidationError,
+    ) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RepositoryError as error:
         raise HTTPException(
@@ -267,6 +285,87 @@ def delete_task(
     service: TaskServiceDependency,
 ) -> Response:
     _call_service(service.delete_task, project_id, task_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{project_id}/tasks/{task_id}/comments",
+    response_model=CommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_comment(
+    project_id: int,
+    task_id: int,
+    payload: Annotated[CommentCreate, Body()],
+    service: TaskCommentServiceDependency,
+) -> object:
+    return _call_service(service.create_comment, project_id, task_id, payload.body)
+
+
+@router.get(
+    "/{project_id}/tasks/{task_id}/comments",
+    response_model=list[CommentResponse],
+)
+def list_comments(
+    project_id: int,
+    task_id: int,
+    service: TaskCommentServiceDependency,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    order: SortOrder = SortOrder.ASC,
+) -> object:
+    return _call_service(
+        service.list_comments,
+        project_id,
+        task_id,
+        CommentListQuery(limit=limit, offset=offset, order=order),
+    )
+
+
+@router.get(
+    "/{project_id}/tasks/{task_id}/comments/{comment_id}",
+    response_model=CommentResponse,
+)
+def get_comment(
+    project_id: int,
+    task_id: int,
+    comment_id: int,
+    service: TaskCommentServiceDependency,
+) -> object:
+    return _call_service(service.get_comment, project_id, task_id, comment_id)
+
+
+@router.patch(
+    "/{project_id}/tasks/{task_id}/comments/{comment_id}",
+    response_model=CommentResponse,
+)
+def update_comment(
+    project_id: int,
+    task_id: int,
+    comment_id: int,
+    payload: Annotated[CommentUpdate, Body()],
+    service: TaskCommentServiceDependency,
+) -> object:
+    return _call_service(
+        service.update_comment,
+        project_id,
+        task_id,
+        comment_id,
+        body=payload.body,
+    )
+
+
+@router.delete(
+    "/{project_id}/tasks/{task_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_comment(
+    project_id: int,
+    task_id: int,
+    comment_id: int,
+    service: TaskCommentServiceDependency,
+) -> Response:
+    _call_service(service.delete_comment, project_id, task_id, comment_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
