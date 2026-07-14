@@ -21,7 +21,7 @@
   - Validation: integration, full
   - Dependencies: T001
   - Allowed paths: `src/project_board/infrastructure/**`, `tests/app/integration/**`
-- [ ] T003: Implement transactional Comment mutation and append-only Activity persistence.
+- [x] T003: Implement transactional Comment mutation and append-only Activity persistence.
   - Requirements: REQ-004, REQ-014, REQ-015, REQ-016, REQ-017, REQ-021
   - Acceptance criteria: AC-009, AC-010, AC-011
   - Validation: unit, integration, full
