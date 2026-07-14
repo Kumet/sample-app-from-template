@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -150,6 +151,132 @@ def test_task_detail_hides_cross_project_ownership(
     assert missing_task.json() == {"detail": "Task not found"}
     assert mismatched.status_code == 404
     assert mismatched.json() == {"detail": "Task not found"}
+
+
+def test_task_list_filters_strict_due_bounds_paginates_and_isolates_projects(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client, "Listed")
+    other_project_id = create_project(client, "Other")
+    base = datetime(2026, 7, 14, tzinfo=UTC)
+
+    for title, task_status, priority, due_at in (
+        ("Before", "in_progress", "high", base + timedelta(days=1)),
+        ("Boundary", "in_progress", "high", base + timedelta(days=2)),
+        ("After", "done", "low", base + timedelta(days=3)),
+    ):
+        response = client.post(
+            f"/api/projects/{project_id}/tasks",
+            json={
+                "title": title,
+                "status": task_status,
+                "priority": priority,
+                "due_at": due_at.isoformat(),
+            },
+        )
+        assert response.status_code == 201
+    client.post(
+        f"/api/projects/{other_project_id}/tasks", json={"title": "Not visible"}
+    )
+
+    filtered = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={
+            "status": "in_progress",
+            "priority": "high",
+            "due_after": base.isoformat(),
+            "due_before": (base + timedelta(days=2)).isoformat(),
+        },
+    )
+    paged = client.get(
+        f"/api/projects/{project_id}/tasks", params={"limit": 1, "offset": 1}
+    )
+
+    assert filtered.status_code == 200
+    assert [task["title"] for task in filtered.json()] == ["Before"]
+    assert [task["title"] for task in paged.json()] == ["Boundary"]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_titles"),
+    [
+        ({"sort": "due_at", "order": "asc"}, ["High", "Low", "No due"]),
+        ({"sort": "due_at", "order": "desc"}, ["Low", "High", "No due"]),
+        ({"sort": "priority", "order": "asc"}, ["Low", "No due", "High"]),
+        ({"sort": "priority", "order": "desc"}, ["High", "No due", "Low"]),
+    ],
+)
+def test_task_list_deterministic_due_and_semantic_priority_sorting(
+    task_api_database: tuple[TestClient, Engine],
+    params: dict[str, str],
+    expected_titles: list[str],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    base = datetime(2026, 7, 14, tzinfo=UTC)
+    for title, priority, due_at in (
+        ("Low", "low", base + timedelta(days=2)),
+        ("High", "high", base + timedelta(days=1)),
+        ("No due", "medium", None),
+    ):
+        response = client.post(
+            f"/api/projects/{project_id}/tasks",
+            json={
+                "title": title,
+                "priority": priority,
+                "due_at": None if due_at is None else due_at.isoformat(),
+            },
+        )
+        assert response.status_code == 201
+
+    response = client.get(f"/api/projects/{project_id}/tasks", params=params)
+
+    assert response.status_code == 200
+    assert [task["title"] for task in response.json()] == expected_titles
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"status": "doing"},
+        {"priority": "urgent"},
+        {"due_before": "2026-07-14T00:00:00"},
+        {"due_after": "2026-07-14T00:00:00"},
+        {"limit": "0"},
+        {"limit": "101"},
+        {"offset": "-1"},
+        {"sort": "title"},
+        {"order": "sideways"},
+    ],
+)
+def test_task_list_rejects_invalid_query_values(
+    task_api_database: tuple[TestClient, Engine], params: dict[str, str]
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+
+    response = client.get(f"/api/projects/{project_id}/tasks", params=params)
+
+    assert response.status_code == 422
+
+
+def test_task_list_returns_missing_project_and_repository_errors_safely(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = task_api_database
+    missing = client.get("/api/projects/999/tasks")
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Project not found"}
+
+    project_id = create_project(client)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE tasks"))
+
+    failed = client.get(f"/api/projects/{project_id}/tasks")
+    assert failed.status_code == 500
+    assert failed.json() == {"detail": "An unexpected persistence error occurred"}
+    assert "sqlite" not in failed.text.lower()
 
 
 def test_task_repository_failure_response_is_generic_and_sanitized(

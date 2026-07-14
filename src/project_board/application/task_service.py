@@ -14,7 +14,7 @@ from project_board.domain import (
     TaskValidationError,
 )
 from project_board.repositories.project_repository import ProjectRepository
-from project_board.repositories.task_repository import TaskRepository
+from project_board.repositories.task_repository import TaskListQuery, TaskRepository
 
 
 def _utc_now() -> datetime:
@@ -65,6 +65,10 @@ class TaskService:
         if task is None:
             raise TaskNotFound(project_id, task_id)
         return task
+
+    def list_tasks(self, project_id: int, query: TaskListQuery) -> list[Task]:
+        self._require_project(project_id)
+        return self._tasks.list(project_id, query)
 
     def update_task(
         self,

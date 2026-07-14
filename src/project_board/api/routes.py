@@ -1,8 +1,9 @@
 """FastAPI routes and sanitized error mapping for Project and Task CRUD."""
 
+from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, HTTPException, Response, status
+from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 
 from project_board.api.dependencies import (
     ProjectServiceDependency,
@@ -22,8 +23,11 @@ from project_board.domain import (
     ProjectValidationError,
     RepositoryError,
     TaskNotFound,
+    TaskPriority,
+    TaskStatus,
     TaskValidationError,
 )
+from project_board.repositories import SortOrder, TaskListQuery, TaskSort
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -78,6 +82,36 @@ def create_task(
         payload.status,
         payload.priority,
         payload.due_at,
+    )
+
+
+@router.get("/{project_id}/tasks", response_model=list[TaskResponse])
+def list_tasks(
+    project_id: int,
+    service: TaskServiceDependency,
+    status_filter: Annotated[TaskStatus | None, Query(alias="status")] = None,
+    priority: TaskPriority | None = None,
+    due_before: datetime | None = None,
+    due_after: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    sort: TaskSort = TaskSort.CREATED_AT,
+    order: SortOrder = SortOrder.ASC,
+) -> object:
+    return _call_service(
+        lambda: service.list_tasks(
+            project_id,
+            TaskListQuery(
+                status=status_filter,
+                priority=priority,
+                due_before=due_before,
+                due_after=due_after,
+                limit=limit,
+                offset=offset,
+                sort=sort,
+                order=order,
+            ),
+        )
     )
 
 

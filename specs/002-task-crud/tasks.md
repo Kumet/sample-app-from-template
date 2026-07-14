@@ -47,7 +47,7 @@
   - Validation: app, integration
   - Dependencies: T004, T005
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `tests/app/unit/**`, `tests/app/integration/**`
-- [ ] T007: Implement Task list filters, pagination, and deterministic sorting.
+- [x] T007: Implement Task list filters, pagination, and deterministic sorting.
   - Requirements: REQ-004, REQ-010, REQ-011, REQ-012, REQ-013, REQ-022, REQ-023
   - Acceptance criteria: AC-008, AC-013, AC-014, AC-015, AC-023
   - Validation: unit, app, integration

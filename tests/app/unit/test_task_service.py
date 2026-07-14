@@ -70,6 +70,7 @@ class StubTaskRepository:
         self.created: Task | None = None
         self.updated: Task | None = None
         self.deleted_key: tuple[int, int] | None = None
+        self.listed_query: tuple[int, TaskListQuery] | None = None
 
     def create(self, task: Task) -> Task:
         self.created = task
@@ -78,7 +79,12 @@ class StubTaskRepository:
         return persisted
 
     def list(self, project_id: int, query: TaskListQuery) -> list[Task]:
-        raise NotImplementedError
+        self.listed_query = (project_id, query)
+        return [
+            task
+            for (owned_project_id, _), task in self.tasks.items()
+            if owned_project_id == project_id
+        ]
 
     def get(self, project_id: int, task_id: int) -> Task | None:
         return self.tasks.get((project_id, task_id))
@@ -199,6 +205,22 @@ def test_get_task_distinguishes_missing_project_from_missing_owned_task() -> Non
 
     with pytest.raises(TaskNotFound):
         make_service(repository).get_task(1, 4)
+
+
+def test_list_tasks_requires_project_and_delegates_query() -> None:
+    owned = make_task(4)
+    repository = StubTaskRepository([owned, make_task(5, project_id=2)])
+    query = TaskListQuery(status=TaskStatus.TODO, limit=10, offset=2)
+
+    assert make_service(repository).list_tasks(1, query) == [owned]
+    assert repository.listed_query == (1, query)
+
+    missing_project_repository = StubTaskRepository([owned])
+    with pytest.raises(ProjectNotFound):
+        make_service(
+            missing_project_repository, StubProjectRepository()
+        ).list_tasks(1, query)
+    assert missing_project_repository.listed_query is None
 
 
 def test_update_task_changes_only_supplied_fields() -> None:
