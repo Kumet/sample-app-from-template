@@ -217,9 +217,9 @@ def test_list_tasks_requires_project_and_delegates_query() -> None:
 
     missing_project_repository = StubTaskRepository([owned])
     with pytest.raises(ProjectNotFound):
-        make_service(
-            missing_project_repository, StubProjectRepository()
-        ).list_tasks(1, query)
+        make_service(missing_project_repository, StubProjectRepository()).list_tasks(
+            1, query
+        )
     assert missing_project_repository.listed_query is None
 
 
@@ -247,9 +247,7 @@ def test_update_task_changes_only_supplied_fields() -> None:
 def test_update_task_explicit_null_clears_nullable_fields() -> None:
     repository = StubTaskRepository([make_task(3)])
 
-    updated = make_service(repository).update_task(
-        1, 3, description=None, due_at=None
-    )
+    updated = make_service(repository).update_task(1, 3, description=None, due_at=None)
 
     assert updated.description is None
     assert updated.due_at is None

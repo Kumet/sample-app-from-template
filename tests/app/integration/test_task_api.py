@@ -98,13 +98,19 @@ def test_task_create_accepts_optional_values_and_normalizes_due_at(
     "payload",
     [
         {},
+        {"title": None},
         {"title": "  "},
         {"title": "x" * 201},
         {"title": "Task", "description": "x" * 2001},
+        {"title": "Task", "status": None},
         {"title": "Task", "status": "doing"},
+        {"title": "Task", "priority": None},
         {"title": "Task", "priority": "urgent"},
         {"title": "Task", "due_at": "2026-07-31T00:00:00"},
+        {"title": "Task", "id": 999},
         {"title": "Task", "project_id": 999},
+        {"title": "Task", "created_at": "2026-01-01T00:00:00Z"},
+        {"title": "Task", "updated_at": "2026-01-01T00:00:00Z"},
     ],
 )
 def test_task_create_rejects_invalid_payloads(
@@ -445,6 +451,46 @@ def test_task_delete_removes_only_selected_task_and_returns_empty_204(
         client.get(f"/api/projects/{project_id}/tasks/{remaining['id']}").status_code
         == 200
     )
+
+
+def test_complete_task_lifecycle_remains_isolated_between_projects(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    owner_id = create_project(client, "Owner")
+    other_id = create_project(client, "Other")
+
+    created_response = client.post(
+        f"/api/projects/{owner_id}/tasks",
+        json={"title": "Lifecycle", "priority": "high"},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+
+    detail = client.get(f"/api/projects/{owner_id}/tasks/{created['id']}")
+    assert detail.status_code == 200
+    assert detail.json() == created
+
+    updated_response = client.patch(
+        f"/api/projects/{owner_id}/tasks/{created['id']}",
+        json={"title": "Completed", "status": "done"},
+    )
+    assert updated_response.status_code == 200
+    updated = updated_response.json()
+    assert updated["title"] == "Completed"
+    assert updated["status"] == "done"
+
+    owner_list = client.get(f"/api/projects/{owner_id}/tasks")
+    other_list = client.get(f"/api/projects/{other_id}/tasks")
+    assert owner_list.status_code == 200
+    assert owner_list.json() == [updated]
+    assert other_list.status_code == 200
+    assert other_list.json() == []
+
+    deleted = client.delete(f"/api/projects/{owner_id}/tasks/{created['id']}")
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+    assert client.get(f"/api/projects/{owner_id}/tasks").json() == []
 
 
 @pytest.mark.parametrize("method", ["patch", "delete"])

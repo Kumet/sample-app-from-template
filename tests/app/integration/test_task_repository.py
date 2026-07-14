@@ -275,12 +275,82 @@ def test_data_persists_after_engine_restart(database_url: str) -> None:
     second_engine = create_database_engine(database_url)
     try:
         with create_session_factory(second_engine)() as second_session:
+            loaded_project = SQLAlchemyProjectRepository(second_session).get(project.id)
             loaded = SQLAlchemyTaskRepository(second_session).get(
                 project.id, created.id
             )
+        assert loaded_project == project
         assert loaded == created
     finally:
         second_engine.dispose()
+
+
+def test_list_defaults_to_50_and_accepts_100_record_boundary(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    session.add_all(
+        [
+            TaskModel(
+                project_id=project.id,
+                title=f"Task {index:03d}",
+                description=None,
+                status=TaskStatus.TODO.value,
+                priority=TaskPriority.MEDIUM.value,
+                due_at=None,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            for index in range(101)
+        ]
+    )
+    session.commit()
+
+    default_page = repository.list(project.id, TaskListQuery())
+    maximum_page = repository.list(project.id, TaskListQuery(limit=100))
+    final_page = repository.list(project.id, TaskListQuery(limit=100, offset=100))
+
+    assert len(default_page) == 50
+    assert len(maximum_page) == 100
+    assert len(final_page) == 1
+    assert [task.id for task in maximum_page] == sorted(
+        task.id for task in maximum_page
+    )
+
+
+def test_list_loads_tasks_with_one_bounded_select(
+    session: Session, isolated_engine: Engine
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    for title in ("First", "Second", "Third"):
+        repository.create(make_task(project.id, title, timestamp))
+
+    selects: list[str] = []
+
+    def record_select(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(isolated_engine, "before_cursor_execute", record_select)
+    try:
+        tasks = repository.list(project.id, TaskListQuery(limit=3))
+        assert [task.title for task in tasks] == ["First", "Second", "Third"]
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_select)
+
+    assert len(selects) == 1
+    assert " LIMIT " in selects[0].upper()
 
 
 def test_failed_create_rolls_back_and_same_session_remains_reusable(

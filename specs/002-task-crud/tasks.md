@@ -59,7 +59,7 @@
   - Validation: unit, app, integration
   - Dependencies: T002, T003, T004
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T009: Complete domain, service, repository, API, rollback, import-isolation, persistence, and regression tests.
+- [x] T009: Complete domain, service, repository, API, rollback, import-isolation, persistence, and regression tests.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, REQ-019, REQ-020, REQ-022, REQ-023, REQ-024
   - Acceptance criteria: AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-007, AC-008, AC-009, AC-010, AC-011, AC-012, AC-013, AC-014, AC-015, AC-016, AC-017, AC-018, AC-019, AC-020, AC-021, AC-022, AC-023, AC-024
   - Validation: unit, app, integration, full
