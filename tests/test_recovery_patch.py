@@ -6,8 +6,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -342,6 +344,37 @@ class RecoveryPatchTests(unittest.TestCase):
         self.state_path.write_text(json.dumps(raw_state), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Invalid recovery event sequence"):
             state.read_state(self.state_path)
+
+    def test_reason_is_redacted_and_active_evidence_rechecks_worktree(self):
+        self._add_recovery()
+        recovery_patch.apply(
+            self.repo,
+            self.feature_dir,
+            self.config,
+            ("recovery.py",),
+            "format recovery token=supersecretvalue",
+        )
+        events = EventStore(self.state_path.with_name("events.jsonl")).read()
+        self.assertIn("token=[REDACTED]", events[0].detail)
+        self.assertNotIn("supersecretvalue", events[0].detail)
+
+        saved = state.read_state(self.state_path)
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        tampered = replace(saved, worktree=str(outside))
+        with mock.patch.object(recovery_patch, "diff_digest") as digest:
+            blockers = recovery_patch.verify_active_evidence(
+                self.repo,
+                self.feature_dir,
+                tampered,
+                tampered.branch,
+                tampered.head_commit,
+                list(tampered.changed_paths),
+            )
+        self.assertEqual(
+            blockers, ("active recovery evidence names an invalid worktree",)
+        )
+        digest.assert_not_called()
 
 
 if __name__ == "__main__":

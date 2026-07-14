@@ -168,6 +168,14 @@ def resume(repo: Path, feature: str) -> int:
     path = repo / ".agent-work" / feature_dir.name / "state.json"
     state = read_state(path)
     work_repo = Path(state.worktree)
+    expected_worktree = repo / ".agent-worktrees" / feature_dir.name
+    if (
+        work_repo != expected_worktree.absolute()
+        or not worktree_module.owns_registered_worktree(
+            repo, expected_worktree, feature_dir.name
+        )
+    ):
+        raise ValueError("Cannot resume: saved worktree ownership is invalid")
     work_feature = resolve_feature(work_repo, feature_dir.name)
     verify_resume(
         state,

@@ -16,8 +16,8 @@ review events are intentionally not written back into this file.
 
 - 2026-07-14 — Feature 014 spec-lint passed with no errors or warnings.
 - 2026-07-14 — Python compilation passed for all framework modules.
-- 2026-07-14 — Targeted recovery-patch suite passed: 7 tests.
-- 2026-07-14 — Full framework test suite passed: 122 tests.
+- 2026-07-14 — Targeted recovery-patch suite passed: 8 tests.
+- 2026-07-14 — Full framework test suite passed: 123 tests.
 - 2026-07-14 — `make validate` passed: quality policy, secret filename check,
   lint/typecheck adapters, and all framework tests.
 - 2026-07-14 — Scope audit passed for 9 approved paths; `git diff --check`
@@ -34,4 +34,8 @@ review events are intentionally not written back into this file.
 
 ## Review remediation loops
 
-- None.
+- Loop 1 — security review required explicit approval-reason redaction at the
+  recovery boundary and independent ownership validation before active evidence
+  reads the saved worktree. Added defense-in-depth redaction, exact registered
+  worktree/marker revalidation in both active evidence and `work-resume`, and a
+  regression proving a tampered state path is rejected before diff inspection.

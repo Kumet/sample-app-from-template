@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import git_utils, validation, worktree
 from .events import Event, EventStore
+from .evidence import redact
 from .parser import WorkConfig, resolve_feature
 from .state import RunState, contract_digest, read_state, write_state
 
@@ -112,7 +113,7 @@ def apply(
         kind="recovery-patch-approved",
         result="PASS",
         head_sha=inspection.current_head,
-        detail=reason,
+        detail=redact(reason, MAX_REASON_LENGTH),
         data=data,
     )
     updated = replace(
@@ -314,6 +315,22 @@ def verify_active_evidence(
     if saved.recovery_event_sequence is None or not saved.recovery_diff_digest:
         return ("saved recovery evidence binding is incomplete",)
     blockers: list[str] = []
+    expected_worktree = repo / ".agent-worktrees" / feature_dir.name
+    try:
+        saved_worktree = Path(saved.worktree)
+        worktree_valid = (
+            saved_worktree.is_absolute()
+            and saved_worktree == expected_worktree.absolute()
+            and saved_worktree.exists()
+            and saved_worktree.resolve() == expected_worktree.resolve()
+            and worktree.owns_registered_worktree(
+                repo, expected_worktree, feature_dir.name
+            )
+        )
+    except (OSError, RuntimeError):
+        worktree_valid = False
+    if not worktree_valid:
+        return ("active recovery evidence names an invalid worktree",)
     events = EventStore(
         repo / ".agent-work" / feature_dir.name / "events.jsonl"
     ).read()
@@ -340,7 +357,7 @@ def verify_active_evidence(
     if current_branch != saved.branch or current_head != saved.head_commit:
         blockers.append("recovery branch or HEAD binding changed")
     try:
-        current_digest = diff_digest(Path(saved.worktree), expected_paths)
+        current_digest = diff_digest(expected_worktree, expected_paths)
     except (OSError, ValueError, git_utils.GitError):
         current_digest = ""
     if current_digest != saved.recovery_diff_digest:
