@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.engine import Engine
 
 from project_board.infrastructure import (
@@ -262,7 +262,7 @@ def test_task_list_normalizes_aware_due_filters_to_utc(
 def test_task_responses_include_public_tags_in_deterministic_order(
     task_api_database: tuple[TestClient, Engine],
 ) -> None:
-    client, _ = task_api_database
+    client, engine = task_api_database
     project_id = create_project(client)
     task = client.post(
         f"/api/projects/{project_id}/tasks", json={"title": "Tagged"}
@@ -280,12 +280,28 @@ def test_task_responses_include_public_tags_in_deterministic_order(
         )
         assert response.status_code == 204
 
-    detail = client.get(f"/api/projects/{project_id}/tasks/{task['id']}")
-    listed = client.get(f"/api/projects/{project_id}/tasks")
-    updated = client.patch(
-        f"/api/projects/{project_id}/tasks/{task['id']}",
-        json={"title": "Updated"},
-    )
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        detail = client.get(f"/api/projects/{project_id}/tasks/{task['id']}")
+        listed = client.get(f"/api/projects/{project_id}/tasks")
+        updated = client.patch(
+            f"/api/projects/{project_id}/tasks/{task['id']}",
+            json={"title": "Updated"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
 
     assert detail.status_code == listed.status_code == updated.status_code == 200
     expected_tags = [alpha, zebra]
@@ -294,6 +310,14 @@ def test_task_responses_include_public_tags_in_deterministic_order(
     assert updated.json()["tags"] == expected_tags
     assert zebra["color"] == "#ABCDEF"
     assert all("normalized_name" not in tag for tag in detail.json()["tags"])
+    # Project-local normalized names are unique, so equal primary keys cannot be
+    # created through the API. The executed bulk-load query must nevertheless use
+    # the ID as its deterministic secondary key.
+    assert any(
+        "order by task_tags.task_id asc, tags.normalized_name asc, tags.id asc"
+        in statement
+        for statement in statements
+    )
 
 
 def test_untagged_task_responses_always_include_empty_tags(

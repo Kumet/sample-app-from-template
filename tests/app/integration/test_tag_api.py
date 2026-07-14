@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -109,17 +109,56 @@ def test_tag_api_crud_normalizes_public_fields_and_returns_empty_delete(
 def test_tag_list_uses_deterministic_normalized_name_order(
     tag_api_database: tuple[TestClient, Engine],
 ) -> None:
-    client, _ = tag_api_database
+    client, engine = tag_api_database
     project_id = create_project(client)
     create_tag(client, project_id, "zebra")
     api = create_tag(client, project_id, "API")
     create_tag(client, project_id, "backend")
 
-    response = client.get(f"/api/projects/{project_id}/tags")
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        response = client.get(f"/api/projects/{project_id}/tags")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
 
     assert response.status_code == 200
     assert [tag["name"] for tag in response.json()] == ["API", "backend", "zebra"]
     assert response.json()[0] == api
+    # Project-local normalized names are unique, so a valid data set cannot contain
+    # a primary-key tie. Inspect the executed query to prove the required defensive
+    # ID tie-breaker is still present.
+    assert any(
+        "order by tags.normalized_name asc, tags.id asc" in statement
+        for statement in statements
+    )
+
+
+def test_tag_create_accepts_trimmed_50_character_name_boundary(
+    tag_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = tag_api_database
+    project_id = create_project(client)
+    boundary_name = "x" * 50
+
+    response = client.post(
+        f"/api/projects/{project_id}/tags",
+        json={"name": f"  {boundary_name}  "},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["name"] == boundary_name
 
 
 @pytest.mark.parametrize(
