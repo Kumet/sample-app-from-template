@@ -51,3 +51,6 @@
 - Project deletion changes from unconditional physical deletion to a 409 guard
   when Tasks exist and therefore requires high-risk review.
 | 1 | T001 | PASS | task validation passed |
+| 1 | T002 | FAIL | class=integration-test strategy=codex-repair full exited 2: make[1]: *** [format-check] Error 1 |
+| 2 | T002 | FAIL | class=integration-test strategy=codex-repair full exited 2: make[1]: *** [format-check] Error 1 |
+| 1 | T002 | PASS | task validation passed |

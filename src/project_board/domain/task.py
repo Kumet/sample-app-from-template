@@ -46,8 +46,7 @@ def _normalize_description(description: str | None) -> str | None:
         return None
     if len(normalized) > MAX_TASK_DESCRIPTION_LENGTH:
         raise TaskValidationError(
-            "Task description must be at most "
-            f"{MAX_TASK_DESCRIPTION_LENGTH} characters"
+            f"Task description must be at most {MAX_TASK_DESCRIPTION_LENGTH} characters"
         )
     return normalized
 

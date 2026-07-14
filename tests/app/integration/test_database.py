@@ -35,6 +35,7 @@ def test_schema_initialization_is_explicit(isolated_engine: Engine) -> None:
         assert inspect(isolated_engine).get_table_names() == [
             "projects",
             "schema_probe",
+            "tasks",
         ]
     finally:
         Base.metadata.remove(table)
@@ -75,7 +76,7 @@ finally:
         text=True,
     )
 
-    assert result.stdout.splitlines() == ["projects"]
+    assert result.stdout.splitlines() == ["projects", "tasks"]
 
 
 def test_session_factory_uses_only_its_configured_database(tmp_path: Path) -> None:

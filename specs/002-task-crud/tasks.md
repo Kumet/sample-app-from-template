@@ -17,7 +17,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/project_repository.py`, `src/project_board/repositories/task_repository.py`, `tests/app/unit/**`
-- [ ] T002: Add Task SQLAlchemy mapping, schema registration, foreign-key enforcement, and indexes.
+- [x] T002: Add Task SQLAlchemy mapping, schema registration, foreign-key enforcement, and indexes.
   - Requirements: REQ-001, REQ-015, REQ-020, REQ-021
   - Acceptance criteria: AC-001, AC-002, AC-017
   - Validation: integration, full

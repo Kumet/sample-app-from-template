@@ -81,9 +81,7 @@ def test_task_accepts_every_status(status: str, expected: TaskStatus) -> None:
     ("priority", "expected"),
     [(value.value, value) for value in TaskPriority],
 )
-def test_task_accepts_every_priority(
-    priority: str, expected: TaskPriority
-) -> None:
+def test_task_accepts_every_priority(priority: str, expected: TaskPriority) -> None:
     assert make_task(priority=priority).priority is expected
 
 
