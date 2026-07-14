@@ -103,6 +103,17 @@ policy explicitly enable it. Medium risk stops at a PR and high risk stops
 before push. Use `work-resume` only when saved branch, HEAD, contract digest,
 and changed paths still match.
 
+If a human-approved recovery edit adds paths to an existing failed worktree,
+do not edit `state.json` or `events.jsonl`. Run
+`make approve-recovery-patch-dry-run FEATURE=<feature> PATHS='<explicit paths>'
+REASON='<approval>'`, inspect the bindings, then run the corresponding
+`approve-recovery-patch` target. The command accepts only newly added explicit
+paths with an unchanged HEAD. It verifies registered ownership, branch,
+contract, scope, the complete changed-path set, and a canonical digest covering
+working-tree contents and index state. Approval and application are recorded as
+append-only events. Delivery recomputes the active digest and fails closed after
+any post-approval change.
+
 ### Create a spec
 
 ```text

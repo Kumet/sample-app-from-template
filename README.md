@@ -271,6 +271,30 @@ ready-for-review PR, high risk normally stops before push, and low risk can
 merge only when both the feature contract and repository policy explicitly
 allow it. The framework never pushes directly to `main` or `master`.
 
+人間が確認したrecovery-only差分によって、failed stateに保存された変更パスが
+増えた場合は、stateやeventを手編集せず、追加パスを明示して再帰属します。
+
+```bash
+make approve-recovery-patch-dry-run \
+  FEATURE=123-feature-name \
+  PATHS='path/to/recovered-file.ext path/to/recovery-test.ext' \
+  REASON='Human-approved format-only recovery'
+
+make approve-recovery-patch \
+  FEATURE=123-feature-name \
+  PATHS='path/to/recovered-file.ext path/to/recovery-test.ext' \
+  REASON='Human-approved format-only recovery'
+
+make deliver-dry-run FEATURE=123-feature-name
+make deliver FEATURE=123-feature-name
+```
+
+`PATHS` はglobsではなく、停止後に新たに変更された明示的な相対パスだけを
+指定します。承認時はHEADを変更しないでください。ownership、branch、HEAD、
+contract、scope、全変更パス、working treeとindexを含むdiff digestが一致した
+場合だけstateを更新します。承認後に内容やindexだけが変わった場合もdeliveryは
+停止します。
+
 Recovery and cleanup commands are available for framework-owned worktrees:
 
 ```bash

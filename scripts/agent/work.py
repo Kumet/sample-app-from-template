@@ -18,6 +18,7 @@ if __package__ in {None, ""}:
         git_utils,
         qualification,
         recovery,
+        recovery_patch,
         validation,
     )
     from agent import (
@@ -78,6 +79,7 @@ else:
         git_utils,
         qualification,
         recovery,
+        recovery_patch,
         validation,
     )
     from . import (
@@ -166,6 +168,14 @@ def resume(repo: Path, feature: str) -> int:
     path = repo / ".agent-work" / feature_dir.name / "state.json"
     state = read_state(path)
     work_repo = Path(state.worktree)
+    expected_worktree = repo / ".agent-worktrees" / feature_dir.name
+    if (
+        work_repo != expected_worktree.absolute()
+        or not worktree_module.owns_registered_worktree(
+            repo, expected_worktree, feature_dir.name
+        )
+    ):
+        raise ValueError("Cannot resume: saved worktree ownership is invalid")
     work_feature = resolve_feature(work_repo, feature_dir.name)
     verify_resume(
         state,
@@ -174,6 +184,19 @@ def resume(repo: Path, feature: str) -> int:
         contract_digest(work_feature),
         git_utils.changed_paths(work_repo),
     )
+    recovery_blockers = recovery_patch.verify_active_evidence(
+        repo,
+        feature_dir,
+        state,
+        git_utils.branch(work_repo),
+        git_utils.run_git(work_repo, ["rev-parse", "HEAD"]).stdout.strip(),
+        git_utils.changed_paths_read_only(work_repo),
+    )
+    if recovery_blockers:
+        raise ValueError(
+            "Cannot resume: invalid recovery evidence: "
+            + "; ".join(recovery_blockers)
+        )
     return work(work_repo, feature, resume_mode=True, state_root=repo)
 
 
@@ -686,6 +709,8 @@ def main(argv: list[str] | None = None) -> int:
             "approve-scope-dry-run",
             "request-scope",
             "request-scope-dry-run",
+            "approve-recovery-patch",
+            "approve-recovery-patch-dry-run",
             "migrate-contract",
             "migrate-contract-dry-run",
             "queue-add",
@@ -701,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--feature")
     parser.add_argument("--stack")
     parser.add_argument("--path")
+    parser.add_argument("--paths")
     parser.add_argument("--reason")
     args = parser.parse_args(argv)
     repo = repository_root()
@@ -721,6 +747,8 @@ def main(argv: list[str] | None = None) -> int:
                 "approve-scope-dry-run",
                 "request-scope",
                 "request-scope-dry-run",
+                "approve-recovery-patch",
+                "approve-recovery-patch-dry-run",
                 "migrate-contract",
                 "migrate-contract-dry-run",
                 "queue-add",
@@ -815,6 +843,25 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(
                     function(feature_dir, args.path, args.reason, store, state_path),
                     indent=2,
+                )
+            )
+            return 0
+        if args.command in {
+            "approve-recovery-patch",
+            "approve-recovery-patch-dry-run",
+        }:
+            if not args.paths or not args.reason:
+                parser.error("--paths and --reason are required")
+            feature_dir, config, _ = feature_context(repo, args.feature)
+            paths = recovery_patch.parse_approved_paths(args.paths)
+            function = (
+                recovery_patch.preview
+                if args.command.endswith("dry-run")
+                else recovery_patch.apply
+            )
+            print(
+                json.dumps(
+                    function(repo, feature_dir, config, paths, args.reason), indent=2
                 )
             )
             return 0
