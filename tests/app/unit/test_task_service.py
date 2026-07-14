@@ -304,6 +304,22 @@ def test_list_tasks_requires_project_and_delegates_query() -> None:
     assert missing_project_repository.listed_query is None
 
 
+def test_list_tasks_checks_project_before_tag_or_task_repositories() -> None:
+    repository = StubTaskRepository([make_task(4)])
+    tags = StubTagRepository([make_tag(7)])
+
+    with pytest.raises(ProjectNotFound) as captured:
+        make_service(
+            repository,
+            projects=StubProjectRepository(),
+            tags=tags,
+        ).list_tasks(1, TaskListQuery(tag_id=7))
+
+    assert captured.value.project_id == 1
+    assert tags.requested_key is None
+    assert repository.listed_query is None
+
+
 def test_list_tasks_validates_owned_tag_before_delegating_filter() -> None:
     owned = make_task(4)
     repository = StubTaskRepository([owned])

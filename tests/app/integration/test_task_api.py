@@ -407,6 +407,128 @@ def test_task_tag_filter_composes_before_sorting_and_pagination(
     assert missing.json() == mismatched.json() == {"detail": "Tag not found"}
 
 
+def test_task_list_composes_all_filters_without_cross_project_disclosure(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client, "Composed")
+    other_project_id = create_project(client, "Private")
+    tag = client.post(
+        f"/api/projects/{project_id}/tags", json={"name": "Selected"}
+    ).json()
+    foreign_tag = client.post(
+        f"/api/projects/{other_project_id}/tags", json={"name": "Private"}
+    ).json()
+    lower = datetime(2026, 7, 14, tzinfo=UTC)
+    upper = lower + timedelta(days=3)
+
+    candidates = (
+        ("Needle alpha", None, "todo", "low", lower + timedelta(days=1), True),
+        (
+            "Beta",
+            "contains NEEDLE",
+            "done",
+            "high",
+            lower + timedelta(days=2),
+            True,
+        ),
+        ("No match", None, "todo", "low", lower + timedelta(days=1), True),
+        ("Needle status", None, "in_progress", "low", lower + timedelta(days=1), True),
+        ("Needle priority", None, "todo", "medium", lower + timedelta(days=1), True),
+        ("Needle lower", None, "todo", "low", lower, True),
+        ("Needle upper", None, "todo", "low", upper, True),
+        ("Needle untagged", None, "todo", "low", lower + timedelta(days=1), False),
+    )
+    for title, description, status, priority, due_at, tagged in candidates:
+        task = client.post(
+            f"/api/projects/{project_id}/tasks",
+            json={
+                "title": title,
+                "description": description,
+                "status": status,
+                "priority": priority,
+                "due_at": due_at.isoformat(),
+            },
+        ).json()
+        if tagged:
+            response = client.put(
+                f"/api/projects/{project_id}/tasks/{task['id']}/tags/{tag['id']}"
+            )
+            assert response.status_code == 204
+
+    foreign_task = client.post(
+        f"/api/projects/{other_project_id}/tasks",
+        json={
+            "title": "Needle private",
+            "status": "todo",
+            "priority": "low",
+            "due_at": (lower + timedelta(days=1)).isoformat(),
+        },
+    ).json()
+    assert (
+        client.put(
+            f"/api/projects/{other_project_id}/tasks/{foreign_task['id']}/tags/"
+            f"{foreign_tag['id']}"
+        ).status_code
+        == 204
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params=[
+            ("q", "  needle  "),
+            ("status", "todo"),
+            ("status", "done"),
+            ("priority", "low"),
+            ("priority", "high"),
+            ("tag_id", str(tag["id"])),
+            ("due_after", lower.isoformat()),
+            ("due_before", upper.isoformat()),
+            ("sort", "title"),
+            ("order", "asc"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert [task["title"] for task in response.json()] == ["Beta", "Needle alpha"]
+    assert all(task["project_id"] == project_id for task in response.json())
+    assert all(task["tags"] == [tag] for task in response.json())
+    assert foreign_task["id"] not in {task["id"] for task in response.json()}
+
+
+def test_task_list_project_and_tag_404s_do_not_disclose_foreign_data(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client, "Visible")
+    other_project_id = create_project(client, "Private")
+    foreign_tag = client.post(
+        f"/api/projects/{other_project_id}/tags", json={"name": "Secret tag"}
+    ).json()
+    foreign_task = client.post(
+        f"/api/projects/{other_project_id}/tasks",
+        json={"title": "Secret task", "description": "private details"},
+    ).json()
+
+    missing_project = client.get(
+        "/api/projects/999999/tasks",
+        params={"tag_id": foreign_tag["id"], "q": "' OR 1=1 --"},
+    )
+    foreign_tag_response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"tag_id": foreign_tag["id"], "q": "' OR 1=1 --"},
+    )
+
+    assert missing_project.status_code == 404
+    assert missing_project.json() == {"detail": "Project not found"}
+    assert foreign_tag_response.status_code == 404
+    assert foreign_tag_response.json() == {"detail": "Tag not found"}
+    combined_body = missing_project.text + foreign_tag_response.text
+    assert foreign_task["title"] not in combined_body
+    assert foreign_task["description"] not in combined_body
+    assert foreign_tag["name"] not in combined_body
+
+
 @pytest.mark.parametrize(
     ("params", "expected_titles"),
     [

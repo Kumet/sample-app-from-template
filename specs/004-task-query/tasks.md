@@ -33,7 +33,7 @@
   - Validation: app, integration
   - Dependencies: T003
   - Allowed paths: `src/project_board/repositories/**`, `src/project_board/api/**`, `tests/app/**`
-- [ ] T005: Prove Project/Tag isolation and complete filter composition regressions.
+- [x] T005: Prove Project/Tag isolation and complete filter composition regressions.
   - Requirements: REQ-007, REQ-008, REQ-011, REQ-012, REQ-016
   - Acceptance criteria: AC-006, AC-009, AC-014
   - Validation: app, integration
