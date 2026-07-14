@@ -1,15 +1,19 @@
 """Transactional SQLAlchemy implementation of Task persistence."""
 
+from __future__ import annotations
+
+import builtins
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 
-from sqlalchemy import case, select
+from sqlalchemy import and_, case, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from project_board.domain import RepositoryError, Task, TaskPriority, TaskStatus
-from project_board.infrastructure.models import TaskModel
+from project_board.domain import RepositoryError, Tag, Task, TaskPriority, TaskStatus
+from project_board.infrastructure.models import TagModel, TaskModel, TaskTagModel
 from project_board.repositories.task_repository import (
     SortOrder,
     TaskListQuery,
@@ -28,7 +32,18 @@ def _optional_as_utc(value: datetime | None) -> datetime | None:
     return None if value is None else _as_utc(value)
 
 
-def _to_domain(model: TaskModel) -> Task:
+def _to_tag(model: TagModel) -> Tag:
+    return Tag(
+        id=model.id,
+        project_id=model.project_id,
+        name=model.name,
+        color=model.color,
+        created_at=_as_utc(model.created_at),
+        updated_at=_as_utc(model.updated_at),
+    )
+
+
+def _to_domain(model: TaskModel, tags: tuple[Tag, ...] = ()) -> Task:
     return Task(
         id=model.id,
         project_id=model.project_id,
@@ -39,6 +54,7 @@ def _to_domain(model: TaskModel) -> Task:
         due_at=_optional_as_utc(model.due_at),
         created_at=_as_utc(model.created_at),
         updated_at=_as_utc(model.updated_at),
+        tags=tags,
     )
 
 
@@ -73,6 +89,17 @@ class SQLAlchemyTaskRepository:
             statement = statement.where(TaskModel.due_at < query.due_before)
         if query.due_after is not None:
             statement = statement.where(TaskModel.due_at > query.due_after)
+        if query.tag_id is not None:
+            has_tag = (
+                select(TaskTagModel.task_id)
+                .where(
+                    TaskTagModel.project_id == project_id,
+                    TaskTagModel.task_id == TaskModel.id,
+                    TaskTagModel.tag_id == query.tag_id,
+                )
+                .exists()
+            )
+            statement = statement.where(has_tag)
 
         primary_sort: ColumnElement[Any]
         if query.sort is TaskSort.PRIORITY:
@@ -106,7 +133,7 @@ class SQLAlchemyTaskRepository:
             models = self._session.scalars(statement).all()
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
-        return [_to_domain(model) for model in models]
+        return self._to_domains(models)
 
     def get(self, project_id: int, task_id: int) -> Task | None:
         statement = select(TaskModel).where(
@@ -117,7 +144,7 @@ class SQLAlchemyTaskRepository:
             model = self._session.scalar(statement)
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
-        return None if model is None else _to_domain(model)
+        return None if model is None else self._to_domains([model])[0]
 
     def update(self, task: Task) -> Task | None:
         statement = select(TaskModel).where(
@@ -137,7 +164,7 @@ class SQLAlchemyTaskRepository:
             self._session.commit()
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
-        return _to_domain(model)
+        return self._to_domains([model])[0]
 
     def delete(self, project_id: int, task_id: int) -> bool:
         statement = select(TaskModel).where(
@@ -159,6 +186,48 @@ class SQLAlchemyTaskRepository:
             self._session.commit()
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
+
+    def _to_domains(self, models: Sequence[TaskModel]) -> builtins.list[Task]:
+        if not models:
+            return []
+        tags_by_task_id = self._load_tags(
+            models[0].project_id, [model.id for model in models]
+        )
+        return [
+            _to_domain(model, tags_by_task_id.get(model.id, ())) for model in models
+        ]
+
+    def _load_tags(
+        self, project_id: int, task_ids: Sequence[int]
+    ) -> dict[int, tuple[Tag, ...]]:
+        statement = (
+            select(TaskTagModel.task_id, TagModel)
+            .join(
+                TagModel,
+                and_(
+                    TagModel.project_id == TaskTagModel.project_id,
+                    TagModel.id == TaskTagModel.tag_id,
+                ),
+            )
+            .where(
+                TaskTagModel.project_id == project_id,
+                TaskTagModel.task_id.in_(task_ids),
+            )
+            .order_by(
+                TaskTagModel.task_id.asc(),
+                TagModel.normalized_name.asc(),
+                TagModel.id.asc(),
+            )
+        )
+        try:
+            rows = self._session.execute(statement).all()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
+
+        grouped: dict[int, builtins.list[Tag]] = {}
+        for task_id, model in rows:
+            grouped.setdefault(task_id, []).append(_to_tag(model))
+        return {task_id: tuple(tags) for task_id, tags in grouped.items()}
 
     def _rollback_and_raise(self, error: SQLAlchemyError) -> NoReturn:
         self._session.rollback()

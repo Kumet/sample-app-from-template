@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.errors import TaskValidationError
+from project_board.domain.tag import Tag
 
 MAX_TASK_TITLE_LENGTH = 200
 MAX_TASK_DESCRIPTION_LENGTH = 2000
@@ -93,6 +94,7 @@ class Task:
     due_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    tags: tuple[Tag, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "title", _normalize_title(self.title))
@@ -110,3 +112,4 @@ class Task:
         object.__setattr__(
             self, "updated_at", _normalize_datetime(self.updated_at, "updated_at")
         )
+        object.__setattr__(self, "tags", tuple(self.tags))

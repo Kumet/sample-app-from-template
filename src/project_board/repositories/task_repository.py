@@ -34,6 +34,7 @@ class TaskListQuery:
     priority: TaskPriority | None = None
     due_before: datetime | None = None
     due_after: datetime | None = None
+    tag_id: int | None = None
     limit: int = 50
     offset: int = 0
     sort: TaskSort = TaskSort.CREATED_AT
@@ -44,6 +45,8 @@ class TaskListQuery:
             raise TaskValidationError("Task list limit must be between 1 and 100")
         if self.offset < 0:
             raise TaskValidationError("Task list offset must be at least 0")
+        if self.tag_id is not None and self.tag_id <= 0:
+            raise TaskValidationError("Task list tag_id must be a positive integer")
 
         for field_name in ("due_before", "due_after"):
             value = getattr(self, field_name)

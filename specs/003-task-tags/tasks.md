@@ -29,7 +29,7 @@
   - Validation: unit, integration, full
   - Dependencies: T001, T002
   - Allowed paths: `src/project_board/repositories/**`, `src/project_board/infrastructure/**`, `tests/app/**`
-- [ ] T004: Extend Task persistence with bulk Tag loading and `tag_id` filtering.
+- [x] T004: Extend Task persistence with bulk Tag loading and `tag_id` filtering.
   - Requirements: REQ-012, REQ-013, REQ-014, REQ-024
   - Acceptance criteria: AC-009, AC-010, AC-011, AC-019
   - Validation: unit, integration, full
