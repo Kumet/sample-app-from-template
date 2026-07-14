@@ -51,7 +51,7 @@
   - Validation: unit, app, integration, full
   - Dependencies: T002, T004, T005, T006
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `tests/app/**`
-- [ ] T008: Finalize documentation, full validation, evidence, and review readiness.
+- [x] T008: Finalize documentation, full validation, evidence, and review readiness.
   - Requirements: REQ-017, REQ-018
   - Acceptance criteria: AC-013, AC-014, AC-015, AC-016
   - Validation: full
