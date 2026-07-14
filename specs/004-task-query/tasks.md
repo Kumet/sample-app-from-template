@@ -39,7 +39,7 @@
   - Validation: app, integration
   - Dependencies: T003, T004
   - Allowed paths: `src/project_board/application/**`, `src/project_board/api/**`, `tests/app/**`
-- [ ] T006: Add query-count, DB-side execution, and import-isolation regressions.
+- [x] T006: Add query-count, DB-side execution, and import-isolation regressions.
   - Requirements: REQ-013, REQ-014, REQ-015, REQ-016, REQ-017
   - Acceptance criteria: AC-010, AC-011, AC-012, AC-013
   - Validation: unit, integration, full

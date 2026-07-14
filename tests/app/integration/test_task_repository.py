@@ -669,15 +669,16 @@ def test_list_defaults_to_50_and_accepts_100_record_boundary(
     )
 
 
-def test_list_bulk_loads_tags_with_two_bounded_selects(
-    session: Session, isolated_engine: Engine
+@pytest.mark.parametrize("task_count", [1, 25])
+def test_list_bulk_loads_tags_with_constant_statement_count(
+    session: Session, isolated_engine: Engine, task_count: int
 ) -> None:
     project = create_project(session)
     repository = SQLAlchemyTaskRepository(session)
     timestamp = datetime(2026, 7, 14, tzinfo=UTC)
     tasks = [
-        repository.create(make_task(project.id, title, timestamp))
-        for title in ("First", "Second", "Third")
+        repository.create(make_task(project.id, f"Task {index:02d}", timestamp))
+        for index in range(task_count)
     ]
     first_tag = create_tag(session, project.id, "Alpha")
     second_tag = create_tag(session, project.id, "Beta")
@@ -700,8 +701,10 @@ def test_list_bulk_loads_tags_with_two_bounded_selects(
 
     event.listen(isolated_engine, "before_cursor_execute", record_select)
     try:
-        tasks = repository.list(project.id, TaskListQuery(limit=3))
-        assert [task.title for task in tasks] == ["First", "Second", "Third"]
+        tasks = repository.list(project.id, TaskListQuery(limit=task_count))
+        assert [task.title for task in tasks] == [
+            f"Task {index:02d}" for index in range(task_count)
+        ]
         assert all(
             [tag.id for tag in task.tags] == [first_tag.id, second_tag.id]
             for task in tasks
@@ -713,6 +716,94 @@ def test_list_bulk_loads_tags_with_two_bounded_selects(
     assert " LIMIT " in selects[0].upper()
     assert "TASK_TAGS" in selects[1].upper()
     assert " IN " in selects[1].upper()
+
+
+def test_list_executes_filter_sort_and_pagination_in_database(
+    session: Session, isolated_engine: Engine
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    base = datetime(2026, 7, 14, tzinfo=UTC)
+    selected = [
+        repository.create(
+            make_task(
+                project.id,
+                title,
+                base + timedelta(seconds=index),
+                description="selected literal % value",
+                status=TaskStatus.TODO,
+                priority=TaskPriority.HIGH,
+                due_at=base + timedelta(days=index + 1),
+            )
+        )
+        for index, title in enumerate(("Selected Alpha", "Selected Zebra"))
+    ]
+    repository.create(
+        make_task(
+            project.id,
+            "Selected wrong status",
+            base + timedelta(seconds=2),
+            status=TaskStatus.DONE,
+            priority=TaskPriority.HIGH,
+            due_at=base + timedelta(days=2),
+        )
+    )
+    tag = create_tag(session, project.id, "Database filter")
+    for task in selected:
+        associate(session, project.id, task.id, tag.id)
+
+    executed: list[tuple[str, object]] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        executed.append((statement, parameters))
+
+    event.listen(isolated_engine, "before_cursor_execute", record_statement)
+    try:
+        tasks = repository.list(
+            project.id,
+            TaskListQuery(
+                q="selected literal %",
+                statuses=(TaskStatus.TODO,),
+                priorities=(TaskPriority.HIGH,),
+                tag_id=tag.id,
+                due_after=base,
+                due_before=base + timedelta(days=3),
+                sort=TaskSort.TITLE,
+                order=SortOrder.DESC,
+                limit=1,
+                offset=1,
+            ),
+        )
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_statement)
+
+    assert [task.id for task in tasks] == [selected[0].id]
+    assert len(executed) == 2
+    task_statement, parameters = executed[0]
+    normalized_statement = " ".join(task_statement.upper().split())
+    assert "FROM TASKS" in normalized_statement
+    assert "WHERE TASKS.PROJECT_ID = ?" in normalized_statement
+    assert "LOWER(TASKS.TITLE) LIKE LOWER(?) ESCAPE" in normalized_statement
+    assert "TASKS.STATUS IN" in normalized_statement
+    assert "TASKS.PRIORITY IN" in normalized_statement
+    assert "TASKS.DUE_AT > ?" in normalized_statement
+    assert "TASKS.DUE_AT < ?" in normalized_statement
+    assert "EXISTS (SELECT TASK_TAGS.TASK_ID" in normalized_statement
+    assert "ORDER BY LOWER(TASKS.TITLE) DESC, TASKS.ID ASC" in normalized_statement
+    assert "LIMIT ? OFFSET ?" in normalized_statement
+    assert "selected literal" not in task_statement
+    assert r"%selected literal \%%" in parameters
+    assert all(
+        statement.lstrip().upper().startswith("SELECT")
+        for statement, _parameters in executed
+    )
 
 
 def test_failed_create_rolls_back_and_same_session_remains_reusable(

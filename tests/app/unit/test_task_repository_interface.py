@@ -147,82 +147,37 @@ def test_task_list_query_accepts_positive_tag_id() -> None:
     assert TaskListQuery(tag_id=7).tag_id == 7
 
 
-def test_importing_repository_package_does_not_load_concrete_infrastructure() -> None:
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "project_board.domain",
+        "project_board.repositories",
+        "project_board.repositories.task_repository",
+        "project_board.application",
+        "project_board.application.task_service",
+    ],
+)
+def test_boundary_imports_do_not_load_concrete_infrastructure(
+    module_name: str,
+) -> None:
     repository_root = Path(__file__).resolve().parents[3]
-    script = """
+    script = f"""
+import importlib
 import json
 import sys
 
-import project_board.repositories
+importlib.import_module({module_name!r})
 
-watched_modules = (
+forbidden_prefixes = (
     "sqlalchemy",
-    "project_board.repositories.sqlalchemy_project_repository",
-    "project_board.repositories.sqlalchemy_task_repository",
-    "project_board.infrastructure.database",
-    "project_board.infrastructure.models",
+    "project_board.infrastructure",
+    "project_board.repositories.sqlalchemy_",
 )
-print(json.dumps([name for name in watched_modules if name in sys.modules]))
-"""
-
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        check=True,
-        capture_output=True,
-        cwd=repository_root,
-        env={"PYTHONPATH": str(repository_root / "src")},
-        text=True,
-    )
-
-    assert json.loads(completed.stdout) == []
-
-
-def test_importing_domain_package_does_not_load_concrete_infrastructure() -> None:
-    repository_root = Path(__file__).resolve().parents[3]
-    script = """
-import json
-import sys
-
-import project_board.domain
-
-watched_modules = (
-    "sqlalchemy",
-    "project_board.repositories.sqlalchemy_project_repository",
-    "project_board.repositories.sqlalchemy_task_repository",
-    "project_board.infrastructure.database",
-    "project_board.infrastructure.models",
-)
-print(json.dumps([name for name in watched_modules if name in sys.modules]))
-"""
-
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        check=True,
-        capture_output=True,
-        cwd=repository_root,
-        env={"PYTHONPATH": str(repository_root / "src")},
-        text=True,
-    )
-
-    assert json.loads(completed.stdout) == []
-
-
-def test_importing_application_package_does_not_load_concrete_infrastructure() -> None:
-    repository_root = Path(__file__).resolve().parents[3]
-    script = """
-import json
-import sys
-
-import project_board.application
-
-watched_modules = (
-    "sqlalchemy",
-    "project_board.repositories.sqlalchemy_project_repository",
-    "project_board.repositories.sqlalchemy_task_repository",
-    "project_board.infrastructure.database",
-    "project_board.infrastructure.models",
-)
-print(json.dumps([name for name in watched_modules if name in sys.modules]))
+print(json.dumps(sorted(
+    name
+    for name in sys.modules
+    if any(name.startswith(prefix) for prefix in forbidden_prefixes)
+)))
 """
 
     completed = subprocess.run(
