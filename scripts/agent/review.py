@@ -18,7 +18,7 @@ from .weakening import Finding
 MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
-REVIEW_PROMPT_VERSION = "3"
+REVIEW_PROMPT_VERSION = "4"
 REVIEW_MODEL = "gpt-5.4-mini"
 REVIEW_IDENTITY_SCHEMA_VERSION = "4"
 REVIEW_IDENTITY_FIELDS = (
@@ -531,25 +531,34 @@ def _review_guidance(focus: str) -> str:
         "spec-scope": (
             "Check only specification compliance, approved scope, traceability, "
             "and whether the supplied evidence is attributable to this HEAD. "
+            "Low-confidence test-weakening review candidates belong only to the "
+            "tests shard and are not findings for this shard. "
             "This read-only shard intentionally receives the complete approved "
             "feature diff; overlap with focused shards is not an execution or "
             "data-authorization boundary."
         ),
         "security": (
             "Check only security, privacy, secret exposure, process isolation, "
-            "redaction, and fail-closed approval behavior."
+            "redaction, and fail-closed approval behavior. Do not report a "
+            "low-confidence test-weakening review candidate solely because it "
+            "appears in runtime evidence."
         ),
         "tests": (
             "Check only test strength, missing required cases, test weakening, "
-            "and whether assertions prove the stated behavior."
+            "and whether assertions prove the stated behavior. Weakening review "
+            "candidates are hypotheses: corroborate them against the current diff "
+            "and report only a concrete loss of verification strength."
         ),
         "maintainability": (
             "Check only maintainability, bounded complexity, diagnostics, "
-            "documentation, and operational recovery behavior."
+            "documentation, and operational recovery behavior. Low-confidence "
+            "test-weakening review candidates belong only to the tests shard."
         ),
         "integration": (
             "Check only cross-file integration, ordering, identity/SHA consistency, "
-            "and end-to-end gate composition."
+            "and end-to-end gate composition. You may verify weakening evidence "
+            "composition and attribution, but a review candidate alone is not an "
+            "established weakening finding."
         ),
     }
     return guidance.get(name, "Check only the named review focus.")
@@ -647,7 +656,11 @@ def prepare_reviews(
 def render_runtime_evidence(events, head_sha: str) -> str:
     data_allowlist = {
         "validation": {"command_identity", "result_digest"},
-        "weakening": {"findings"},
+        "weakening": {
+            "mechanical_verdict",
+            "blocking_findings",
+            "review_candidates",
+        },
         "tracked-evidence-snapshot": {
             "log_path",
             "log_blob_sha",
@@ -679,11 +692,16 @@ def render_runtime_evidence(events, head_sha: str) -> str:
             "result_digest",
         },
     }
+    weakening_event, weakening_data = _authoritative_weakening_event(
+        events, head_sha
+    )
     allowed = []
     for event in events:
         if event.head_sha != head_sha or event.kind not in data_allowlist:
             continue
-        source = event.data or {}
+        if event.kind == "weakening" and event is not weakening_event:
+            continue
+        source = weakening_data if event.kind == "weakening" else (event.data or {})
         projected = {
             key: source[key] for key in data_allowlist[event.kind] if key in source
         }
@@ -701,6 +719,80 @@ def render_runtime_evidence(events, head_sha: str) -> str:
             }
         )
     return json.dumps(allowed, sort_keys=True, separators=(",", ":"))
+
+
+def _authoritative_weakening_event(events, head_sha: str):
+    candidates = [
+        event
+        for event in events
+        if event.kind == "weakening" and event.head_sha == head_sha
+    ]
+    if not candidates:
+        return None, {}
+    normalized = []
+    for event in candidates:
+        if event.result != "PASS":
+            raise ValueError("Current-HEAD weakening evidence did not pass")
+        normalized.append((event, _normalize_weakening_data(event.data)))
+    canonical_payloads = {
+        json.dumps(data, sort_keys=True, separators=(",", ":"))
+        for _, data in normalized
+    }
+    if len(canonical_payloads) != 1:
+        raise ValueError("Current-HEAD weakening evidence is contradictory")
+    return normalized[-1]
+
+
+def _normalize_weakening_data(data: dict | None) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("Weakening evidence data is invalid")
+    canonical = {"mechanical_verdict", "blocking_findings", "review_candidates"}
+    if canonical.issubset(data):
+        blocking = data["blocking_findings"]
+        review_candidates = data["review_candidates"]
+        verdict = data["mechanical_verdict"]
+    elif set(data) == {"findings"}:
+        findings = data["findings"]
+        if not isinstance(findings, list):
+            raise ValueError("Legacy weakening findings are invalid")
+        blocking = [item for item in findings if _finding_required(item) is True]
+        review_candidates = [
+            item for item in findings if _finding_required(item) is False
+        ]
+        verdict = "FAIL" if blocking else "PASS"
+    else:
+        raise ValueError("Weakening evidence fields are incomplete or unknown")
+    if verdict != "PASS":
+        raise ValueError("Current-HEAD weakening evidence verdict did not pass")
+    if not isinstance(blocking, list) or not isinstance(review_candidates, list):
+        raise ValueError("Weakening evidence finding lists are invalid")
+    for item in blocking:
+        if _finding_required(item) is not True:
+            raise ValueError("Blocking weakening finding is not required")
+    for item in review_candidates:
+        if _finding_required(item) is not False:
+            raise ValueError("Weakening review candidate is marked required")
+    if blocking:
+        raise ValueError("Passing weakening evidence contains blocking findings")
+    return {
+        "mechanical_verdict": "PASS",
+        "blocking_findings": blocking,
+        "review_candidates": review_candidates,
+    }
+
+
+def _finding_required(value: object) -> bool:
+    required_keys = {"severity", "category", "file", "description", "required"}
+    if not isinstance(value, dict) or set(value) != required_keys:
+        raise ValueError("Weakening evidence finding has invalid fields")
+    if value["severity"] not in {"low", "medium", "high"}:
+        raise ValueError("Weakening evidence finding has invalid severity")
+    if not all(
+        isinstance(value[key], str)
+        for key in ("category", "file", "description")
+    ) or not isinstance(value["required"], bool):
+        raise ValueError("Weakening evidence finding has invalid values")
+    return value["required"]
 
 
 def _paths_for_focus(paths: list[str], focus: str) -> list[str]:

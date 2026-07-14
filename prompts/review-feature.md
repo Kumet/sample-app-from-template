@@ -43,6 +43,21 @@ evidence only for an actual mismatch named by the mechanically verified
 evidence-semantics object. Only final-validation-accepted/PASS opens the gate;
 attempt-only, rejected, ordinary validation, and legacy events do not.
 
+Weakening evidence interpretation is also normative. A weakening event with
+`mechanical_verdict: PASS` means the high-confidence mechanical gate passed.
+Items under `review_candidates` are low-confidence hypotheses, not established
+findings and not proof that an assertion was weakened. Never report a required
+finding solely because a candidate description says an assertion line was
+removed. Only the tests shard may evaluate the candidate's test-strength
+meaning, and it must cite concrete support from the supplied current-HEAD diff.
+If a removed assertion is replaced by an updated expectation or by assertions
+that preserve or increase verification strength, do not report weakening. If
+the diff actually removes verification without an adequate replacement, the
+tests shard should report that concrete loss. Spec-scope, security, and
+maintainability shards must not treat a test candidate alone as a finding.
+Integration may verify evidence attribution and gate composition, but a
+candidate alone is not a blocking integration finding.
+
 <git-diff>
 {diff_text}
 </git-diff>

@@ -13,17 +13,45 @@ class Finding:
     required: bool
 
 
+@dataclass(frozen=True)
+class Inspection:
+    blocking_findings: tuple[Finding, ...]
+    review_candidates: tuple[Finding, ...]
+
+    @property
+    def findings(self) -> tuple[Finding, ...]:
+        return self.blocking_findings + self.review_candidates
+
+    @property
+    def mechanical_verdict(self) -> str:
+        return "FAIL" if self.blocking_findings else "PASS"
+
+    def event_data(self) -> dict:
+        return {
+            "mechanical_verdict": self.mechanical_verdict,
+            "blocking_findings": [
+                finding.__dict__ for finding in self.blocking_findings
+            ],
+            "review_candidates": [
+                finding.__dict__ for finding in self.review_candidates
+            ],
+        }
+
+
 SKIP_RE = re.compile(r"^\+.*(?:@(?:unittest\.)?skip|pytest\.mark\.skip|\.skip\(|xdescribe\(|xit\()", re.I)
 ASSERT_RE = re.compile(r"^-.*(?:assert|expect\(|should\.)", re.I)
 COVERAGE_RE = re.compile(r"^[+-].*(?:coverage|threshold|minimum).*[0-9]+", re.I)
 CI_WEAK_RE = re.compile(r"^\+.*(?:continue-on-error:\s*true|if:\s*false|allow_failure:\s*true)", re.I)
 
 
-def inspect_patch(patch: str) -> list[Finding]:
+def inspect_patch(patch: str) -> Inspection:
     findings: list[Finding] = []
     current = ""
     for line in patch.splitlines():
-        if line.startswith("+++ b/"):
+        if line.startswith("diff --git a/"):
+            parts = line.split(" b/", 1)
+            current = parts[1] if len(parts) == 2 else ""
+        elif line.startswith("+++ b/"):
             current = line[6:]
         elif line.startswith("deleted file mode") and _is_test(current):
             findings.append(Finding("high", "test-deletion", current, "Test file deleted", True))
@@ -35,7 +63,10 @@ def inspect_patch(patch: str) -> list[Finding]:
             findings.append(Finding("medium", "coverage-change", current, "Coverage threshold changed", False))
         elif CI_WEAK_RE.search(line):
             findings.append(Finding("high", "ci-weakening", current, "CI failure condition weakened", True))
-    return findings
+    return Inspection(
+        tuple(finding for finding in findings if finding.required),
+        tuple(finding for finding in findings if not finding.required),
+    )
 
 
 def _is_test(path: str) -> bool:
