@@ -12,6 +12,7 @@ from . import (
     git_utils,
     review,
     review_shards,
+    recovery_patch,
     state,
     validation,
     weakening,
@@ -201,6 +202,18 @@ def inspect_delivery_worktree(
             blockers.append("feature contract differs from saved state")
         if not result["changed_paths_match"]:
             blockers.append("changed paths differ from saved state")
+        recovery_blockers = recovery_patch.verify_active_evidence(
+            repo,
+            feature_dir,
+            saved,
+            current_branch,
+            current_head,
+            changed_paths,
+        )
+        blockers.extend(recovery_blockers)
+        result["recovery_evidence_valid"] = not recovery_blockers
+        result["recovery_event_sequence"] = saved.recovery_event_sequence
+        result["recovery_diff_digest"] = saved.recovery_diff_digest
         if saved.status == "complete":
             eligible_action = "reuse-completed-worktree"
             ancestor = (

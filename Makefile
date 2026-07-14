@@ -2,7 +2,7 @@
 
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif command -v python3.11 >/dev/null 2>&1; then command -v python3.11; else command -v python3; fi)
 
-.PHONY: setup format format-check lint typecheck test-framework test-app test integration-test build ci secrets validate clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run request-scope request-scope-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
+.PHONY: setup format format-check lint typecheck test-framework test-app test integration-test build ci secrets validate clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run request-scope request-scope-dry-run approve-recovery-patch approve-recovery-patch-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
 
 setup:
 	$(PYTHON) -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ is required"'
@@ -113,6 +113,12 @@ request-scope:
 
 request-scope-dry-run:
 	$(PYTHON) scripts/agent/work.py request-scope-dry-run --feature "$(FEATURE)" --path "$(PATH)" --reason "$(REASON)"
+
+approve-recovery-patch:
+	$(PYTHON) scripts/agent/work.py approve-recovery-patch --feature "$(FEATURE)" --paths "$(PATHS)" --reason "$(REASON)"
+
+approve-recovery-patch-dry-run:
+	$(PYTHON) scripts/agent/work.py approve-recovery-patch-dry-run --feature "$(FEATURE)" --paths "$(PATHS)" --reason "$(REASON)"
 
 migrate-contract:
 	$(PYTHON) scripts/agent/work.py migrate-contract --feature "$(FEATURE)"

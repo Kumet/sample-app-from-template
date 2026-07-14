@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -23,6 +24,8 @@ class RunState:
     status: str
     worktree: str
     updated_at: str
+    recovery_event_sequence: int | None = None
+    recovery_diff_digest: str | None = None
 
 
 def contract_digest(feature_dir: Path) -> str:
@@ -46,6 +49,16 @@ def read_state(path: Path) -> RunState:
     state = RunState(**raw)
     if state.version != 1:
         raise ValueError("Unsupported state version")
+    if state.recovery_event_sequence is not None and (
+        isinstance(state.recovery_event_sequence, bool)
+        or not isinstance(state.recovery_event_sequence, int)
+        or state.recovery_event_sequence < 1
+    ):
+        raise ValueError("Invalid recovery event sequence")
+    if state.recovery_diff_digest is not None and not re.fullmatch(
+        r"[0-9a-f]{64}", state.recovery_diff_digest
+    ):
+        raise ValueError("Invalid recovery diff digest")
     return state
 
 
