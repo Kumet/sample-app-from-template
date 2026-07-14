@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -219,6 +220,92 @@ class WeakeningReviewEvidenceTests(unittest.TestCase):
         self.assertEqual(review.REVIEW_PROMPT_VERSION, "4")
         self.assertEqual(review.REVIEW_IDENTITY_SCHEMA_VERSION, "4")
         self.assertEqual(review.MAX_REVIEW_INPUT_CHARS, 100_000)
+
+        identity_values = {
+            "identity_schema_version": review.REVIEW_IDENTITY_SCHEMA_VERSION,
+            "feature": "015-weakening-evidence-semantics",
+            "head_sha": self.head,
+            "shard": "tests",
+            "review_schema_version": review.REVIEW_SCHEMA_VERSION,
+            "prompt_version": review.REVIEW_PROMPT_VERSION,
+            "reviewer_model": review.REVIEW_MODEL,
+            "reviewer_command_identity": "c" * 64,
+            "review_settings": review.MODEL_SETTINGS,
+            "reviewed_files": ("tests/test_weakening_evidence.py",),
+            "spec_digest": "1" * 64,
+            "plan_digest": "2" * 64,
+            "tasks_digest": "3" * 64,
+            "validation_contract_digest": "4" * 64,
+            "diff_input_digest": "5" * 64,
+            "runtime_evidence_digest": "6" * 64,
+            "tracked_snapshot_event_sequence": 1,
+            "validation_log_blob_sha": "7" * 40,
+            "final_validation_attempt_event_sequence": 2,
+            "final_validation_accepted_event_sequence": 3,
+            "final_validation_result_digest": "8" * 64,
+        }
+        current_identity = review.ReviewIdentity(**identity_values)
+        old_identity = review.ReviewIdentity(
+            **{**identity_values, "prompt_version": "3"}
+        )
+        prepared = review.PreparedReview(current_identity, "prompt", ("review",))
+        old_schema_payload = {
+            **current_identity.payload(),
+            "identity_schema_version": "3",
+        }
+        stale_digests = {
+            "prompt-version": old_identity.digest,
+            "identity-schema-version": review._digest(old_schema_payload),
+        }
+
+        for version_kind, stale_digest in stale_digests.items():
+            with self.subTest(version_kind=version_kind):
+                with tempfile.TemporaryDirectory() as directory:
+                    store = EventStore(Path(directory) / "events.jsonl")
+                    store.append(
+                        feature=current_identity.feature,
+                        repository="repo",
+                        branch="feature/015",
+                        worktree="worktree",
+                        phase="review",
+                        kind="review-shard",
+                        result="PASS",
+                        head_sha=self.head,
+                        data={
+                            "shard": "tests",
+                            "identity_digest": stale_digest,
+                            "findings": [],
+                        },
+                    )
+                    fresh_result = review.ReviewResult("pass", ())
+                    with mock.patch(
+                        "agent.delivery.run_prepared_review_with_retries",
+                        return_value=(fresh_result, ""),
+                    ) as run_review:
+                        result, stderr, reused = (
+                            delivery.obtain_cached_or_run_prepared_review(
+                                Path(directory),
+                                prepared,
+                                SimpleNamespace(),
+                                1,
+                                event_store=store,
+                                feature=current_identity.feature,
+                                repository="repo",
+                                branch="feature/015",
+                                worktree="worktree",
+                                head_sha=self.head,
+                                shard="tests",
+                            )
+                        )
+
+                    self.assertIs(result, fresh_result)
+                    self.assertEqual(stderr, "")
+                    self.assertFalse(reused)
+                    run_review.assert_called_once()
+                    self.assertNotEqual(stale_digest, current_identity.digest)
+                    self.assertNotIn(
+                        "review-reused", [item.kind for item in store.read()]
+                    )
 
 
 if __name__ == "__main__":
