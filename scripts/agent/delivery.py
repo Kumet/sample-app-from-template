@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -303,12 +304,6 @@ def deliver(
                 isolated.path, feature_dir.name, state_root=repo, resume_mode=resuming
             )
         isolated_feature = isolated.path / "specs" / feature_dir.name
-        patch = git_utils.run_git(
-            isolated.path, ["diff", f"{policy.default_branch}...HEAD", "--no-ext-diff"]
-        ).stdout
-        weakening_inspection = weakening.inspect_patch(patch)
-        if weakening_inspection.blocking_findings:
-            raise RuntimeError("High-confidence test weakening detected")
         head_before_validation = git_utils.run_git(
             isolated.path, ["rev-parse", "HEAD"]
         ).stdout.strip()
@@ -379,14 +374,14 @@ def deliver(
                 isolated.path, isolated_feature, event_store.read(), current
             )
         head_before_validation = binding.head_sha
-        _record_weakening_pass(
+        weakening_inspection = _inspect_and_record_current_weakening(
+            isolated.path,
             event_store,
-            weakening_inspection,
             feature=feature_dir.name,
             repository=str(repo),
             branch=isolated.branch,
             worktree=str(isolated.path),
-            head_sha=head_before_validation,
+            default_branch=policy.default_branch,
         )
         evidence = repo / ".agent-work" / feature_dir.name / "delivery"
         evidence.mkdir(parents=True, exist_ok=True)
@@ -398,6 +393,17 @@ def deliver(
             ).stdout.strip()
             current_binding = evidence_snapshot.require_final_evidence(
                 isolated.path, isolated_feature, event_store.read(), head
+            )
+            _require_current_review_weakening(
+                event_store,
+                head_sha=head,
+                feature=feature_dir.name,
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                final_validation_accepted_event_sequence=(
+                    current_binding.final_validation_accepted_event_sequence
+                ),
             )
             shard_results = []
 
@@ -538,13 +544,14 @@ def deliver(
             _repair_and_commit(
                 isolated.path, isolated_feature, config, "REVIEW", detail
             )
-            _finalize_delivery_evidence(
+            _finalize_and_record_weakening(
                 isolated.path,
                 isolated_feature,
                 config,
                 event_store,
                 str(repo),
                 isolated.branch,
+                policy.default_branch,
             )
 
         review_result = review.review_with_repairs(
@@ -565,26 +572,18 @@ def deliver(
         )
         if review_result.required_findings:
             raise RuntimeError("Independent review requires remediation")
-        patch = git_utils.run_git(
-            isolated.path, ["diff", f"{policy.default_branch}...HEAD", "--no-ext-diff"]
-        ).stdout
-        weakening_inspection = weakening.inspect_patch(patch)
-        if weakening_inspection.blocking_findings:
-            raise RuntimeError(
-                "High-confidence test weakening detected after review repair"
-            )
-        gated_head = git_utils.run_git(
-            isolated.path, ["rev-parse", "HEAD"]
-        ).stdout.strip()
-        _record_weakening_pass(
+        weakening_inspection = _inspect_and_record_current_weakening(
+            isolated.path,
             event_store,
-            weakening_inspection,
             feature=feature_dir.name,
             repository=str(repo),
             branch=isolated.branch,
             worktree=str(isolated.path),
-            head_sha=gated_head,
+            default_branch=policy.default_branch,
         )
+        gated_head = git_utils.run_git(
+            isolated.path, ["rev-parse", "HEAD"]
+        ).stdout.strip()
         require_pre_push(
             isolated.path, isolated_feature, event_store.read(), gated_head
         )
@@ -653,13 +652,14 @@ def deliver(
             _repair_and_commit(
                 isolated.path, isolated_feature, config, "CI", redact(failure, 8000)
             )
-            _finalize_delivery_evidence(
+            _finalize_and_record_weakening(
                 isolated.path,
                 isolated_feature,
                 config,
                 event_store,
                 str(repo),
                 isolated.branch,
+                policy.default_branch,
             )
             github.push(isolated.branch)
 
@@ -745,8 +745,16 @@ def _record_weakening_pass(
     branch: str,
     worktree: str,
     head_sha: str,
+    final_validation_accepted_event_sequence: int,
+    command_identity: str,
 ):
-    data = inspection.event_data()
+    data = {
+        **inspection.event_data(),
+        "final_validation_accepted_event_sequence": (
+            final_validation_accepted_event_sequence
+        ),
+        "command_identity": command_identity,
+    }
     for event in reversed(event_store.read()):
         if event.kind != "weakening" or event.head_sha != head_sha:
             continue
@@ -763,6 +771,108 @@ def _record_weakening_pass(
         result="PASS",
         head_sha=head_sha,
         data=data,
+    )
+
+
+def _inspect_and_record_current_weakening(
+    repo: Path,
+    event_store: EventStore,
+    *,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    default_branch: str,
+):
+    head_sha = git_utils.run_git(repo, ["rev-parse", "HEAD"]).stdout.strip()
+    patch = git_utils.run_git(
+        repo, ["diff", f"{default_branch}...HEAD", "--no-ext-diff"]
+    ).stdout
+    inspection = weakening.inspect_patch(patch)
+    if inspection.blocking_findings:
+        raise RuntimeError("High-confidence test weakening detected")
+    accepted = next(
+        (
+            event
+            for event in reversed(event_store.read())
+            if event.kind == "final-validation-accepted"
+            and event.phase == "post-evidence"
+            and event.result == "PASS"
+            and event.head_sha == head_sha
+            and event.feature == feature
+            and event.repository == repository
+            and event.branch == branch
+            and event.worktree == worktree
+        ),
+        None,
+    )
+    if accepted is None:
+        raise ValueError("Missing final-validation-accepted PASS for current HEAD")
+    accepted_data = accepted.data or {}
+    command_identity = accepted_data.get("command_identity")
+    if (
+        accepted_data.get("exact_head_sha") != head_sha
+        or not isinstance(command_identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", command_identity) is None
+    ):
+        raise ValueError("Final-validation acceptance identity mismatched")
+    _record_weakening_pass(
+        event_store,
+        inspection,
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        head_sha=head_sha,
+        final_validation_accepted_event_sequence=accepted.sequence,
+        command_identity=command_identity,
+    )
+    return inspection
+
+
+def _require_current_review_weakening(
+    event_store: EventStore,
+    *,
+    head_sha: str,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    final_validation_accepted_event_sequence: int,
+):
+    return review.require_authoritative_weakening_event(
+        event_store.read(),
+        head_sha,
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        final_validation_accepted_event_sequence=(
+            final_validation_accepted_event_sequence
+        ),
+    )
+
+
+def _finalize_and_record_weakening(
+    repo: Path,
+    feature_dir: Path,
+    config,
+    event_store: EventStore,
+    repository: str,
+    branch: str,
+    default_branch: str,
+):
+    _finalize_delivery_evidence(
+        repo, feature_dir, config, event_store, repository, branch
+    )
+    return _inspect_and_record_current_weakening(
+        repo,
+        event_store,
+        feature=feature_dir.name,
+        repository=repository,
+        branch=branch,
+        worktree=str(repo),
+        default_branch=default_branch,
     )
 
 

@@ -660,6 +660,8 @@ def render_runtime_evidence(events, head_sha: str) -> str:
             "mechanical_verdict",
             "blocking_findings",
             "review_candidates",
+            "final_validation_accepted_event_sequence",
+            "command_identity",
         },
         "tracked-evidence-snapshot": {
             "log_path",
@@ -735,12 +737,148 @@ def _authoritative_weakening_event(events, head_sha: str):
             raise ValueError("Current-HEAD weakening evidence did not pass")
         normalized.append((event, _normalize_weakening_data(event.data)))
     canonical_payloads = {
-        json.dumps(data, sort_keys=True, separators=(",", ":"))
+        json.dumps(
+            {
+                key: value
+                for key, value in data.items()
+                if key
+                not in {
+                    "final_validation_accepted_event_sequence",
+                    "command_identity",
+                }
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         for _, data in normalized
     }
     if len(canonical_payloads) != 1:
         raise ValueError("Current-HEAD weakening evidence is contradictory")
     return normalized[-1]
+
+
+def _require_accepted_validation_event(
+    events,
+    head_sha: str,
+    *,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    final_validation_accepted_event_sequence: int,
+):
+    if (
+        not isinstance(final_validation_accepted_event_sequence, int)
+        or isinstance(final_validation_accepted_event_sequence, bool)
+        or final_validation_accepted_event_sequence < 1
+    ):
+        raise ValueError("Final-validation acceptance sequence is invalid")
+    accepted = next(
+        (
+            event
+            for event in events
+            if event.sequence == final_validation_accepted_event_sequence
+        ),
+        None,
+    )
+    if accepted is None:
+        raise ValueError("Missing final-validation-accepted PASS for current HEAD")
+    accepted_data = accepted.data or {}
+    command_identity = accepted_data.get("command_identity")
+    if (
+        accepted.kind != "final-validation-accepted"
+        or accepted.phase != "post-evidence"
+        or accepted.result != "PASS"
+        or accepted.head_sha != head_sha
+        or accepted.feature != feature
+        or accepted.repository != repository
+        or accepted.branch != branch
+        or accepted.worktree != worktree
+        or accepted_data.get("exact_head_sha") != head_sha
+        or not isinstance(command_identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", command_identity) is None
+    ):
+        raise ValueError("Final-validation acceptance identity mismatched")
+    return accepted, command_identity
+
+
+def require_authoritative_weakening_event(
+    events,
+    head_sha: str,
+    *,
+    feature: str,
+    repository: str,
+    branch: str,
+    worktree: str,
+    final_validation_accepted_event_sequence: int,
+):
+    accepted, command_identity = _require_accepted_validation_event(
+        events,
+        head_sha,
+        feature=feature,
+        repository=repository,
+        branch=branch,
+        worktree=worktree,
+        final_validation_accepted_event_sequence=(
+            final_validation_accepted_event_sequence
+        ),
+    )
+    current_head_events = [
+        event
+        for event in events
+        if event.kind == "weakening" and event.head_sha == head_sha
+    ]
+    if not current_head_events:
+        raise ValueError("No canonical weakening PASS for current HEAD")
+    canonical_fields = {
+        "mechanical_verdict",
+        "blocking_findings",
+        "review_candidates",
+        "final_validation_accepted_event_sequence",
+        "command_identity",
+    }
+    for event in current_head_events:
+        if (
+            event.feature != feature
+            or event.repository != repository
+            or event.branch != branch
+            or event.worktree != worktree
+            or event.phase != "delivery"
+        ):
+            raise ValueError("Current-HEAD weakening evidence identity mismatched")
+        if not isinstance(event.data, dict) or set(event.data) != canonical_fields:
+            raise ValueError("Current-HEAD weakening evidence is not canonical")
+        bound_acceptance, bound_command_identity = (
+            _require_accepted_validation_event(
+                events,
+                head_sha,
+                feature=feature,
+                repository=repository,
+                branch=branch,
+                worktree=worktree,
+                final_validation_accepted_event_sequence=event.data[
+                    "final_validation_accepted_event_sequence"
+                ],
+            )
+        )
+        if (
+            event.sequence <= bound_acceptance.sequence
+            or event.data["command_identity"] != bound_command_identity
+        ):
+            raise ValueError("Current-HEAD weakening evidence run identity mismatched")
+    matching = [
+        event
+        for event in current_head_events
+        if event.data["final_validation_accepted_event_sequence"]
+        == accepted.sequence
+        and event.data["command_identity"] == command_identity
+    ]
+    if not matching:
+        raise ValueError("Current-HEAD weakening evidence run identity mismatched")
+    event, data = _authoritative_weakening_event(matching, head_sha)
+    if event is None or data["mechanical_verdict"] != "PASS":
+        raise ValueError("No canonical weakening PASS for current HEAD")
+    return event
 
 
 def _normalize_weakening_data(data: dict | None) -> dict:
@@ -774,11 +912,18 @@ def _normalize_weakening_data(data: dict | None) -> dict:
             raise ValueError("Weakening review candidate is marked required")
     if blocking:
         raise ValueError("Passing weakening evidence contains blocking findings")
-    return {
+    normalized = {
         "mechanical_verdict": "PASS",
         "blocking_findings": blocking,
         "review_candidates": review_candidates,
     }
+    binding_fields = {
+        "final_validation_accepted_event_sequence",
+        "command_identity",
+    }
+    if binding_fields.issubset(data):
+        normalized.update({field: data[field] for field in binding_fields})
+    return normalized
 
 
 def _finding_required(value: object) -> bool:
