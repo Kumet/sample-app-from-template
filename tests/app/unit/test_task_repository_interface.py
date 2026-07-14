@@ -53,6 +53,17 @@ def test_task_list_query_rejects_naive_due_filters(field_name: str) -> None:
         TaskListQuery(**{field_name: datetime(2026, 1, 1)})
 
 
+@pytest.mark.parametrize("limit", [0, 101])
+def test_task_list_query_rejects_out_of_bounds_limit(limit: int) -> None:
+    with pytest.raises(TaskValidationError, match="limit must be between 1 and 100"):
+        TaskListQuery(limit=limit)
+
+
+def test_task_list_query_rejects_negative_offset() -> None:
+    with pytest.raises(TaskValidationError, match="offset must be at least 0"):
+        TaskListQuery(offset=-1)
+
+
 def test_importing_repository_package_does_not_load_concrete_infrastructure() -> None:
     repository_root = Path(__file__).resolve().parents[3]
     script = """

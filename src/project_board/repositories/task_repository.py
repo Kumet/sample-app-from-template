@@ -40,6 +40,11 @@ class TaskListQuery:
     order: SortOrder = SortOrder.ASC
 
     def __post_init__(self) -> None:
+        if not 1 <= self.limit <= 100:
+            raise TaskValidationError("Task list limit must be between 1 and 100")
+        if self.offset < 0:
+            raise TaskValidationError("Task list offset must be at least 0")
+
         for field_name in ("due_before", "due_after"):
             value = getattr(self, field_name)
             if value is None:

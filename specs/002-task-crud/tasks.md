@@ -23,7 +23,7 @@
   - Validation: integration, full
   - Dependencies: T001
   - Allowed paths: `src/project_board/infrastructure/**`, `tests/app/integration/**`
-- [ ] T003: Implement transactional SQLAlchemy Task repository and rollback behavior.
+- [x] T003: Implement transactional SQLAlchemy Task repository and rollback behavior.
   - Requirements: REQ-006, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-016, REQ-017, REQ-022
   - Acceptance criteria: AC-009, AC-012, AC-013, AC-014, AC-015, AC-018, AC-021, AC-022
   - Validation: unit, integration, full
