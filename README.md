@@ -17,6 +17,8 @@ by local SQLite and SQLAlchemy 2.x. Tasks support Project-scoped Comments and a
 read-only history of Comment create, update, and delete activity. Task lists
 support filtering (including by Tag), pagination, and deterministic sorting.
 Task responses include their Tags but do not embed Comments or Activity.
+Projects expose a read-only dashboard of Task, due-date, Tag, Comment, and recent
+Comment-activity aggregates.
 `GET /health` remains available and does not query the database. The Kanban UI,
 CLI, import/export, and backup/restore are not implemented yet.
 
@@ -109,6 +111,25 @@ Project that still owns Tasks returns HTTP 409 and leaves both the Project and
 its Tasks unchanged; explicitly delete its Tasks before deleting the Project. A
 Project with no Tasks can be deleted even when it owns Tags; those Tags and
 their associations are deleted with that Project.
+
+### Project dashboard
+
+```bash
+# Retrieve Project 1 aggregates (the recent Activity default is 10 rows)
+curl 'http://127.0.0.1:8000/api/projects/1/dashboard'
+
+# Return no recent Activity while retaining all other aggregates
+curl 'http://127.0.0.1:8000/api/projects/1/dashboard?activity_limit=0'
+```
+
+The dashboard returns an aware UTC `as_of` timestamp; zero-inclusive Task
+counts by status and priority; mutually exclusive active-Task due buckets; Tag
+counts; current Comment totals; and payload-free recent Comment Activity. Done
+Tasks remain in Task totals but are excluded from due buckets. Tags are ordered
+by case-folded name and ID. Recent Activity is ordered by `occurred_at`
+descending, then by ID descending. The `activity_limit` query value defaults to
+10 and accepts integers from 0 to 50. A missing Project returns HTTP 404 and an
+invalid limit returns HTTP 422.
 
 ## Tag API
 

@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from project_board.application import (
+    ProjectDashboardService,
     ProjectService,
     TagService,
     TaskCommentService,
@@ -15,6 +16,9 @@ from project_board.application import (
 from project_board.infrastructure import SessionFactory
 from project_board.repositories.sqlalchemy_comment_repository import (
     SQLAlchemyTaskCommentRepository,
+)
+from project_board.repositories.sqlalchemy_dashboard_repository import (
+    SQLAlchemyProjectDashboardRepository,
 )
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
@@ -42,6 +46,21 @@ def get_project_service(
 
 
 ProjectServiceDependency = Annotated[ProjectService, Depends(get_project_service)]
+
+
+def get_project_dashboard_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> ProjectDashboardService:
+    """Build the read-only dashboard service in the request session."""
+    return ProjectDashboardService(
+        SQLAlchemyProjectDashboardRepository(session),
+        SQLAlchemyProjectRepository(session),
+    )
+
+
+ProjectDashboardServiceDependency = Annotated[
+    ProjectDashboardService, Depends(get_project_dashboard_service)
+]
 
 
 def get_task_service(

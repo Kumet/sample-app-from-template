@@ -7,6 +7,14 @@ from project_board.domain.comment import (
     TaskCommentActivity,
     normalize_comment_body,
 )
+from project_board.domain.dashboard import (
+    DashboardCommentCounts,
+    DashboardDueCounts,
+    DashboardInvariantError,
+    DashboardTagCount,
+    DashboardTaskCounts,
+    ProjectDashboard,
+)
 from project_board.domain.errors import (
     DuplicateTagName,
     ProjectHasTasksConflict,
@@ -22,13 +30,25 @@ from project_board.domain.errors import (
 )
 from project_board.domain.project import Project
 from project_board.domain.tag import Tag
-from project_board.domain.task import Task, TaskPriority, TaskStatus
+from project_board.domain.task import (
+    TERMINAL_TASK_STATUSES,
+    Task,
+    TaskPriority,
+    TaskStatus,
+    is_terminal_task_status,
+)
 
 __all__ = [
     "CommentEventType",
+    "DashboardCommentCounts",
+    "DashboardDueCounts",
+    "DashboardInvariantError",
+    "DashboardTagCount",
+    "DashboardTaskCounts",
     "DuplicateTagName",
     "MAX_COMMENT_BODY_LENGTH",
     "Project",
+    "ProjectDashboard",
     "ProjectHasTasksConflict",
     "ProjectNotFound",
     "ProjectValidationError",
@@ -45,5 +65,7 @@ __all__ = [
     "TaskPriority",
     "TaskStatus",
     "TaskValidationError",
+    "TERMINAL_TASK_STATUSES",
+    "is_terminal_task_status",
     "normalize_comment_body",
 ]
