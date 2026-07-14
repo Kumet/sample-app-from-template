@@ -35,7 +35,7 @@
   - Validation: unit, app
   - Dependencies: T001, T003
   - Allowed paths: `src/project_board/application/**`, `src/project_board/domain/**`, `tests/app/unit/**`
-- [ ] T005: Add nested Task create/detail schemas, dependencies, routes, and error mapping.
+- [x] T005: Add nested Task create/detail schemas, dependencies, routes, and error mapping.
   - Requirements: REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-019, REQ-023
   - Acceptance criteria: AC-003, AC-004, AC-005, AC-006, AC-007, AC-008, AC-009, AC-020, AC-021
   - Validation: app, integration

@@ -1,12 +1,19 @@
-"""Pydantic request and response schemas for the Project API."""
+"""Pydantic request and response schemas for the Project and Task APIs."""
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.project import (
     MAX_PROJECT_DESCRIPTION_LENGTH,
     MAX_PROJECT_NAME_LENGTH,
+)
+from project_board.domain.task import (
+    MAX_TASK_DESCRIPTION_LENGTH,
+    MAX_TASK_TITLE_LENGTH,
+    TaskPriority,
+    TaskStatus,
 )
 
 
@@ -85,5 +92,57 @@ class ProjectResponse(BaseModel):
     id: int
     name: str
     description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskCreate(BaseModel):
+    """Payload accepted when creating a Task under a Project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(max_length=MAX_TASK_TITLE_LENGTH)
+    description: str | None = Field(
+        default=None, max_length=MAX_TASK_DESCRIPTION_LENGTH
+    )
+    status: TaskStatus = TaskStatus.TODO
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_at: datetime | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Task title is required")
+        return trimmed
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, value: object) -> object:
+        return _trim_description(value)
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return normalize_utc_datetime(value, "Task due_at")
+
+
+class TaskResponse(BaseModel):
+    """Serialized Task returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    title: str
+    description: str | None
+    status: TaskStatus
+    priority: TaskPriority
+    due_at: datetime | None
     created_at: datetime
     updated_at: datetime

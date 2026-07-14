@@ -1,16 +1,27 @@
-"""FastAPI routes and sanitized error mapping for Project CRUD."""
+"""FastAPI routes and sanitized error mapping for Project and Task CRUD."""
 
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, Response, status
 
-from project_board.api.dependencies import ProjectServiceDependency
-from project_board.api.schemas import ProjectCreate, ProjectResponse, ProjectUpdate
+from project_board.api.dependencies import (
+    ProjectServiceDependency,
+    TaskServiceDependency,
+)
+from project_board.api.schemas import (
+    ProjectCreate,
+    ProjectResponse,
+    ProjectUpdate,
+    TaskCreate,
+    TaskResponse,
+)
 from project_board.application import UNSET
 from project_board.domain import (
     ProjectNotFound,
     ProjectValidationError,
     RepositoryError,
+    TaskNotFound,
+    TaskValidationError,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -21,7 +32,9 @@ def _call_service(operation: Any, *args: Any, **kwargs: Any) -> Any:
         return operation(*args, **kwargs)
     except ProjectNotFound as error:
         raise HTTPException(status_code=404, detail="Project not found") from error
-    except ProjectValidationError as error:
+    except TaskNotFound as error:
+        raise HTTPException(status_code=404, detail="Task not found") from error
+    except (ProjectValidationError, TaskValidationError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RepositoryError as error:
         raise HTTPException(
@@ -44,6 +57,36 @@ def list_projects(service: ProjectServiceDependency) -> object:
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: int, service: ProjectServiceDependency) -> object:
     return _call_service(service.get_project, project_id)
+
+
+@router.post(
+    "/{project_id}/tasks",
+    response_model=TaskResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task(
+    project_id: int,
+    payload: Annotated[TaskCreate, Body()],
+    service: TaskServiceDependency,
+) -> object:
+    return _call_service(
+        service.create_task,
+        project_id,
+        payload.title,
+        payload.description,
+        payload.status,
+        payload.priority,
+        payload.due_at,
+    )
+
+
+@router.get("/{project_id}/tasks/{task_id}", response_model=TaskResponse)
+def get_task(
+    project_id: int,
+    task_id: int,
+    service: TaskServiceDependency,
+) -> object:
+    return _call_service(service.get_task, project_id, task_id)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
