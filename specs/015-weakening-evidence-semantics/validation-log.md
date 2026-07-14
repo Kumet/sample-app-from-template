@@ -46,3 +46,7 @@
   added test-source diff lines. The test constructs those same input patches by
   concatenating literals, preserving high-confidence production detection while
   preventing the fixture source itself from masquerading as a real weakening.
+- Loop 4 — clean worktree cleanup retained the framework-created agent branch,
+  so a fresh delivery could not recreate the fixed branch name. The old branch
+  was renamed to an archive namespace instead of force-deleted, preserving its
+  failed-cycle evidence commit before a fresh isolated delivery.
