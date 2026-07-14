@@ -50,12 +50,18 @@ def create_session_factory(engine: Engine) -> SessionFactory:
 def initialize_schema(engine: Engine) -> None:
     """Create development/test tables and safely extend existing Task schemas."""
     models = import_module("project_board.infrastructure.models")
-    task_tags_table = models.TaskTagModel.__table__
+    ownership_child_tables = (
+        models.TaskCommentModel.__table__,
+        models.TaskCommentActivityModel.__table__,
+        models.TaskTagModel.__table__,
+    )
 
-    # Composite association foreign keys require their parent ownership keys.
+    # Composite child foreign keys require their parent ownership keys.
     # Create every parent table first, including any test-only metadata tables.
     parent_tables = [
-        table for table in Base.metadata.sorted_tables if table is not task_tags_table
+        table
+        for table in Base.metadata.sorted_tables
+        if table not in ownership_child_tables
     ]
     Base.metadata.create_all(engine, tables=parent_tables)
 
@@ -77,4 +83,5 @@ def initialize_schema(engine: Engine) -> None:
         msg = "tasks must have a unique (project_id, id) ownership index"
         raise RuntimeError(msg)
 
-    task_tags_table.create(engine, checkfirst=True)
+    for child_table in ownership_child_tables:
+        child_table.create(engine, checkfirst=True)

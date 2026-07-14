@@ -66,6 +66,8 @@ def test_initialization_adds_tasks_without_replacing_project_rows(
     assert inspect(isolated_engine).get_table_names() == [
         "projects",
         "tags",
+        "task_comment_activities",
+        "task_comments",
         "task_tags",
         "tasks",
     ]

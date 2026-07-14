@@ -15,7 +15,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/unit/**`
-- [ ] T002: Add both ORM tables, composite ownership, cascades, indexes, and schema initialization.
+- [x] T002: Add both ORM tables, composite ownership, cascades, indexes, and schema initialization.
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008
   - Acceptance criteria: AC-002, AC-003, AC-013
   - Validation: integration, full

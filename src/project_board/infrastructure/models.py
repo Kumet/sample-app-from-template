@@ -64,6 +64,80 @@ class TaskModel(Base):
     )
 
 
+class TaskCommentModel(Base):
+    """Database representation of a Comment owned by one Project Task."""
+
+    __tablename__ = "task_comments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("project_id", "task_id"),
+            ("tasks.project_id", "tasks.id"),
+            name="fk_task_comments_task_owner",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_task_comments_project_id_task_id_created_at_id",
+            "project_id",
+            "task_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", name="fk_task_comments_project", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class TaskCommentActivityModel(Base):
+    """Database representation of append-only Task Comment activity."""
+
+    __tablename__ = "task_comment_activities"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("project_id", "task_id"),
+            ("tasks.project_id", "tasks.id"),
+            name="fk_task_comment_activities_task_owner",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_task_comment_activities_project_id_task_id_occurred_at_id",
+            "project_id",
+            "task_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey(
+            "projects.id",
+            name="fk_task_comment_activities_project",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    task_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class TagModel(Base):
     """Database representation of a Tag owned by a Project."""
 
