@@ -63,7 +63,7 @@
   - Validation: unit, app, integration, full
   - Dependencies: T001, T002, T003, T004, T005, T006, T007, T008
   - Allowed paths: `pyproject.toml`, `tests/app/**`, `src/project_board/api/**`, `src/project_board/web/**`
-- [ ] T010: Update usage docs, run full validation/browser smoke, and prepare exact-HEAD review evidence.
+- [x] T010: Update usage docs, run full validation/browser smoke, and prepare exact-HEAD review evidence.
   - Requirements: REQ-016, REQ-017, REQ-018
   - Acceptance criteria: AC-012, AC-013
   - Validation: full

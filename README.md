@@ -20,7 +20,9 @@ Task responses include their Tags but do not embed Comments or Activity.
 Projects expose a read-only dashboard of Task, due-date, Tag, Comment, and recent
 Comment-activity aggregates.
 `GET /health` remains available and does not query the database. The Kanban UI,
-CLI, import/export, and backup/restore are not implemented yet.
+served from `GET /`, uses those same APIs for local Project, Task, Tag, Comment,
+Activity, dashboard, and Task-query workflows. The CLI, import/export, and
+backup/restore are not implemented yet.
 
 ## Requirements and setup
 
@@ -76,6 +78,20 @@ Expected response:
 
 The health endpoint has no database, external API, environment-variable, or
 secret dependency.
+
+### Use the browser UI
+
+With the development server running, open <http://127.0.0.1:8000/>. The
+same-origin UI supports Project, Task, Tag, and Comment management; Task search,
+filters, sorting, and pagination; dashboard aggregates; and payload-free Comment
+Activity. Changes made in the UI and through the REST API use the same local
+database and application services.
+
+The UI is packaged with the Python application and uses dependency-free HTML,
+CSS, and JavaScript. It does not load assets, analytics, or application data
+from external services. Destructive actions require confirmation, and a Project
+that still owns Tasks must have those Tasks deleted before the Project can be
+deleted.
 
 ## Project API
 
@@ -325,6 +341,7 @@ of scope.
 
 - Python 3.11 or later
 - FastAPI and Uvicorn for the REST API runtime
+- Packaged dependency-free HTML, CSS, and JavaScript for the browser UI
 - SQLite and SQLAlchemy 2.x for local Project, Task, Tag, Comment, and Activity
   persistence
 - pytest, Ruff, and mypy
@@ -332,8 +349,7 @@ of scope.
 - Make-based quality commands
 - GitHub Actions
 
-Jinja2, HTMX, and small JavaScript modules remain intended for later approved
-web UI features and are not currently installed.
+Jinja2 and HTMX are not installed or required by the current browser UI.
 
 ## Specification-driven development flow
 
