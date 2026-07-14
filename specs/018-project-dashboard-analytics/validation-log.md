@@ -15,3 +15,4 @@
 | 1 | T003 | PASS | task validation passed |
 | 1 | T004 | FAIL | uery_rejects_unbounded_or_non_integer_limits( + limit: object, +) -> None: + repository = SQLAlchemyProjectDashboardRepository( + cast(Session, QueryForbiddenSession()) + ) + + with pytest.raises(DashboardInvariantError, match="activity limit"): + repository.list_recent_activities(1, limit) # type: ignore[arg-type] ERROR: Selected model is at capacity. Please try a different model. ERROR: Selected model is at capacity. Please try a different model. tokens used 64,088 |
 | 2 | T004 | PASS | task validation passed |
+| 1 | T005 | PASS | task validation passed |

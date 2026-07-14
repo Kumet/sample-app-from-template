@@ -33,7 +33,7 @@
   - Validation: unit, integration
   - Dependencies: T001, T003
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T005: Implement ProjectDashboardService, single clock, Project check, and result invariants.
+- [x] T005: Implement ProjectDashboardService, single clock, Project check, and result invariants.
   - Requirements: REQ-001, REQ-003, REQ-004, REQ-007, REQ-012, REQ-013, REQ-016
   - Acceptance criteria: AC-001, AC-003, AC-004, AC-005, AC-009, AC-011
   - Validation: unit, app
