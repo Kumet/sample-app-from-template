@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
 
 from project_board.infrastructure import (
@@ -12,6 +12,7 @@ from project_board.infrastructure import (
     create_session_factory,
     initialize_schema,
 )
+from project_board.infrastructure.models import ProjectModel, TaskModel
 from project_board.main import create_app
 
 
@@ -434,13 +435,9 @@ def test_task_patch_preserves_every_omitted_mutable_field(
         {"title": None},
         {"status": None},
         {"priority": None},
-        {"id": 999},
-        {"project_id": 999},
-        {"created_at": "2026-01-01T00:00:00Z"},
-        {"updated_at": "2026-01-01T00:00:00Z"},
     ],
 )
-def test_task_patch_rejects_empty_null_required_and_immutable_fields_unchanged(
+def test_task_patch_rejects_empty_and_null_required_fields_unchanged(
     task_api_database: tuple[TestClient, Engine], payload: dict[str, object]
 ) -> None:
     client, _ = task_api_database
@@ -458,6 +455,56 @@ def test_task_patch_rejects_empty_null_required_and_immutable_fields_unchanged(
     persisted = client.get(f"/api/projects/{project_id}/tasks/{created['id']}")
     assert persisted.status_code == 200
     assert persisted.json() == created
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("id", 999),
+        ("project_id", 999),
+        ("created_at", "2026-01-01T00:00:00Z"),
+        ("updated_at", "2026-01-01T00:00:00Z"),
+    ],
+)
+def test_task_patch_rejects_each_immutable_field_without_persisting_changes(
+    task_api_database: tuple[TestClient, Engine],
+    field_name: str,
+    value: object,
+) -> None:
+    client, engine = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={"title": "Original", "description": "Details"},
+    ).json()
+    with engine.connect() as connection:
+        before = dict(
+            connection.execute(select(TaskModel).where(TaskModel.id == created["id"]))
+            .mappings()
+            .one()
+        )
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}",
+        json={field_name: value},
+    )
+
+    assert response.status_code == 422
+    assert any(
+        error["loc"] == ["body", field_name] and error["type"] == "extra_forbidden"
+        for error in response.json()["detail"]
+    )
+    with engine.connect() as connection:
+        after = dict(
+            connection.execute(select(TaskModel).where(TaskModel.id == created["id"]))
+            .mappings()
+            .one()
+        )
+    assert after == before
+    assert (
+        client.get(f"/api/projects/{project_id}/tasks/{created['id']}").json()
+        == created
+    )
 
 
 def test_task_patch_rejects_invalid_values_without_changing_task(
@@ -515,7 +562,7 @@ def test_task_patch_and_delete_hide_cross_project_ownership(
 def test_task_delete_removes_only_selected_task_and_returns_empty_204(
     task_api_database: tuple[TestClient, Engine],
 ) -> None:
-    client, _ = task_api_database
+    client, engine = task_api_database
     project_id = create_project(client)
     selected = client.post(
         f"/api/projects/{project_id}/tasks", json={"title": "Selected"}
@@ -536,6 +583,19 @@ def test_task_delete_removes_only_selected_task_and_returns_empty_204(
         client.get(f"/api/projects/{project_id}/tasks/{remaining['id']}").status_code
         == 200
     )
+    with engine.connect() as connection:
+        selected_row = connection.scalar(
+            select(TaskModel.id).where(TaskModel.id == selected["id"])
+        )
+        remaining_row = connection.scalar(
+            select(TaskModel.id).where(TaskModel.id == remaining["id"])
+        )
+        project_row = connection.scalar(
+            select(ProjectModel.id).where(ProjectModel.id == project_id)
+        )
+    assert selected_row is None
+    assert remaining_row == remaining["id"]
+    assert project_row == project_id
 
 
 def test_complete_task_lifecycle_remains_isolated_between_projects(
