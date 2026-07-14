@@ -1,11 +1,11 @@
 # Validation log: 003-task-tags
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T15:00:32.150561+00:00","included_event_sequence":42,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T15:58:22.173165+00:00","included_event_sequence":47,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
 ## Summary
 
-Final included event result: PASS.
+Final included event result: HUMAN_REQUIRED.
 
 ## Runs
 
@@ -53,3 +53,8 @@ Final included event result: PASS.
 | 40 | review/review-shard | FAIL | `8de8d0436b1b` |  |
 | 41 | review/review-shard | PASS | `8de8d0436b1b` |  |
 | 42 | review/review-shard | PASS | `8de8d0436b1b` |  |
+| 43 | evidence/tracked-evidence-snapshot | PASS | `90272b2e8184` |  |
+| 44 | post-evidence/final-validation-attempt | PASS | `90272b2e8184` |  |
+| 45 | post-evidence/final-validation-accepted | PASS | `90272b2e8184` |  |
+| 46 | review/review-shard | PASS | `90272b2e8184` |  |
+| 47 | review/review-shard | HUMAN_REQUIRED | `90272b2e8184` | ReviewBudgetExhausted |
