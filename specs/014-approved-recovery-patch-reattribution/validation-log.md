@@ -52,3 +52,8 @@ review events are intentionally not written back into this file.
   each feature's forbidden globs. Recovery path parsing now rejects environment
   files, key/certificate containers, credential/secret files, and common
   SSH/cloud credential directories at every depth before any file content read.
+- New limited cycle 1 — the repeated security finding identified non-hidden
+  confidential directory components such as `credentials/` and `secrets/`.
+  Path admission now rejects credential, secret, private-key, API-key, and token
+  directory components at every depth before scope or diff code can read files;
+  regressions cover hidden and non-hidden variants.

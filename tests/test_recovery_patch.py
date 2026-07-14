@@ -306,6 +306,15 @@ class RecoveryPatchTests(unittest.TestCase):
             "nested/.ssh/config",
             "nested/credentials.json",
             "nested/secrets.toml",
+            "configs/credentials/token.txt",
+            "tmp/secrets/value.txt",
+            "nested/.credentials/value.txt",
+            "nested/.secrets/value.txt",
+            "nested/private-keys/value.txt",
+            "nested/private_keys/value.txt",
+            "nested/api-keys/value.txt",
+            "nested/api_keys/value.txt",
+            "nested/tokens/value.txt",
             "a.py a.py",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):

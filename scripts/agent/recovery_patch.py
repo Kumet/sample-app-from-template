@@ -21,7 +21,24 @@ MAX_CHANGED_PATHS = 128
 MAX_PATH_LENGTH = 240
 MAX_REASON_LENGTH = 500
 EVENT_DATA_LIMIT = 3500
-SENSITIVE_DIRECTORIES = {".ssh", ".aws", ".azure", ".gnupg", ".kube"}
+SENSITIVE_DIRECTORIES = {
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gnupg",
+    ".kube",
+    ".credentials",
+    ".secrets",
+    "credentials",
+    "secrets",
+    "secret",
+    "private-keys",
+    "private_keys",
+    "privatekeys",
+    "api-keys",
+    "api_keys",
+    "tokens",
+}
 SENSITIVE_FILENAMES = {
     ".netrc",
     ".npmrc",
