@@ -1,5 +1,5 @@
 # Validation log: 002-task-crud
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"002-task-crud","generated_at":"2026-07-14T10:53:42.324154+00:00","included_event_sequence":28,"snapshot_format_version":2,"validation_contract_digest":"debc5a9b82ccbc9f73f3d059a4f43e5abbf29c4354615a98f8a5e39548b2199a"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"002-task-crud","generated_at":"2026-07-14T11:08:06.380095+00:00","included_event_sequence":45,"snapshot_format_version":2,"validation_contract_digest":"debc5a9b82ccbc9f73f3d059a4f43e5abbf29c4354615a98f8a5e39548b2199a"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -39,3 +39,20 @@ Final included event result: PASS.
 | 26 | review/review-shard | FAIL | `a9ca0a0be313` |  |
 | 27 | review/review-shard | PASS | `a9ca0a0be313` |  |
 | 28 | review/review-shard | PASS | `a9ca0a0be313` |  |
+| 29 | evidence/tracked-evidence-snapshot | PASS | `ad90ffcba10f` |  |
+| 30 | post-evidence/final-validation-attempt | PASS | `ad90ffcba10f` |  |
+| 31 | post-evidence/final-validation-accepted | PASS | `ad90ffcba10f` |  |
+| 32 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 33 | review/review-shard | HUMAN_REQUIRED | `ad90ffcba10f` | ReviewBudgetExhausted |
+| 34 | delivery/weakening | PASS | `ad90ffcba10f` |  |
+| 35 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 36 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 37 | review/review-shard | FAIL | `ad90ffcba10f` |  |
+| 38 | review/review-shard | FAIL | `ad90ffcba10f` |  |
+| 39 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 40 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 41 | review/review-shard | FAIL | `ad90ffcba10f` |  |
+| 42 | review/review-shard | FAIL | `ad90ffcba10f` |  |
+| 43 | review/review-shard | FAIL | `ad90ffcba10f` |  |
+| 44 | review/review-shard | PASS | `ad90ffcba10f` |  |
+| 45 | review/review-shard | PASS | `ad90ffcba10f` |  |
