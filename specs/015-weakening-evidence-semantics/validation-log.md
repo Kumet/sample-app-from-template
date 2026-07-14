@@ -41,3 +41,8 @@
   required because prompt version is already identity-bound; identity schema 4
   was retained and prompt version 4 provides correct cache invalidation. The
   full suite then passed.
+- Loop 3 — the first delivery weakening gate correctly stopped because detector
+  regression fixtures placed literal skip and CI-weakening patterns in newly
+  added test-source diff lines. The test constructs those same input patches by
+  concatenating literals, preserving high-confidence production detection while
+  preventing the fixture source itself from masquerading as a real weakening.

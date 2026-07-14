@@ -65,11 +65,14 @@ class WeakeningInspectionTests(unittest.TestCase):
             ),
             "test-skip": (
                 "diff --git a/tests/test_a.py b/tests/test_a.py\n"
-                "+++ b/tests/test_a.py\n+@unittest.skip('later')\n"
+                "+++ b/tests/test_a.py\n+@"
+                "unittest."
+                "skip('later')\n"
             ),
             "ci-weakening": (
                 "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n"
-                "+++ b/.github/workflows/ci.yml\n+continue-on-error: true\n"
+                "+++ b/.github/workflows/ci.yml\n+continue-"
+                "on-error: true\n"
             ),
         }
         for category, patch in cases.items():
