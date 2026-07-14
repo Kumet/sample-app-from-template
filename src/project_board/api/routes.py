@@ -11,6 +11,7 @@ from project_board.api.dependencies import (
     TaskServiceDependency,
 )
 from project_board.api.schemas import (
+    ActivityResponse,
     AwareUtcDatetime,
     CommentCreate,
     CommentResponse,
@@ -27,6 +28,7 @@ from project_board.api.schemas import (
 )
 from project_board.application import UNSET
 from project_board.domain import (
+    CommentEventType,
     DuplicateTagName,
     ProjectHasTasksConflict,
     ProjectNotFound,
@@ -42,6 +44,7 @@ from project_board.domain import (
     TaskValidationError,
 )
 from project_board.repositories import (
+    ActivityListQuery,
     CommentListQuery,
     SortOrder,
     TaskListQuery,
@@ -367,6 +370,32 @@ def delete_comment(
 ) -> Response:
     _call_service(service.delete_comment, project_id, task_id, comment_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{project_id}/tasks/{task_id}/activities",
+    response_model=list[ActivityResponse],
+)
+def list_activities(
+    project_id: int,
+    task_id: int,
+    service: TaskCommentServiceDependency,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    order: SortOrder = SortOrder.ASC,
+    event_type: Annotated[CommentEventType | None, Query()] = None,
+) -> object:
+    return _call_service(
+        service.list_activities,
+        project_id,
+        task_id,
+        ActivityListQuery(
+            limit=limit,
+            offset=offset,
+            order=order,
+            event_type=event_type,
+        ),
+    )
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)

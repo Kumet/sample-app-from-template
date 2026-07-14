@@ -39,7 +39,7 @@
   - Validation: app, integration
   - Dependencies: T004
   - Allowed paths: `src/project_board/api/**`, `tests/app/**`
-- [ ] T006: Add read-only filtered Activity API and append-only behavior tests.
+- [x] T006: Add read-only filtered Activity API and append-only behavior tests.
   - Requirements: REQ-003, REQ-004, REQ-012, REQ-013
   - Acceptance criteria: AC-007, AC-008
   - Validation: app, integration

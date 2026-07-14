@@ -14,6 +14,7 @@ from pydantic import (
 
 from project_board.domain.comment import (
     MAX_COMMENT_BODY_LENGTH,
+    CommentEventType,
     normalize_comment_body,
 )
 from project_board.domain.datetime import normalize_utc_datetime
@@ -93,6 +94,19 @@ class CommentResponse(BaseModel):
     body: str
     created_at: datetime
     updated_at: datetime
+
+
+class ActivityResponse(BaseModel):
+    """Serialized, payload-free Task Comment lifecycle event."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    task_id: int
+    comment_id: int
+    event_type: CommentEventType
+    occurred_at: datetime
 
 
 class ProjectCreate(BaseModel):

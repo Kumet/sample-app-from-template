@@ -44,6 +44,10 @@ def comment_path(project_id: int, task_id: int) -> str:
     return f"/api/projects/{project_id}/tasks/{task_id}/comments"
 
 
+def activity_path(project_id: int, task_id: int) -> str:
+    return f"/api/projects/{project_id}/tasks/{task_id}/activities"
+
+
 def test_comment_api_crud_round_trip_and_lifecycle_events(
     comment_api_database: tuple[TestClient, Engine],
 ) -> None:
@@ -254,3 +258,161 @@ def test_comment_endpoints_distinguish_only_missing_container_kind(
         "detail": "Task not found"
     }
     assert client.get(f"{path}/999").json() == {"detail": "Comment not found"}
+
+
+def test_activity_api_lists_payload_free_lifecycle_history_after_comment_deletion(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = comment_api_database
+    project_id, task_id = create_task(client)
+    comments = comment_path(project_id, task_id)
+    activities = activity_path(project_id, task_id)
+    created = client.post(comments, json={"body": "Sensitive body"}).json()
+
+    assert (
+        client.patch(
+            f"{comments}/{created['id']}", json={"body": "Changed body"}
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"{comments}/{created['id']}").status_code == 204
+
+    response = client.get(activities)
+
+    assert response.status_code == 200
+    history = response.json()
+    assert [item["event_type"] for item in history] == [
+        "comment_created",
+        "comment_updated",
+        "comment_deleted",
+    ]
+    assert {item["comment_id"] for item in history} == {created["id"]}
+    assert all(item["project_id"] == project_id for item in history)
+    assert all(item["task_id"] == task_id for item in history)
+    assert all(item["id"] > 0 for item in history)
+    assert all(item["occurred_at"].endswith("Z") for item in history)
+    assert all("body" not in item for item in history)
+
+
+def test_activity_api_filters_before_deterministic_order_and_pagination(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, engine = comment_api_database
+    project_id, task_id = create_task(client)
+    comments = comment_path(project_id, task_id)
+    activities = activity_path(project_id, task_id)
+    first_comment = client.post(comments, json={"body": "First"}).json()
+    second_comment = client.post(comments, json={"body": "Second"}).json()
+    assert (
+        client.patch(
+            f"{comments}/{first_comment['id']}", json={"body": "First update"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"{comments}/{second_comment['id']}", json={"body": "Second update"}
+        ).status_code
+        == 200
+    )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE task_comment_activities "
+                "SET occurred_at = '2026-01-01 00:00:00.000000'"
+            )
+        )
+
+    all_history = client.get(activities).json()
+    filtered_page = client.get(
+        activities,
+        params={
+            "event_type": "comment_updated",
+            "order": "desc",
+            "limit": 1,
+            "offset": 1,
+        },
+    ).json()
+    updated_history = [
+        item for item in all_history if item["event_type"] == "comment_updated"
+    ]
+
+    assert [item["id"] for item in all_history] == sorted(
+        item["id"] for item in all_history
+    )
+    assert len(updated_history) == 2
+    assert filtered_page == [updated_history[1]]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+        {"order": "sideways"},
+        {"event_type": "comment_restored"},
+    ],
+)
+def test_activity_api_rejects_invalid_query_parameters(
+    comment_api_database: tuple[TestClient, Engine], params: dict[str, object]
+) -> None:
+    client, _ = comment_api_database
+    project_id, task_id = create_task(client)
+
+    response = client.get(activity_path(project_id, task_id), params=params)
+
+    assert response.status_code == 422
+
+
+def test_activity_api_conceals_missing_and_foreign_owners(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = comment_api_database
+    owner_project_id, owner_task_id = create_task(client, "Owner")
+    other_project_id, other_task_id = create_task(client, "Other")
+    owner_comments = comment_path(owner_project_id, owner_task_id)
+    client.post(owner_comments, json={"body": "Private activity"})
+
+    assert client.get(activity_path(owner_project_id, owner_task_id)).status_code == 200
+    assert client.get(activity_path(other_project_id, other_task_id)).json() == []
+    assert client.get(activity_path(999, owner_task_id)).json() == {
+        "detail": "Project not found"
+    }
+    assert client.get(activity_path(owner_project_id, 999)).json() == {
+        "detail": "Task not found"
+    }
+    assert client.get(activity_path(other_project_id, owner_task_id)).json() == {
+        "detail": "Task not found"
+    }
+
+
+@pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
+def test_activity_api_has_no_mutation_routes(
+    comment_api_database: tuple[TestClient, Engine], method: str
+) -> None:
+    client, _ = comment_api_database
+    project_id, task_id = create_task(client)
+
+    response = client.request(
+        method,
+        activity_path(project_id, task_id),
+        json={"event_type": "comment_created"},
+    )
+
+    assert response.status_code == 405
+
+
+def test_activity_api_contract_exposes_only_the_read_only_collection_route(
+    comment_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = comment_api_database
+    paths = client.get("/openapi.json").json()["paths"]
+    activity_routes = {
+        path: operations for path, operations in paths.items() if "activities" in path
+    }
+    collection_path = "/api/projects/{project_id}/tasks/{task_id}/activities"
+
+    assert set(activity_routes) == {collection_path}
+    assert set(activity_routes[collection_path]) == {"get"}
