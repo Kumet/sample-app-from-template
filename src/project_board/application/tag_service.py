@@ -5,9 +5,16 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from project_board.application.project_service import UNSET, _UnsetType
-from project_board.domain import ProjectNotFound, Tag, TagNotFound, TagValidationError
+from project_board.domain import (
+    ProjectNotFound,
+    Tag,
+    TagNotFound,
+    TagValidationError,
+    TaskNotFound,
+)
 from project_board.repositories.project_repository import ProjectRepository
 from project_board.repositories.tag_repository import TagRepository
+from project_board.repositories.task_repository import TaskRepository
 
 
 def _utc_now() -> datetime:
@@ -21,11 +28,13 @@ class TagService:
         self,
         tag_repository: TagRepository,
         project_repository: ProjectRepository,
+        task_repository: TaskRepository,
         *,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._tags = tag_repository
         self._projects = project_repository
+        self._tasks = task_repository
         self._clock = clock
 
     def create_tag(
@@ -85,6 +94,25 @@ class TagService:
     def delete_tag(self, project_id: int, tag_id: int) -> None:
         self._require_project(project_id)
         if not self._tags.delete(project_id, tag_id):
+            raise TagNotFound(project_id, tag_id)
+
+    def attach_tag(self, project_id: int, task_id: int, tag_id: int) -> None:
+        """Idempotently attach an owned Tag to an owned Task."""
+        self._require_association_owners(project_id, task_id, tag_id)
+        self._tags.attach(project_id, task_id, tag_id)
+
+    def detach_tag(self, project_id: int, task_id: int, tag_id: int) -> None:
+        """Idempotently detach an owned Tag from an owned Task."""
+        self._require_association_owners(project_id, task_id, tag_id)
+        self._tags.detach(project_id, task_id, tag_id)
+
+    def _require_association_owners(
+        self, project_id: int, task_id: int, tag_id: int
+    ) -> None:
+        self._require_project(project_id)
+        if self._tasks.get(project_id, task_id) is None:
+            raise TaskNotFound(project_id, task_id)
+        if self._tags.get(project_id, tag_id) is None:
             raise TagNotFound(project_id, tag_id)
 
     def _require_project(self, project_id: int) -> None:

@@ -41,7 +41,7 @@
   - Validation: unit, app
   - Dependencies: T001, T003
   - Allowed paths: `src/project_board/application/**`, `src/project_board/domain/**`, `tests/app/unit/**`
-- [ ] T006: Implement idempotent attach/detach service and cross-Project concealment.
+- [x] T006: Implement idempotent attach/detach service and cross-Project concealment.
   - Requirements: REQ-009, REQ-010, REQ-011, REQ-020, REQ-022
   - Acceptance criteria: AC-007, AC-008, AC-016, AC-018
   - Validation: unit, app, integration

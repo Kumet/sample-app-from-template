@@ -3,12 +3,13 @@
 from datetime import UTC, datetime
 from typing import NoReturn
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from project_board.domain import DuplicateTagName, RepositoryError, Tag
-from project_board.infrastructure.models import TagModel
+from project_board.infrastructure.models import TagModel, TaskTagModel
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -106,6 +107,36 @@ class SQLAlchemyTagRepository:
         except SQLAlchemyError as error:
             self._rollback_and_raise(error)
         return True
+
+    def attach(self, project_id: int, task_id: int, tag_id: int) -> None:
+        statement = (
+            insert(TaskTagModel)
+            .values(project_id=project_id, task_id=task_id, tag_id=tag_id)
+            .on_conflict_do_nothing(
+                index_elements=(
+                    TaskTagModel.project_id,
+                    TaskTagModel.task_id,
+                    TaskTagModel.tag_id,
+                )
+            )
+        )
+        try:
+            self._session.execute(statement)
+            self._session.commit()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
+
+    def detach(self, project_id: int, task_id: int, tag_id: int) -> None:
+        statement = delete(TaskTagModel).where(
+            TaskTagModel.project_id == project_id,
+            TaskTagModel.task_id == task_id,
+            TaskTagModel.tag_id == tag_id,
+        )
+        try:
+            self._session.execute(statement)
+            self._session.commit()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
 
     def _raise_write_error(
         self,

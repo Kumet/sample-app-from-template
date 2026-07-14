@@ -9,18 +9,29 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from project_board.domain import DuplicateTagName, Project, RepositoryError, Tag
+from project_board.domain import (
+    DuplicateTagName,
+    Project,
+    RepositoryError,
+    Tag,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 from project_board.infrastructure import (
     create_database_engine,
     create_session_factory,
     initialize_schema,
 )
-from project_board.infrastructure.models import TagModel
+from project_board.infrastructure.models import TagModel, TaskTagModel
 from project_board.repositories.sqlalchemy_project_repository import (
     SQLAlchemyProjectRepository,
 )
 from project_board.repositories.sqlalchemy_tag_repository import (
     SQLAlchemyTagRepository,
+)
+from project_board.repositories.sqlalchemy_task_repository import (
+    SQLAlchemyTaskRepository,
 )
 
 
@@ -69,6 +80,23 @@ def make_tag(
 def create_project(session: Session, name: str = "Project") -> Project:
     timestamp = datetime(2026, 7, 14, tzinfo=UTC)
     return SQLAlchemyProjectRepository(session).create(make_project(name, timestamp))
+
+
+def create_task(session: Session, project_id: int) -> Task:
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    return SQLAlchemyTaskRepository(session).create(
+        Task(
+            id=0,
+            project_id=project_id,
+            title="Task",
+            description=None,
+            status=TaskStatus.TODO,
+            priority=TaskPriority.MEDIUM,
+            due_at=None,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+    )
 
 
 def test_repository_crud_is_ownership_scoped_ordered_and_restores_utc(
@@ -266,3 +294,80 @@ def test_failed_delete_rolls_back_and_same_session_remains_reusable(
     assert repository.get(project.id, original.id) == original
     recovered = repository.create(make_tag(project.id, "Recovered", timestamp))
     assert repository.get(project.id, recovered.id) == recovered
+
+
+def test_attach_and_detach_are_idempotent_and_change_one_association_row(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    task = create_task(session, project.id)
+    repository = SQLAlchemyTagRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    tag = repository.create(make_tag(project.id, "Backend", timestamp))
+
+    repository.attach(project.id, task.id, tag.id)
+    repository.attach(project.id, task.id, tag.id)
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 1
+
+    repository.detach(project.id, task.id, tag.id)
+    repository.detach(project.id, task.id, tag.id)
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 0
+
+
+@pytest.mark.parametrize("operation", ["attach", "detach"])
+def test_failed_association_write_rolls_back_and_session_remains_reusable(
+    session: Session,
+    operation: str,
+) -> None:
+    project = create_project(session)
+    task = create_task(session, project.id)
+    repository = SQLAlchemyTagRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    tag = repository.create(make_tag(project.id, "Backend", timestamp))
+    if operation == "detach":
+        repository.attach(project.id, task.id, tag.id)
+
+    def fail_before_commit(_session: Session) -> None:
+        raise SQLAlchemyError(f"forced {operation} failure")
+
+    event.listen(session, "before_commit", fail_before_commit, once=True)
+    with pytest.raises(RepositoryError, match="Tag persistence operation failed"):
+        getattr(repository, operation)(project.id, task.id, tag.id)
+
+    assert session.in_transaction() is False
+    expected_count = 1 if operation == "detach" else 0
+    assert (
+        session.scalar(select(func.count()).select_from(TaskTagModel)) == expected_count
+    )
+    assert repository.get(project.id, tag.id) == tag
+    expected_task = replace(task, tags=(tag,)) if operation == "detach" else task
+    assert SQLAlchemyTaskRepository(session).get(project.id, task.id) == expected_task
+
+    if operation == "attach":
+        repository.attach(project.id, task.id, tag.id)
+        expected_count = 1
+    else:
+        repository.detach(project.id, task.id, tag.id)
+        expected_count = 0
+    assert (
+        session.scalar(select(func.count()).select_from(TaskTagModel)) == expected_count
+    )
+
+
+def test_repository_rejects_cross_project_association_without_parent_changes(
+    session: Session,
+) -> None:
+    first_project = create_project(session, "First")
+    second_project = create_project(session, "Second")
+    task = create_task(session, first_project.id)
+    repository = SQLAlchemyTagRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    tag = repository.create(make_tag(second_project.id, "Foreign", timestamp))
+
+    with pytest.raises(RepositoryError, match="Tag persistence operation failed"):
+        repository.attach(first_project.id, task.id, tag.id)
+
+    assert session.in_transaction() is False
+    assert session.scalar(select(func.count()).select_from(TaskTagModel)) == 0
+    assert repository.get(second_project.id, tag.id) == tag
+    assert SQLAlchemyTaskRepository(session).get(first_project.id, task.id) == task
