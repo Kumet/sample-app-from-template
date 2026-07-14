@@ -29,7 +29,7 @@
   - Validation: unit, integration, full
   - Dependencies: T001, T002
   - Allowed paths: `src/project_board/repositories/**`, `src/project_board/infrastructure/**`, `tests/app/unit/**`, `tests/app/integration/**`
-- [ ] T004: Implement Task application service and omitted/null update semantics.
+- [x] T004: Implement Task application service and omitted/null update semantics.
   - Requirements: REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-014, REQ-016, REQ-017, REQ-018
   - Acceptance criteria: AC-003, AC-005, AC-009, AC-010, AC-011, AC-012, AC-016, AC-018, AC-019
   - Validation: unit, app
