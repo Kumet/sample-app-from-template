@@ -15,7 +15,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/unit/**`
-- [ ] T002: Add backward-compatible API parsing for `q` and repeated status/priority.
+- [x] T002: Add backward-compatible API parsing for `q` and repeated status/priority.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-005, REQ-006, REQ-010
   - Acceptance criteria: AC-001, AC-002, AC-003, AC-005
   - Validation: unit, app

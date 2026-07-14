@@ -192,8 +192,9 @@ def create_task(
 def list_tasks(
     project_id: int,
     service: TaskServiceDependency,
-    status_filter: Annotated[TaskStatus | None, Query(alias="status")] = None,
-    priority: TaskPriority | None = None,
+    q: Annotated[str | None, Query()] = None,
+    status_filter: Annotated[list[TaskStatus] | None, Query(alias="status")] = None,
+    priority: Annotated[list[TaskPriority] | None, Query()] = None,
     due_before: Annotated[AwareUtcDatetime | None, Query()] = None,
     due_after: Annotated[AwareUtcDatetime | None, Query()] = None,
     tag_id: Annotated[int | None, Query(gt=0)] = None,
@@ -202,12 +203,17 @@ def list_tasks(
     sort: TaskSort = TaskSort.CREATED_AT,
     order: SortOrder = SortOrder.ASC,
 ) -> object:
+    statuses = tuple(status_filter or ())
+    priorities = tuple(priority or ())
     return _call_service(
         lambda: service.list_tasks(
             project_id,
             TaskListQuery(
-                status=status_filter,
-                priority=priority,
+                q=q,
+                statuses=statuses,
+                priorities=priorities,
+                status=statuses[0] if len(statuses) == 1 else None,
+                priority=priorities[0] if len(priorities) == 1 else None,
                 due_before=due_before,
                 due_after=due_after,
                 tag_id=tag_id,
