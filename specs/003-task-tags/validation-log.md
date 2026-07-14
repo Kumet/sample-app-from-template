@@ -17,3 +17,4 @@ will be rendered from append-only `.agent-work/003-task-tags/events.jsonl` and
 committed as the tracked pre-final evidence snapshot.
 | 1 | T001 | PASS | task validation passed |
 | 1 | T002 | PASS | task validation passed |
+| 1 | T003 | PASS | task validation passed |

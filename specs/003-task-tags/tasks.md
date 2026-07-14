@@ -23,7 +23,7 @@
   - Validation: integration, full
   - Dependencies: T001
   - Allowed paths: `src/project_board/infrastructure/**`, `src/project_board/repositories/task_repository.py`, `tests/app/integration/**`
-- [ ] T003: Implement transactional SQLAlchemy Tag CRUD repository.
+- [x] T003: Implement transactional SQLAlchemy Tag CRUD repository.
   - Requirements: REQ-003, REQ-005, REQ-006, REQ-008, REQ-020, REQ-021
   - Acceptance criteria: AC-002, AC-003, AC-005, AC-006, AC-016, AC-017
   - Validation: unit, integration, full
