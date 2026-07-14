@@ -103,6 +103,17 @@ policy explicitly enable it. Medium risk stops at a PR and high risk stops
 before push. Use `work-resume` only when saved branch, HEAD, contract digest,
 and changed paths still match.
 
+If a human-approved recovery edit adds paths to an existing failed worktree,
+do not edit `state.json` or `events.jsonl`. Run
+`make approve-recovery-patch-dry-run FEATURE=<feature> PATHS='<explicit paths>'
+REASON='<approval>'`, inspect the bindings, then run the corresponding
+`approve-recovery-patch` target. The command accepts only newly added explicit
+paths with an unchanged HEAD. It verifies registered ownership, branch,
+contract, scope, the complete changed-path set, and a canonical digest covering
+working-tree contents and index state. Approval and application are recorded as
+append-only events. Delivery recomputes the active digest and fails closed after
+any post-approval change.
+
 ### Create a spec
 
 ```text
@@ -175,3 +186,20 @@ Ordinary task or pre-commit `validation` events never satisfy the final gate.
 All reviewer exceptions pass through centralized redaction before event,
 diagnostic, notification, or report persistence; EventStore recursively redacts
 again as defense in depth.
+
+## Test-weakening evidence
+
+Mechanical weakening inspection records an explicit verdict with separate
+`blocking_findings` and `review_candidates`. Blocking findings are
+high-confidence conditions such as test deletion, an added skip marker, or a CI
+failure condition being disabled; they stop delivery before review. Review
+candidates are low-confidence signals such as a removed assertion diff line.
+They remain visible to the tests review shard but are not proof of weakening.
+
+The tests reviewer must corroborate a candidate against the current exact-HEAD
+diff. Replacing an old assertion with an updated expectation or stronger
+assertions is not weakening merely because the old line is removed. Other file
+shards do not turn a test candidate into a blocking finding, while integration
+may still verify the evidence identity and gate composition. Review input uses
+one authoritative weakening record for the current HEAD and fails closed for
+conflicting or malformed current-HEAD evidence.
