@@ -27,7 +27,7 @@
   - Validation: unit, integration, full
   - Dependencies: T001, T002
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T004: Implement TaskCommentService ownership, CRUD, activity queries, and UTC orchestration.
+- [x] T004: Implement TaskCommentService ownership, CRUD, activity queries, and UTC orchestration.
   - Requirements: REQ-001, REQ-003, REQ-011, REQ-012, REQ-013, REQ-020, REQ-021
   - Acceptance criteria: AC-004, AC-006, AC-007, AC-008, AC-014
   - Validation: unit, app
