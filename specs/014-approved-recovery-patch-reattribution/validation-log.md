@@ -16,8 +16,8 @@ review events are intentionally not written back into this file.
 
 - 2026-07-14 — Feature 014 spec-lint passed with no errors or warnings.
 - 2026-07-14 — Python compilation passed for all framework modules.
-- 2026-07-14 — Targeted recovery-patch suite passed: 11 tests.
-- 2026-07-14 — Full framework test suite passed: 126 tests.
+- 2026-07-14 — Targeted recovery-patch suite passed: 12 tests.
+- 2026-07-14 — Full framework test suite passed: 127 tests.
 - 2026-07-14 — `make validate` passed: quality policy, secret filename check,
   lint/typecheck adapters, and all framework tests.
 - 2026-07-14 — Scope audit passed for 9 approved paths; `git diff --check`
@@ -65,3 +65,9 @@ review events are intentionally not written back into this file.
   exposed a legacy event-schema fixture; binding-absent inspection now scans
   valid JSON only for the matching recovery event, while active bindings retain
   strict current-schema EventStore verification.
+- New test-only cycle 1 — security review questioned whether sensitive paths
+  already present in saved/current changes could reach digest I/O. A mock-only
+  regression injects a credential-directory path without creating that file and
+  proves both direct digest and full inspection reject it before recovery Git
+  diff, sensitive-path `lstat`, or sensitive-path `open`; production code was
+  unchanged.

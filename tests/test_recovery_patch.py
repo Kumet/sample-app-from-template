@@ -326,6 +326,61 @@ class RecoveryPatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Runtime paths cannot be approved"):
             recovery_patch.parse_approved_paths(".agent-work/state.json")
 
+    def test_sensitive_saved_path_is_rejected_before_diff_or_file_io(self):
+        sensitive = "configs/credentials/token.py"
+        with (
+            mock.patch.object(recovery_patch, "_run_git_bytes") as git_diff,
+            mock.patch.object(Path, "lstat") as lstat,
+            mock.patch.object(Path, "open") as file_open,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "Sensitive paths cannot be approved"
+            ):
+                recovery_patch.diff_digest(
+                    self.isolated.path, ("existing.py", sensitive)
+                )
+        git_diff.assert_not_called()
+        lstat.assert_not_called()
+        file_open.assert_not_called()
+
+        self._add_recovery()
+        saved = state.read_state(self.state_path)
+        state.write_state(
+            self.state_path,
+            replace(saved, changed_paths=("existing.py", sensitive)),
+        )
+        original_lstat = Path.lstat
+        original_open = Path.open
+
+        def guarded_lstat(path, *args, **kwargs):
+            if sensitive in str(path):
+                raise AssertionError("sensitive path reached lstat")
+            return original_lstat(path, *args, **kwargs)
+
+        def guarded_open(path, *args, **kwargs):
+            if sensitive in str(path):
+                raise AssertionError("sensitive path reached open")
+            return original_open(path, *args, **kwargs)
+
+        with (
+            mock.patch.object(
+                recovery_patch.git_utils,
+                "changed_paths_read_only",
+                return_value=["existing.py", sensitive, "recovery.py"],
+            ),
+            mock.patch.object(recovery_patch, "_run_git_bytes") as git_diff,
+            mock.patch.object(Path, "lstat", new=guarded_lstat),
+            mock.patch.object(Path, "open", new=guarded_open),
+        ):
+            report = recovery_patch.inspect(
+                self.repo, self.feature_dir, self.config, ("recovery.py",)
+            )
+        self.assertFalse(report.can_apply)
+        self.assertIn(
+            "recovery diff inspection failed: ValueError", report.blocking_reasons
+        )
+        git_diff.assert_not_called()
+
     def test_apply_reinspects_after_approval_event_before_state_mutation(self):
         recovery = self._add_recovery()
         original_state = self.state_path.read_bytes()
