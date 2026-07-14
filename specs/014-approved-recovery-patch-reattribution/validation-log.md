@@ -1,4 +1,9 @@
 # Validation log: Approved recovery patch re-attribution
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"014-approved-recovery-patch-reattribution","generated_at":"2026-07-14T13:00:00+09:00","included_event_sequence":0,"snapshot_format_version":2,"validation_contract_digest":"736ff21eee69bc00fa58a2c041549e12442c30c7276e453d57b0fe3542d47340"} -->
+
+This tracked log is the pre-final snapshot through event sequence 0. The
+append-only runtime snapshot, exact-HEAD validation attempt, acceptance, and
+review events are intentionally not written back into this file.
 
 ## Approved scope
 
