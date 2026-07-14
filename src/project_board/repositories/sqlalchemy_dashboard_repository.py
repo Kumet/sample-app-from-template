@@ -2,19 +2,26 @@
 
 from typing import NoReturn
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, distinct, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from project_board.domain import (
     TERMINAL_TASK_STATUSES,
+    DashboardCommentCounts,
     DashboardDueCounts,
+    DashboardTagCount,
     DashboardTaskCounts,
     RepositoryError,
     TaskPriority,
     TaskStatus,
 )
-from project_board.infrastructure.models import TaskModel
+from project_board.infrastructure.models import (
+    TagModel,
+    TaskCommentModel,
+    TaskModel,
+    TaskTagModel,
+)
 from project_board.repositories.dashboard_repository import DashboardDueQuery
 
 
@@ -108,6 +115,85 @@ class SQLAlchemyProjectDashboardRepository:
             upcoming_7_days=int(row.upcoming_7_days or 0),
             later=int(row.later or 0),
             no_due_date=int(row.no_due_date or 0),
+        )
+
+    def list_tag_counts(self, project_id: int) -> tuple[DashboardTagCount, ...]:
+        """Return every owned Tag and its distinct owned Task count."""
+        statement = (
+            select(
+                TagModel.id,
+                TagModel.name,
+                TagModel.normalized_name,
+                func.count(distinct(TaskModel.id)).label("task_count"),
+            )
+            .select_from(TagModel)
+            .outerjoin(
+                TaskTagModel,
+                and_(
+                    TaskTagModel.project_id == TagModel.project_id,
+                    TaskTagModel.tag_id == TagModel.id,
+                ),
+            )
+            .outerjoin(
+                TaskModel,
+                and_(
+                    TaskModel.project_id == TaskTagModel.project_id,
+                    TaskModel.id == TaskTagModel.task_id,
+                ),
+            )
+            .where(TagModel.project_id == project_id)
+            .group_by(
+                TagModel.id,
+                TagModel.name,
+                TagModel.normalized_name,
+            )
+            .order_by(TagModel.normalized_name.asc(), TagModel.id.asc())
+        )
+
+        try:
+            rows = self._session.execute(statement).all()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
+
+        return tuple(
+            DashboardTagCount(
+                id=row.id,
+                name=row.name,
+                normalized_name=row.normalized_name,
+                task_count=int(row.task_count),
+            )
+            for row in rows
+        )
+
+    def get_comment_counts(self, project_id: int) -> DashboardCommentCounts:
+        """Return current Comment totals confined to existing owned Tasks."""
+        statement = (
+            select(
+                func.count(TaskCommentModel.id).label("total"),
+                func.count(distinct(TaskModel.id)).label("tasks_with_comments"),
+            )
+            .select_from(TaskCommentModel)
+            .join(
+                TaskModel,
+                and_(
+                    TaskModel.project_id == TaskCommentModel.project_id,
+                    TaskModel.id == TaskCommentModel.task_id,
+                ),
+            )
+            .where(
+                TaskCommentModel.project_id == project_id,
+                TaskModel.project_id == project_id,
+            )
+        )
+
+        try:
+            row = self._session.execute(statement).one()
+        except SQLAlchemyError as error:
+            self._rollback_and_raise(error)
+
+        return DashboardCommentCounts(
+            total=int(row.total),
+            tasks_with_comments=int(row.tasks_with_comments),
         )
 
     def _rollback_and_raise(self, error: SQLAlchemyError) -> NoReturn:

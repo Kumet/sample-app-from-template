@@ -21,7 +21,7 @@
   - Validation: unit, integration
   - Dependencies: T001
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/integration/**`
-- [ ] T003: Implement Tag and Comment aggregate queries with deterministic ownership confinement.
+- [x] T003: Implement Tag and Comment aggregate queries with deterministic ownership confinement.
   - Requirements: REQ-008, REQ-009, REQ-014, REQ-015
   - Acceptance criteria: AC-006, AC-007, AC-010
   - Validation: integration

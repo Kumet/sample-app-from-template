@@ -7,13 +7,20 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from project_board.domain import TaskPriority, TaskStatus
+from project_board.domain import CommentEventType, TaskPriority, TaskStatus
 from project_board.infrastructure import (
     create_database_engine,
     create_session_factory,
     initialize_schema,
 )
-from project_board.infrastructure.models import ProjectModel, TaskModel
+from project_board.infrastructure.models import (
+    ProjectModel,
+    TagModel,
+    TaskCommentActivityModel,
+    TaskCommentModel,
+    TaskModel,
+    TaskTagModel,
+)
 from project_board.repositories import DashboardDueQuery
 from project_board.repositories.sqlalchemy_dashboard_repository import (
     SQLAlchemyProjectDashboardRepository,
@@ -61,20 +68,52 @@ def add_task(
     status: TaskStatus,
     priority: TaskPriority,
     due_at: datetime | None,
-) -> None:
+) -> int:
     timestamp = datetime(2026, 7, 14, tzinfo=UTC)
-    session.add(
-        TaskModel(
-            project_id=project_id,
-            title=title,
-            description=None,
-            status=status.value,
-            priority=priority.value,
-            due_at=due_at,
-            created_at=timestamp,
-            updated_at=timestamp,
-        )
+    task = TaskModel(
+        project_id=project_id,
+        title=title,
+        description=None,
+        status=status.value,
+        priority=priority.value,
+        due_at=due_at,
+        created_at=timestamp,
+        updated_at=timestamp,
     )
+    session.add(task)
+    session.flush()
+    return task.id
+
+
+def add_tag(session: Session, project_id: int, name: str, normalized_name: str) -> int:
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    tag = TagModel(
+        project_id=project_id,
+        name=name,
+        normalized_name=normalized_name,
+        color=None,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    session.add(tag)
+    session.flush()
+    return tag.id
+
+
+def add_comment(
+    session: Session, project_id: int, task_id: int, body: str
+) -> TaskCommentModel:
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    comment = TaskCommentModel(
+        project_id=project_id,
+        task_id=task_id,
+        body=body,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    session.add(comment)
+    session.flush()
+    return comment
 
 
 def due_query(as_of: datetime) -> DashboardDueQuery:
@@ -202,6 +241,134 @@ def test_due_counts_use_half_open_boundaries_and_exclude_terminal_tasks(
     assert counts.no_due_date == 1
 
 
+def test_tag_counts_include_unattached_tags_and_confine_distinct_owned_tasks(
+    session: Session,
+) -> None:
+    project_id = create_project(session, "Selected")
+    foreign_project_id = create_project(session, "Foreign")
+    first_task_id = add_task(
+        session,
+        project_id,
+        "First",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    second_task_id = add_task(
+        session,
+        project_id,
+        "Second",
+        status=TaskStatus.IN_PROGRESS,
+        priority=TaskPriority.HIGH,
+        due_at=None,
+    )
+    foreign_task_id = add_task(
+        session,
+        foreign_project_id,
+        "Foreign",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.LOW,
+        due_at=None,
+    )
+    zeta_id = add_tag(session, project_id, "Zeta", "zeta")
+    alpha_id = add_tag(session, project_id, "Alpha", "alpha")
+    beta_id = add_tag(session, project_id, "Beta", "beta")
+    foreign_tag_id = add_tag(session, foreign_project_id, "Foreign", "foreign")
+    deleted_tag_id = add_tag(session, project_id, "Deleted", "deleted")
+    session.add_all(
+        [
+            TaskTagModel(project_id=project_id, task_id=first_task_id, tag_id=alpha_id),
+            TaskTagModel(
+                project_id=project_id, task_id=second_task_id, tag_id=alpha_id
+            ),
+            TaskTagModel(project_id=project_id, task_id=first_task_id, tag_id=zeta_id),
+            TaskTagModel(
+                project_id=foreign_project_id,
+                task_id=foreign_task_id,
+                tag_id=foreign_tag_id,
+            ),
+        ]
+    )
+    deleted_tag = session.get(TagModel, deleted_tag_id)
+    assert deleted_tag is not None
+    session.delete(deleted_tag)
+    session.commit()
+
+    counts = SQLAlchemyProjectDashboardRepository(session).list_tag_counts(project_id)
+
+    assert [(count.id, count.name, count.task_count) for count in counts] == [
+        (alpha_id, "Alpha", 2),
+        (beta_id, "Beta", 0),
+        (zeta_id, "Zeta", 1),
+    ]
+    assert [count.normalized_name for count in counts] == ["alpha", "beta", "zeta"]
+
+
+def test_comment_counts_include_only_current_comments_on_owned_tasks(
+    session: Session,
+) -> None:
+    project_id = create_project(session, "Selected")
+    foreign_project_id = create_project(session, "Foreign")
+    first_task_id = add_task(
+        session,
+        project_id,
+        "First",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    second_task_id = add_task(
+        session,
+        project_id,
+        "Second",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    add_task(
+        session,
+        project_id,
+        "Without comments",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    foreign_task_id = add_task(
+        session,
+        foreign_project_id,
+        "Foreign",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        due_at=None,
+    )
+    deleted_comment = add_comment(session, project_id, first_task_id, "Deleted")
+    add_comment(session, project_id, first_task_id, "Current first")
+    add_comment(session, project_id, second_task_id, "Current second")
+    add_comment(session, foreign_project_id, foreign_task_id, "Foreign")
+    deleted_comment_id = deleted_comment.id
+    session.delete(deleted_comment)
+    session.add(
+        TaskCommentActivityModel(
+            project_id=project_id,
+            task_id=first_task_id,
+            comment_id=deleted_comment_id,
+            event_type=CommentEventType.DELETED.value,
+            occurred_at=datetime(2026, 7, 15, tzinfo=UTC),
+        )
+    )
+    session.commit()
+
+    repository = SQLAlchemyProjectDashboardRepository(session)
+
+    counts = repository.get_comment_counts(project_id)
+    empty_counts = repository.get_comment_counts(create_project(session, "Empty"))
+
+    assert counts.total == 2
+    assert counts.tasks_with_comments == 2
+    assert empty_counts.total == 0
+    assert empty_counts.tasks_with_comments == 0
+
+
 @pytest.mark.parametrize("task_count", [0, 25])
 def test_task_aggregates_use_three_parameterized_statements_independent_of_rows(
     session: Session, isolated_engine: Engine, task_count: int
@@ -246,4 +413,55 @@ def test_task_aggregates_use_three_parameterized_statements_independent_of_rows(
     assert all("GROUP BY" in statement for statement in normalized[:2])
     assert "CASE WHEN" in normalized[2]
     assert "2026-07-15" not in executed[2][0]
+    assert all(parameters for _statement, parameters in executed)
+
+
+@pytest.mark.parametrize("row_count", [0, 25])
+def test_tag_and_comment_aggregates_use_two_parameterized_set_based_statements(
+    session: Session, isolated_engine: Engine, row_count: int
+) -> None:
+    project_id = create_project(session, "Selected")
+    for index in range(row_count):
+        task_id = add_task(
+            session,
+            project_id,
+            f"Task {index}",
+            status=TaskStatus.TODO,
+            priority=TaskPriority.MEDIUM,
+            due_at=None,
+        )
+        tag_id = add_tag(session, project_id, f"Tag {index}", f"tag-{index:02}")
+        session.add(TaskTagModel(project_id=project_id, task_id=task_id, tag_id=tag_id))
+        add_comment(session, project_id, task_id, f"Comment {index}")
+    session.commit()
+    executed: list[tuple[str, object]] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        executed.append((statement, parameters))
+
+    event.listen(isolated_engine, "before_cursor_execute", record_statement)
+    try:
+        repository = SQLAlchemyProjectDashboardRepository(session)
+        repository.list_tag_counts(project_id)
+        repository.get_comment_counts(project_id)
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_statement)
+
+    assert len(executed) == 2
+    normalized = [" ".join(statement.upper().split()) for statement, _ in executed]
+    assert all(statement.startswith("SELECT ") for statement in normalized)
+    assert "LEFT OUTER JOIN TASK_TAGS" in normalized[0]
+    assert "LEFT OUTER JOIN TASKS" in normalized[0]
+    assert "COUNT(DISTINCT TASKS.ID)" in normalized[0]
+    assert "GROUP BY" in normalized[0]
+    assert "ORDER BY TAGS.NORMALIZED_NAME ASC, TAGS.ID ASC" in normalized[0]
+    assert "JOIN TASKS" in normalized[1]
+    assert "COUNT(DISTINCT TASKS.ID)" in normalized[1]
     assert all(parameters for _statement, parameters in executed)
