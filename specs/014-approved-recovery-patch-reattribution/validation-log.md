@@ -16,8 +16,8 @@ review events are intentionally not written back into this file.
 
 - 2026-07-14 — Feature 014 spec-lint passed with no errors or warnings.
 - 2026-07-14 — Python compilation passed for all framework modules.
-- 2026-07-14 — Targeted recovery-patch suite passed: 10 tests.
-- 2026-07-14 — Full framework test suite passed: 125 tests.
+- 2026-07-14 — Targeted recovery-patch suite passed: 11 tests.
+- 2026-07-14 — Full framework test suite passed: 126 tests.
 - 2026-07-14 — `make validate` passed: quality policy, secret filename check,
   lint/typecheck adapters, and all framework tests.
 - 2026-07-14 — Scope audit passed for 9 approved paths; `git diff --check`
@@ -57,3 +57,11 @@ review events are intentionally not written back into this file.
   Path admission now rejects credential, secret, private-key, API-key, and token
   directory components at every depth before scope or diff code can read files;
   regressions cover hidden and non-hidden variants.
+- New limited cycle 2 — spec-scope review found that deleting both recovery
+  binding fields made the state appear legacy. Active verification now checks
+  append-only applied evidence for the exact state `updated_at`: matching
+  evidence with absent fields fails closed, while an event-free legacy state and
+  a later formally timestamped state remain accepted. The first full-suite run
+  exposed a legacy event-schema fixture; binding-absent inspection now scans
+  valid JSON only for the matching recovery event, while active bindings retain
+  strict current-schema EventStore verification.

@@ -408,6 +408,77 @@ class RecoveryPatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid recovery event sequence"):
             state.read_state(self.state_path)
 
+    def test_removed_binding_is_rejected_but_legacy_and_later_state_are_allowed(self):
+        legacy = state.read_state(self.state_path)
+        self.assertEqual(
+            recovery_patch.verify_active_evidence(
+                self.repo,
+                self.feature_dir,
+                legacy,
+                legacy.branch,
+                legacy.head_commit,
+                list(legacy.changed_paths),
+            ),
+            (),
+        )
+
+        self._add_recovery()
+        recovery_patch.apply(
+            self.repo,
+            self.feature_dir,
+            self.config,
+            ("recovery.py",),
+            "Human approved format-only recovery",
+        )
+        attributed = state.read_state(self.state_path)
+        raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+        raw.pop("recovery_event_sequence")
+        raw.pop("recovery_diff_digest")
+        self.state_path.write_text(json.dumps(raw), encoding="utf-8")
+        removed = state.read_state(self.state_path)
+        self.assertEqual(
+            recovery_patch.verify_active_evidence(
+                self.repo,
+                self.feature_dir,
+                removed,
+                removed.branch,
+                removed.head_commit,
+                list(removed.changed_paths),
+            ),
+            ("saved recovery evidence binding was removed",),
+        )
+
+        incomplete = replace(attributed, recovery_diff_digest=None)
+        self.assertEqual(
+            recovery_patch.verify_active_evidence(
+                self.repo,
+                self.feature_dir,
+                incomplete,
+                incomplete.branch,
+                incomplete.head_commit,
+                list(incomplete.changed_paths),
+            ),
+            ("saved recovery evidence binding is incomplete",),
+        )
+
+        later = replace(
+            attributed,
+            updated_at="2026-07-14T23:59:59+00:00",
+            recovery_event_sequence=None,
+            recovery_diff_digest=None,
+        )
+        self.assertEqual(
+            recovery_patch.verify_active_evidence(
+                self.repo,
+                self.feature_dir,
+                later,
+                later.branch,
+                later.head_commit,
+                list(later.changed_paths),
+            ),
+            (),
+        )
+
     def test_reason_is_redacted_and_active_evidence_rechecks_worktree(self):
         self._add_recovery()
         recovery_patch.apply(

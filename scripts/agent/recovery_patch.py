@@ -339,7 +339,13 @@ def verify_active_evidence(
     current_head: str | None,
     current_paths: list[str],
 ) -> tuple[str, ...]:
+    events_path = repo / ".agent-work" / feature_dir.name / "events.jsonl"
+    state_has_applied_evidence = _has_applied_event_for_state(
+        events_path, saved
+    )
     if saved.recovery_event_sequence is None and saved.recovery_diff_digest is None:
+        if state_has_applied_evidence:
+            return ("saved recovery evidence binding was removed",)
         return ()
     if saved.recovery_event_sequence is None or not saved.recovery_diff_digest:
         return ("saved recovery evidence binding is incomplete",)
@@ -360,9 +366,7 @@ def verify_active_evidence(
         worktree_valid = False
     if not worktree_valid:
         return ("active recovery evidence names an invalid worktree",)
-    events = EventStore(
-        repo / ".agent-work" / feature_dir.name / "events.jsonl"
-    ).read()
+    events = EventStore(events_path).read()
     approval = _event_at(events, saved.recovery_event_sequence)
     if approval is None or not _valid_approval_event(approval, saved, repo):
         blockers.append("saved recovery approval evidence is missing or invalid")
@@ -452,6 +456,30 @@ def _binding_data(inspection: RecoveryInspection, updated_at: str) -> dict:
         "diff_digest": inspection.diff_digest,
         "state_updated_at": updated_at,
     }
+
+
+def _has_applied_event_for_state(path: Path, saved: RunState) -> bool:
+    if not path.exists():
+        return False
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Corrupt recovery event evidence at line {line_number}"
+            ) from error
+        if not isinstance(raw, dict):
+            continue
+        data = raw.get("data")
+        if (
+            raw.get("feature") == saved.feature
+            and raw.get("kind") == "recovery-patch-applied"
+            and raw.get("result") == "PASS"
+            and isinstance(data, dict)
+            and data.get("state_updated_at") == saved.updated_at
+        ):
+            return True
+    return False
 
 
 def _valid_approval_event(event: Event, saved: RunState, repo: Path) -> bool:
