@@ -61,8 +61,41 @@ class ReviewResult:
     def required_findings(self) -> tuple[Finding, ...]:
         return tuple(f for f in self.findings if f.required)
 
+    @property
+    def non_required_findings(self) -> tuple[Finding, ...]:
+        return tuple(f for f in self.findings if not f.required)
+
+    @property
+    def gate_verdict(self) -> str:
+        if self.required_findings:
+            return "fail"
+        if self.result == "pass":
+            return "pass"
+        # A raw reviewer FAIL is non-blocking only when structured findings
+        # explain it and every finding is explicitly non-required.
+        return "pass" if self.non_required_findings else "fail"
+
+    @property
+    def gate_passed(self) -> bool:
+        return self.gate_verdict == "pass"
+
     def signature(self) -> str:
         return json.dumps([f.__dict__ for f in self.required_findings], sort_keys=True)
+
+    def evidence_fields(self) -> dict:
+        payload = review_payload(self)
+        return {
+            "result": self.result,
+            "findings": payload["findings"],
+            "reviewer_result": self.result.upper(),
+            "gate_verdict": self.gate_verdict.upper(),
+            "schema_valid": True,
+            "required_findings": [f.__dict__ for f in self.required_findings],
+            "non_required_findings": [
+                f.__dict__ for f in self.non_required_findings
+            ],
+            "review_payload_digest": _digest(payload),
+        }
 
 
 @dataclass(frozen=True)
@@ -208,6 +241,119 @@ def parse_review(text: str) -> ReviewResult:
     if result.result == "pass" and result.required_findings:
         raise ValueError("Passing review cannot contain required high findings")
     return result
+
+
+def review_payload(result: ReviewResult) -> dict:
+    return {
+        "result": result.result,
+        "findings": [finding.__dict__ for finding in result.findings],
+    }
+
+
+def result_from_chunk_event(event, identity_digest: str | None = None) -> ReviewResult:
+    """Validate and restore one exact-identity review chunk result."""
+    data = event.data or {}
+    if data.get("aggregate") is True:
+        raise ValueError("Aggregate review evidence is not a chunk")
+    digest = data.get("identity_digest")
+    identity_payload = data.get("identity")
+    if not isinstance(digest, str) or not digest:
+        raise ValueError("Review chunk identity digest is missing")
+    if identity_digest is not None and digest != identity_digest:
+        raise ValueError("Review chunk identity digest mismatched")
+    if not isinstance(identity_payload, dict):
+        raise ValueError("Review chunk identity is missing")
+    identity = ReviewIdentity.from_payload(identity_payload)
+    if identity.digest != digest:
+        raise ValueError("Review chunk identity payload mismatched")
+    if (
+        identity.head_sha != event.head_sha
+        or identity.feature != event.feature
+        or identity.shard.split(" [", 1)[0] != data.get("shard")
+    ):
+        raise ValueError("Review chunk event identity mismatched")
+    parsed = parse_review(
+        json.dumps(
+            {
+                "result": data.get("result", event.result.lower()),
+                "findings": data.get("findings", []),
+            },
+            sort_keys=True,
+        )
+    )
+    canonical_fields = {
+        "reviewer_result",
+        "gate_verdict",
+        "schema_valid",
+        "required_findings",
+        "non_required_findings",
+        "review_payload_digest",
+    }
+    present = canonical_fields.intersection(data)
+    if not present:
+        # Compatibility is intentionally limited to old raw PASS events. A
+        # legacy FAIL cannot prove that non-required semantics were applied.
+        if event.result != "PASS" or parsed.result != "pass":
+            raise ValueError("Legacy review FAIL is not canonical gate evidence")
+        if parsed.required_findings:
+            raise ValueError("Legacy review PASS contains required findings")
+        return parsed
+    if present != canonical_fields:
+        raise ValueError("Review chunk gate evidence fields are incomplete")
+    expected = parsed.evidence_fields()
+    for field in canonical_fields:
+        if data.get(field) != expected[field]:
+            raise ValueError(f"Review chunk {field} mismatched")
+    if event.result != expected["reviewer_result"]:
+        raise ValueError("Review chunk raw event result mismatched")
+    return parsed
+
+
+def reusable_gate_event(events, identity_digest: str):
+    """Return only an exact-identity chunk whose validated gate verdict passes."""
+    for event in reversed(events):
+        data = event.data or {}
+        if (
+            event.kind != "review-shard"
+            or data.get("aggregate") is True
+            or data.get("identity_digest") != identity_digest
+        ):
+            continue
+        try:
+            result = result_from_chunk_event(event, identity_digest)
+        except (TypeError, ValueError):
+            continue
+        if result.gate_passed:
+            return event
+    return None
+
+
+def aggregate_evidence_fields(
+    results: tuple[ReviewResult, ...],
+    identity_digests: tuple[str, ...],
+    event_sequences: tuple[int, ...],
+) -> tuple[ReviewResult, dict]:
+    if not results or len(results) != len(identity_digests) or len(results) != len(
+        event_sequences
+    ):
+        raise ValueError("Review aggregate chunk evidence is incomplete")
+    if len(set(identity_digests)) != len(identity_digests):
+        raise ValueError("Review aggregate contains duplicate chunk identities")
+    findings = tuple(finding for result in results for finding in result.findings)
+    required = tuple(finding for finding in findings if finding.required)
+    non_required = tuple(finding for finding in findings if not finding.required)
+    result = ReviewResult("fail" if required else "pass", findings)
+    payload = {
+        "gate_verdict": result.gate_verdict.upper(),
+        "schema_valid": True,
+        "chunk_identities": list(identity_digests),
+        "chunk_event_sequences": list(event_sequences),
+        "findings": [finding.__dict__ for finding in findings],
+        "required_findings": [finding.__dict__ for finding in required],
+        "non_required_findings": [finding.__dict__ for finding in non_required],
+    }
+    payload["aggregate_digest"] = _digest(payload)
+    return result, payload
 
 
 def prepare_review(
