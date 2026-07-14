@@ -1,11 +1,11 @@
 # Validation log: 003-task-tags
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T15:58:22.173165+00:00","included_event_sequence":47,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"003-task-tags","generated_at":"2026-07-14T17:06:33.780328+00:00","included_event_sequence":64,"snapshot_format_version":2,"validation_contract_digest":"f6132f9b646392cded1c2bfa6749e1e3c13fb4d170d7c4ebb0b959fd8581098d"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
 ## Summary
 
-Final included event result: HUMAN_REQUIRED.
+Final included event result: PASS.
 
 ## Runs
 
@@ -58,3 +58,20 @@ Final included event result: HUMAN_REQUIRED.
 | 45 | post-evidence/final-validation-accepted | PASS | `90272b2e8184` |  |
 | 46 | review/review-shard | PASS | `90272b2e8184` |  |
 | 47 | review/review-shard | HUMAN_REQUIRED | `90272b2e8184` | ReviewBudgetExhausted |
+| 48 | evidence/tracked-evidence-snapshot | PASS | `5539e7466ade` |  |
+| 49 | post-evidence/final-validation-attempt | PASS | `5539e7466ade` |  |
+| 50 | post-evidence/final-validation-accepted | PASS | `5539e7466ade` |  |
+| 51 | delivery/weakening | PASS | `5539e7466ade` |  |
+| 52 | review/review-shard | PASS | `5539e7466ade` |  |
+| 53 | review/review-shard | PASS | `5539e7466ade` |  |
+| 54 | review/review-shard | PASS | `5539e7466ade` |  |
+| 55 | review/review-shard | PASS | `5539e7466ade` |  |
+| 56 | review/review-shard | PASS | `5539e7466ade` |  |
+| 57 | review/review-shard | PASS | `5539e7466ade` |  |
+| 58 | review/review-shard | FAIL | `5539e7466ade` |  |
+| 59 | review/review-shard | PASS | `5539e7466ade` |  |
+| 60 | review/review-shard | PASS | `5539e7466ade` |  |
+| 61 | review/review-shard | PASS | `5539e7466ade` |  |
+| 62 | review/review-shard | PASS | `5539e7466ade` |  |
+| 63 | review/review-shard | PASS | `5539e7466ade` |  |
+| 64 | review/review-shard | PASS | `5539e7466ade` |  |
