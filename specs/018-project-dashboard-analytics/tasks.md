@@ -15,7 +15,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/unit/**`
-- [ ] T002: Implement set-based SQLAlchemy Task/status/priority/due aggregates.
+- [x] T002: Implement set-based SQLAlchemy Task/status/priority/due aggregates.
   - Requirements: REQ-004, REQ-005, REQ-006, REQ-007, REQ-014, REQ-015
   - Acceptance criteria: AC-004, AC-005, AC-010
   - Validation: unit, integration

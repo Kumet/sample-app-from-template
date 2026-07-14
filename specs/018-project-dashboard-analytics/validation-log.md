@@ -11,3 +11,4 @@
 - Schema/migration/dependency changes: forbidden and not planned.
 - Implementation: not started at this snapshot.
 | 1 | T001 | PASS | task validation passed |
+| 1 | T002 | PASS | task validation passed |
