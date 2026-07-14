@@ -35,7 +35,7 @@
   - Validation: unit, integration, full
   - Dependencies: T001, T002, T003
   - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T005: Implement Project-scoped Tag CRUD application service.
+- [x] T005: Implement Project-scoped Tag CRUD application service.
   - Requirements: REQ-001, REQ-003, REQ-005, REQ-006, REQ-007, REQ-020, REQ-022
   - Acceptance criteria: AC-002, AC-003, AC-004, AC-005, AC-016, AC-018
   - Validation: unit, app
