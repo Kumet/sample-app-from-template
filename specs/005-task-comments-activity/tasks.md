@@ -1,0 +1,71 @@
+# Tasks: Task comments and activity history
+
+## Rules
+
+- Execute in dependency order with one focused commit per task.
+- Preserve existing table/API meanings and use only declared paths.
+- Do not weaken tests, evidence, review, risk, or approval gates.
+- Stop for new dependencies, framework changes, production migration, or scope change.
+
+## Tasks
+
+- [ ] T001: Add Comment/Activity domain types, fixed events, errors, queries, and repository protocol.
+  - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-020
+  - Acceptance criteria: AC-001, AC-014
+  - Validation: unit, app
+  - Dependencies: none
+  - Allowed paths: `src/project_board/domain/**`, `src/project_board/repositories/**`, `tests/app/unit/**`
+- [ ] T002: Add both ORM tables, composite ownership, cascades, indexes, and schema initialization.
+  - Requirements: REQ-005, REQ-006, REQ-007, REQ-008
+  - Acceptance criteria: AC-002, AC-003, AC-013
+  - Validation: integration, full
+  - Dependencies: T001
+  - Allowed paths: `src/project_board/infrastructure/**`, `tests/app/integration/**`
+- [ ] T003: Implement transactional Comment mutation and append-only Activity persistence.
+  - Requirements: REQ-004, REQ-014, REQ-015, REQ-016, REQ-017, REQ-021
+  - Acceptance criteria: AC-009, AC-010, AC-011
+  - Validation: unit, integration, full
+  - Dependencies: T001, T002
+  - Allowed paths: `src/project_board/repositories/**`, `tests/app/**`
+- [ ] T004: Implement TaskCommentService ownership, CRUD, activity queries, and UTC orchestration.
+  - Requirements: REQ-001, REQ-003, REQ-011, REQ-012, REQ-013, REQ-020, REQ-021
+  - Acceptance criteria: AC-004, AC-006, AC-007, AC-008, AC-014
+  - Validation: unit, app
+  - Dependencies: T001, T003
+  - Allowed paths: `src/project_board/application/**`, `src/project_board/domain/**`, `tests/app/unit/**`
+- [ ] T005: Add Comment request/response schemas, dependency wiring, and CRUD API routes.
+  - Requirements: REQ-002, REQ-009, REQ-010, REQ-011, REQ-013, REQ-021
+  - Acceptance criteria: AC-004, AC-005, AC-006, AC-008
+  - Validation: app, integration
+  - Dependencies: T004
+  - Allowed paths: `src/project_board/api/**`, `tests/app/**`
+- [ ] T006: Add read-only filtered Activity API and append-only behavior tests.
+  - Requirements: REQ-003, REQ-004, REQ-012, REQ-013
+  - Acceptance criteria: AC-007, AC-008
+  - Validation: app, integration
+  - Dependencies: T004, T005
+  - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `tests/app/**`
+- [ ] T007: Prove atomic rollback, session reuse, and sanitized persistence failures.
+  - Requirements: REQ-014, REQ-015, REQ-016, REQ-017
+  - Acceptance criteria: AC-009, AC-010, AC-011
+  - Validation: unit, integration, full
+  - Dependencies: T003, T004, T005, T006
+  - Allowed paths: `src/project_board/repositories/**`, `src/project_board/api/**`, `tests/app/**`
+- [ ] T008: Prove Task cascades, clarified Project deletion, physical rows, and isolation.
+  - Requirements: REQ-006, REQ-007, REQ-013, REQ-018
+  - Acceptance criteria: AC-002, AC-003, AC-008, AC-012, AC-013
+  - Validation: integration, full
+  - Dependencies: T002, T003, T005, T006
+  - Allowed paths: `src/project_board/infrastructure/**`, `src/project_board/repositories/**`, `tests/app/integration/**`
+- [ ] T009: Add import-isolation, N+1 statement-count, and prior-feature regression coverage.
+  - Requirements: REQ-019, REQ-020, REQ-022, REQ-023
+  - Acceptance criteria: AC-014, AC-015, AC-016
+  - Validation: unit, app, integration, full
+  - Dependencies: T005, T006, T008
+  - Allowed paths: `src/project_board/**`, `tests/app/**`
+- [ ] T010: Update minimal documentation and complete validation/evidence/review readiness.
+  - Requirements: REQ-008, REQ-019, REQ-023, REQ-024
+  - Acceptance criteria: AC-003, AC-016, AC-017, AC-018
+  - Validation: full
+  - Dependencies: T007, T008, T009
+  - Allowed paths: `README.md`, `specs/005-task-comments-activity/**`
