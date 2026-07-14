@@ -51,7 +51,7 @@
   - Validation: app, integration
   - Dependencies: T005
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T008: Add responsive, focus-visible, reduced-motion-aware presentation and explicit states.
+- [x] T008: Add responsive, focus-visible, reduced-motion-aware presentation and explicit states.
   - Requirements: REQ-012, REQ-013
   - Acceptance criteria: AC-009
   - Validation: app
