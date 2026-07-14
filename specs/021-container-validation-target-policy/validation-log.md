@@ -10,4 +10,12 @@
 
 ## Runs
 
-No implementation validation has run yet.
+- Spec lint before implementation: PASS, no warnings.
+- Targeted command: `python3.11 -m unittest -v tests.test_spec_lint tests.test_autonomous_core`.
+- Repair loop 1: FAIL because the new rejection test referenced an unimported
+  `ContractError` name. The assertion was aligned with the existing test style
+  by checking its `ValueError` base class; production behavior was unchanged.
+- Targeted rerun: PASS, 37 tests.
+- Exact container targets, both-target contracts, all legacy targets,
+  non-container contracts, exact case-sensitive rejection, injection rejection,
+  and Docker-independent `validate` dependencies are covered.

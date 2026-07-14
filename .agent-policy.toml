@@ -1,6 +1,6 @@
 version = 1
 default_branch = "main"
-allowed_make_targets = ["setup", "format-check", "lint", "typecheck", "test", "build", "integration-test", "validate"]
+allowed_make_targets = ["setup", "format-check", "lint", "typecheck", "test", "build", "integration-test", "validate", "container-build", "container-smoke"]
 max_tasks = 50
 max_attempts_per_task = 5
 max_review_attempts = 3

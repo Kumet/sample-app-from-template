@@ -213,6 +213,77 @@ class AutonomousCoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validation_commands({"bad": "test;rm"}, POLICY)
 
+    def test_repository_policy_allows_exact_container_validation_targets(self):
+        policy = load_policy(Path(__file__).resolve().parents[1])
+        self.assertTrue(
+            {
+                "setup",
+                "lint",
+                "typecheck",
+                "test",
+                "build",
+                "integration-test",
+                "validate",
+                "container-build",
+                "container-smoke",
+            }.issubset(policy.allowed_make_targets)
+        )
+        self.assertEqual(
+            validation_commands(
+                {
+                    "container-build": "container-build",
+                    "container-smoke": "container-smoke",
+                },
+                policy,
+            ),
+            {
+                "container-build": ("make", "container-build"),
+                "container-smoke": ("make", "container-smoke"),
+            },
+        )
+
+    def test_container_target_allowlist_rejects_non_exact_and_unsafe_names(self):
+        policy = load_policy(Path(__file__).resolve().parents[1])
+        rejected = (
+            "container-build-extra",
+            "Container-Build",
+            "container",
+            "container-build; command",
+            "container-build smoke",
+            "container-build --flag",
+        )
+        for target in rejected:
+            with self.subTest(target=target):
+                with self.assertRaises(ValueError):
+                    validation_commands({"container": target}, policy)
+
+    def test_non_container_validation_commands_are_unchanged(self):
+        policy = load_policy(Path(__file__).resolve().parents[1])
+        mapping = {
+            "setup": "setup",
+            "lint": "lint",
+            "typecheck": "typecheck",
+            "unit": "test",
+            "build": "build",
+            "integration": "integration-test",
+            "full": "validate",
+        }
+        self.assertEqual(
+            validation_commands(mapping, policy),
+            {name: ("make", target) for name, target in mapping.items()},
+        )
+
+    def test_ordinary_validate_target_does_not_depend_on_container_targets(self):
+        makefile = (Path(__file__).resolve().parents[1] / "Makefile").read_text(
+            encoding="utf-8"
+        )
+        validate_rule = next(
+            line for line in makefile.splitlines() if line.startswith("validate:")
+        )
+        self.assertEqual(validate_rule, "validate: quality-check secrets ci")
+        self.assertNotIn("container-build", validate_rule)
+        self.assertNotIn("container-smoke", validate_rule)
+
     def test_state_round_trip_resume_and_abort(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
