@@ -276,17 +276,17 @@ allow it. The framework never pushes directly to `main` or `master`.
 
 ```bash
 make approve-recovery-patch-dry-run \
-  FEATURE=002-task-crud \
-  PATHS='src/example.py tests/test_example.py' \
+  FEATURE=123-feature-name \
+  PATHS='path/to/recovered-file.ext path/to/recovery-test.ext' \
   REASON='Human-approved format-only recovery'
 
 make approve-recovery-patch \
-  FEATURE=002-task-crud \
-  PATHS='src/example.py tests/test_example.py' \
+  FEATURE=123-feature-name \
+  PATHS='path/to/recovered-file.ext path/to/recovery-test.ext' \
   REASON='Human-approved format-only recovery'
 
-make deliver-dry-run FEATURE=002-task-crud
-make deliver FEATURE=002-task-crud
+make deliver-dry-run FEATURE=123-feature-name
+make deliver FEATURE=123-feature-name
 ```
 
 `PATHS` はglobsではなく、停止後に新たに変更された明示的な相対パスだけを

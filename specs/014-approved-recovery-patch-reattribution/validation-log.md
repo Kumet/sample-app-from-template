@@ -90,3 +90,7 @@ review events are intentionally not written back into this file.
   Regressions now prove an already-saved path cannot be implicitly approved and
   a recovery file committed before approval is rejected by both HEAD and
   newly-changed-path bindings; production code was unchanged.
+- New documentation-only cycle 1 — spec-scope review found the generic recovery
+  walkthrough still named sample Feature 002 and Python-like sample paths. The
+  example now uses an unassigned feature identifier and stack-independent
+  relative placeholders; command order and safety semantics are unchanged.
