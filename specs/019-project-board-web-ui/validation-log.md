@@ -12,3 +12,4 @@ conditions; it must not use production configuration.
 | 1 | T006 | PASS | task validation passed |
 | 1 | T007 | PASS | task validation passed |
 | 1 | T008 | PASS | task validation passed |
+| 1 | T009 | PASS | task validation passed |

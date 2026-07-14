@@ -57,7 +57,7 @@
   - Validation: app
   - Dependencies: T004, T005, T006, T007
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T009: Configure package data and prove archive, security, UI contract, API, OpenAPI, and schema regressions.
+- [x] T009: Configure package data and prove archive, security, UI contract, API, OpenAPI, and schema regressions.
   - Requirements: REQ-002, REQ-014, REQ-015, REQ-018
   - Acceptance criteria: AC-001, AC-002, AC-010, AC-011
   - Validation: unit, app, integration, full
