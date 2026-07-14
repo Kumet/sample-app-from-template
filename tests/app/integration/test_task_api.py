@@ -168,3 +168,180 @@ def test_task_repository_failure_response_is_generic_and_sanitized(
     assert "sqlite" not in response_text
     assert "insert" not in response_text
     assert "task-api.sqlite3" not in response_text
+
+
+def test_task_patch_updates_supplied_fields_and_clears_nullable_fields(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={
+            "title": "Original",
+            "description": "Details",
+            "status": "todo",
+            "priority": "medium",
+            "due_at": "2026-08-01T09:00:00+09:00",
+        },
+    ).json()
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}",
+        json={
+            "title": "  Updated  ",
+            "description": None,
+            "status": "done",
+            "priority": "high",
+            "due_at": None,
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["title"] == "Updated"
+    assert updated["description"] is None
+    assert updated["status"] == "done"
+    assert updated["priority"] == "high"
+    assert updated["due_at"] is None
+    assert updated["project_id"] == project_id
+    assert updated["created_at"] == created["created_at"]
+    assert updated["updated_at"] != created["updated_at"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"title": None},
+        {"status": None},
+        {"priority": None},
+        {"id": 999},
+        {"project_id": 999},
+        {"created_at": "2026-01-01T00:00:00Z"},
+        {"updated_at": "2026-01-01T00:00:00Z"},
+    ],
+)
+def test_task_patch_rejects_empty_null_required_and_immutable_fields_unchanged(
+    task_api_database: tuple[TestClient, Engine], payload: dict[str, object]
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={"title": "Original", "description": "Details"},
+    ).json()
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}", json=payload
+    )
+
+    assert response.status_code == 422
+    persisted = client.get(f"/api/projects/{project_id}/tasks/{created['id']}")
+    assert persisted.status_code == 200
+    assert persisted.json() == created
+
+
+def test_task_patch_rejects_invalid_values_without_changing_task(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Original"}
+    ).json()
+
+    for payload in (
+        {"title": "  "},
+        {"title": "x" * 201},
+        {"description": "x" * 2001},
+        {"status": "doing"},
+        {"priority": "urgent"},
+        {"due_at": "2026-08-01T00:00:00"},
+    ):
+        response = client.patch(
+            f"/api/projects/{project_id}/tasks/{created['id']}", json=payload
+        )
+        assert response.status_code == 422
+
+    persisted = client.get(f"/api/projects/{project_id}/tasks/{created['id']}")
+    assert persisted.json() == created
+
+
+def test_task_patch_and_delete_hide_cross_project_ownership(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    owner_id = create_project(client, "Owner")
+    other_id = create_project(client, "Other")
+    task = client.post(
+        f"/api/projects/{owner_id}/tasks", json={"title": "Owned"}
+    ).json()
+
+    patch_response = client.patch(
+        f"/api/projects/{other_id}/tasks/{task['id']}", json={"title": "Changed"}
+    )
+    delete_response = client.delete(f"/api/projects/{other_id}/tasks/{task['id']}")
+    missing_delete = client.delete(f"/api/projects/{owner_id}/tasks/999")
+
+    assert patch_response.status_code == 404
+    assert patch_response.json() == {"detail": "Task not found"}
+    assert delete_response.status_code == 404
+    assert delete_response.json() == {"detail": "Task not found"}
+    assert missing_delete.status_code == 404
+    assert missing_delete.json() == {"detail": "Task not found"}
+    persisted = client.get(f"/api/projects/{owner_id}/tasks/{task['id']}")
+    assert persisted.json() == task
+
+
+def test_task_delete_removes_only_selected_task_and_returns_empty_204(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    selected = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Selected"}
+    ).json()
+    remaining = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Remaining"}
+    ).json()
+
+    response = client.delete(f"/api/projects/{project_id}/tasks/{selected['id']}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert (
+        client.get(f"/api/projects/{project_id}/tasks/{selected['id']}").status_code
+        == 404
+    )
+    assert (
+        client.get(f"/api/projects/{project_id}/tasks/{remaining['id']}").status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize("method", ["patch", "delete"])
+def test_task_mutation_repository_failures_are_generic_and_sanitized(
+    task_api_database: tuple[TestClient, Engine], method: str
+) -> None:
+    client, engine = task_api_database
+    project_id = create_project(client)
+    task = client.post(
+        f"/api/projects/{project_id}/tasks", json={"title": "Task"}
+    ).json()
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE tasks"))
+
+    url = f"/api/projects/{project_id}/tasks/{task['id']}"
+    response = (
+        client.patch(url, json={"title": "Updated"})
+        if method == "patch"
+        else client.delete(url)
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "An unexpected persistence error occurred"}
+    response_text = response.text.lower()
+    assert "sqlite" not in response_text
+    assert "tasks" not in response_text
+    assert "task-api.sqlite3" not in response_text

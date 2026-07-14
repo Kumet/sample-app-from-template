@@ -14,6 +14,7 @@ from project_board.api.schemas import (
     ProjectUpdate,
     TaskCreate,
     TaskResponse,
+    TaskUpdate,
 )
 from project_board.application import UNSET
 from project_board.domain import (
@@ -87,6 +88,41 @@ def get_task(
     service: TaskServiceDependency,
 ) -> object:
     return _call_service(service.get_task, project_id, task_id)
+
+
+@router.patch(
+    "/{project_id}/tasks/{task_id}",
+    response_model=TaskResponse,
+)
+def update_task(
+    project_id: int,
+    task_id: int,
+    payload: Annotated[TaskUpdate, Body()],
+    service: TaskServiceDependency,
+) -> object:
+    updates = {
+        field_name: getattr(payload, field_name)
+        for field_name in payload.model_fields_set
+    }
+    return _call_service(
+        service.update_task,
+        project_id,
+        task_id,
+        **updates,
+    )
+
+
+@router.delete(
+    "/{project_id}/tasks/{task_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_task(
+    project_id: int,
+    task_id: int,
+    service: TaskServiceDependency,
+) -> Response:
+    _call_service(service.delete_task, project_id, task_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)

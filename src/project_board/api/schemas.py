@@ -132,6 +132,55 @@ class TaskCreate(BaseModel):
         return normalize_utc_datetime(value, "Task due_at")
 
 
+class TaskUpdate(BaseModel):
+    """Payload accepted for a partial Task update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, max_length=MAX_TASK_TITLE_LENGTH)
+    description: str | None = Field(
+        default=None, max_length=MAX_TASK_DESCRIPTION_LENGTH
+    )
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Task title is required")
+        return trimmed
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, value: object) -> object:
+        return _trim_description(value)
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return normalize_utc_datetime(value, "Task due_at")
+
+    @model_validator(mode="after")
+    def require_update_field(self) -> "TaskUpdate":
+        mutable_fields = {"title", "description", "status", "priority", "due_at"}
+        if not self.model_fields_set.intersection(mutable_fields):
+            raise ValueError("At least one Task field is required")
+        for field_name in ("title", "status", "priority"):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"Task {field_name} cannot be null")
+        return self
+
+
 class TaskResponse(BaseModel):
     """Serialized Task returned by the API."""
 

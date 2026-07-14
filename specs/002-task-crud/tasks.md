@@ -41,7 +41,7 @@
   - Validation: app, integration
   - Dependencies: T004
   - Allowed paths: `src/project_board/api/**`, `src/project_board/main.py`, `tests/app/integration/**`
-- [ ] T006: Add Task PATCH/DELETE API and immutable-field validation.
+- [x] T006: Add Task PATCH/DELETE API and immutable-field validation.
   - Requirements: REQ-007, REQ-008, REQ-009, REQ-016, REQ-017, REQ-019, REQ-023
   - Acceptance criteria: AC-010, AC-011, AC-012, AC-018, AC-021
   - Validation: app, integration
