@@ -36,9 +36,10 @@ class WeakeningInspectionTests(unittest.TestCase):
         self.assertEqual(inspection.mechanical_verdict, "PASS")
         self.assertEqual(inspection.blocking_findings, ())
         self.assertEqual(len(inspection.review_candidates), 1)
-        self.assertEqual(
-            inspection.review_candidates[0].category, "assertion-removal"
-        )
+        candidate = inspection.review_candidates[0]
+        self.assertEqual(candidate.category, "assertion-removal")
+        self.assertEqual(candidate.severity, "medium")
+        self.assertFalse(candidate.required)
         payload = inspection.event_data()
         self.assertEqual(payload["mechanical_verdict"], "PASS")
         self.assertEqual(payload["blocking_findings"], [])

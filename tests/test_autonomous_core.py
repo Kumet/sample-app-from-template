@@ -253,9 +253,10 @@ class AutonomousCoreTests(unittest.TestCase):
     def test_weakening_detection(self):
         patch = "+++ b/tests/test_a.py\n+@unittest.skip('later')\n-    assert value\n"
         inspection = weakening.inspect_patch(patch)
-        self.assertTrue(
-            any(f.category == "test-skip" for f in inspection.blocking_findings)
+        skip_finding = next(
+            f for f in inspection.blocking_findings if f.category == "test-skip"
         )
+        self.assertTrue(skip_finding.required)
         self.assertTrue(
             any(
                 f.category == "assertion-removal"
