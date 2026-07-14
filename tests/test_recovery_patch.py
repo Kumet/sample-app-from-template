@@ -301,20 +301,19 @@ class RecoveryPatchTests(unittest.TestCase):
             "nested/.agent-work/state.json",
             "nested/.agent-worktrees/014-test/file.py",
             "nested/.agent-worktree-owned",
+            "nested/.env.production",
+            "nested/private.pem",
+            "nested/.ssh/config",
+            "nested/credentials.json",
+            "nested/secrets.toml",
             "a.py a.py",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 recovery_patch.parse_approved_paths(value)
 
     def test_command_path_rejects_secret_and_runtime_paths(self):
-        with self.assertRaisesRegex(ValueError, "Forbidden files changed"):
-            recovery_patch.preview(
-                self.repo,
-                self.feature_dir,
-                self.config,
-                recovery_patch.parse_approved_paths(".env"),
-                "Do not allow this secret path",
-            )
+        with self.assertRaisesRegex(ValueError, "Sensitive paths cannot be approved"):
+            recovery_patch.parse_approved_paths(".env")
         with self.assertRaisesRegex(ValueError, "Runtime paths cannot be approved"):
             recovery_patch.parse_approved_paths(".agent-work/state.json")
 

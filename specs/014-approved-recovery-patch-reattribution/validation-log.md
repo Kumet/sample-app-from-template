@@ -48,3 +48,7 @@ review events are intentionally not written back into this file.
   repository root. Path validation now rejects `.agent-work`,
   `.agent-worktrees`, and `.agent-worktree-owned` as components at every depth,
   with nested-path regressions.
+- Loop 4 — security review required secret-path admission to be independent of
+  each feature's forbidden globs. Recovery path parsing now rejects environment
+  files, key/certificate containers, credential/secret files, and common
+  SSH/cloud credential directories at every depth before any file content read.

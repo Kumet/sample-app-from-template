@@ -21,6 +21,15 @@ MAX_CHANGED_PATHS = 128
 MAX_PATH_LENGTH = 240
 MAX_REASON_LENGTH = 500
 EVENT_DATA_LIMIT = 3500
+SENSITIVE_DIRECTORIES = {".ssh", ".aws", ".azure", ".gnupg", ".kube"}
+SENSITIVE_FILENAMES = {
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".git-credentials",
+    ".dockerconfigjson",
+}
+SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
 
 
 @dataclass(frozen=True)
@@ -464,6 +473,17 @@ def _normalize_path(path: str) -> str:
         for part in parts
     ):
         raise ValueError("Runtime paths cannot be approved as recovery paths")
+    lowered = [part.lower() for part in parts]
+    filename = lowered[-1]
+    if (
+        any(part in SENSITIVE_DIRECTORIES for part in lowered)
+        or filename in SENSITIVE_FILENAMES
+        or filename == ".env"
+        or filename.startswith(".env.")
+        or any(filename.endswith(suffix) for suffix in SENSITIVE_SUFFIXES)
+        or filename.startswith(("credentials.", "secrets."))
+    ):
+        raise ValueError("Sensitive paths cannot be approved as recovery paths")
     return path
 
 
