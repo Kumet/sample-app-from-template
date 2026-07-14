@@ -1,0 +1,90 @@
+version = 2
+risk = "medium"
+auto_merge = false
+risk_domains = ["infrastructure"]
+max_tasks = 8
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+app = "test"
+integration = "integration-test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "AC-014", "T002", "T007"]
+REQ-002 = ["AC-001", "AC-002", "T002", "T004", "T007"]
+REQ-003 = ["AC-003", "T001", "T002", "T007"]
+REQ-004 = ["AC-004", "AC-010", "T003"]
+REQ-005 = ["AC-005", "T001", "T002", "T003"]
+REQ-006 = ["AC-005", "T001", "T002", "T003"]
+REQ-007 = ["AC-002", "AC-009", "T005", "T007"]
+REQ-008 = ["AC-002", "AC-006", "T001", "T004", "T005", "T007"]
+REQ-009 = ["AC-002", "AC-008", "T004", "T007"]
+REQ-010 = ["AC-001", "AC-002", "AC-007", "T002", "T004", "T007"]
+REQ-011 = ["AC-006", "AC-007", "T003", "T004", "T005", "T007"]
+REQ-012 = ["AC-009", "T005", "T007"]
+REQ-013 = ["AC-010", "AC-012", "T001", "T003", "T006"]
+REQ-014 = ["AC-010", "AC-011", "T006"]
+REQ-015 = ["AC-012", "T001", "T006"]
+REQ-016 = ["AC-004", "AC-009", "AC-010", "T003", "T005", "T006"]
+REQ-017 = ["AC-013", "T006", "T008"]
+REQ-018 = ["AC-014", "AC-015", "AC-016", "T007", "T008"]
+
+[dependencies]
+T002 = ["T001"]
+T003 = ["T001", "T002"]
+T004 = ["T003"]
+T005 = ["T003", "T004"]
+T006 = ["T003", "T004"]
+T007 = ["T002", "T004", "T005", "T006"]
+T008 = ["T007"]
+
+[scope]
+allowed = [
+  "src/project_board/api/**",
+  "src/project_board/application/**",
+  "src/project_board/domain/**",
+  "src/project_board/repositories/**",
+  "src/project_board/infrastructure/**",
+  "tests/app/unit/**",
+  "tests/app/integration/**",
+  "README.md",
+  "specs/004-task-query/**",
+]
+forbidden = [
+  ".env",
+  ".env.*",
+  "**/.env",
+  "**/.env.*",
+  "local.properties",
+  "**/local.properties",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/credentials.*",
+  "**/secrets.*",
+  ".github/**",
+  "scripts/agent/**",
+  "prompts/**",
+  "schemas/**",
+  "tests/test_autonomous_*.py",
+  "tests/test_review_gate_semantics.py",
+  ".agent-policy.toml",
+  "Makefile",
+  "pyproject.toml",
+  "migrations/**",
+  "specs/001-project-crud/**",
+  "specs/002-task-crud/**",
+  "specs/003-task-tags/**",
+  "specs/015*/**",
+  "specs/016*/**",
+  "specs/017*/**",
+  ".agent-work/**",
+  ".agent-worktrees/**",
+  ".agent-worktree-owned",
+]
