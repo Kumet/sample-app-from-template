@@ -17,6 +17,7 @@ class TaskSort(StrEnum):
     UPDATED_AT = "updated_at"
     DUE_AT = "due_at"
     PRIORITY = "priority"
+    TITLE = "title"
 
 
 class SortOrder(StrEnum):

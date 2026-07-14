@@ -445,6 +445,42 @@ def test_task_list_deterministic_due_and_semantic_priority_sorting(
     assert [task["title"] for task in response.json()] == expected_titles
 
 
+def test_task_list_title_sort_is_case_insensitive_stable_and_paginates_after_sort(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = []
+    for title in ("beta", "Alpha", "alpha"):
+        response = client.post(
+            f"/api/projects/{project_id}/tasks",
+            json={"title": title},
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    ascending_page = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"sort": "title", "order": "asc", "limit": 2, "offset": 1},
+    )
+    descending = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"sort": "title", "order": "desc"},
+    )
+
+    assert ascending_page.status_code == 200
+    assert [task["id"] for task in ascending_page.json()] == [
+        created[2]["id"],
+        created[0]["id"],
+    ]
+    assert descending.status_code == 200
+    assert [task["id"] for task in descending.json()] == [
+        created[0]["id"],
+        created[1]["id"],
+        created[2]["id"],
+    ]
+
+
 @pytest.mark.parametrize(
     "params",
     [
@@ -455,7 +491,7 @@ def test_task_list_deterministic_due_and_semantic_priority_sorting(
         {"limit": "0"},
         {"limit": "101"},
         {"offset": "-1"},
-        {"sort": "title"},
+        {"sort": "description"},
         {"order": "sideways"},
         {"tag_id": "0"},
         {"tag_id": "-1"},

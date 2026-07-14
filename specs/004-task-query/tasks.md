@@ -27,7 +27,7 @@
   - Validation: unit, integration
   - Dependencies: T001, T002
   - Allowed paths: `src/project_board/repositories/**`, `tests/app/**`
-- [ ] T004: Add title sorting and preserve deterministic due/priority/tie-break behavior.
+- [x] T004: Add title sorting and preserve deterministic due/priority/tie-break behavior.
   - Requirements: REQ-002, REQ-008, REQ-009, REQ-010, REQ-011
   - Acceptance criteria: AC-002, AC-006, AC-007, AC-008
   - Validation: app, integration

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 
-from sqlalchemy import and_, case, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -134,6 +134,8 @@ class SQLAlchemyTaskRepository:
                 (TaskModel.priority == "medium", 1),
                 (TaskModel.priority == "high", 2),
             )
+        elif query.sort is TaskSort.TITLE:
+            primary_sort = func.lower(TaskModel.title)
         else:
             primary_sort = cast(
                 ColumnElement[Any],

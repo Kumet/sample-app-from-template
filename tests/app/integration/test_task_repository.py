@@ -452,6 +452,37 @@ def test_equal_primary_sort_values_always_use_ascending_id(session: Session) -> 
         assert [task.id for task in tasks] == [first.id, second.id]
 
 
+def test_title_sort_is_case_insensitive_with_ascending_id_ties(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    beta = repository.create(make_task(project.id, "beta", timestamp))
+    upper_alpha = repository.create(make_task(project.id, "Alpha", timestamp))
+    lower_alpha = repository.create(make_task(project.id, "alpha", timestamp))
+
+    ascending = repository.list(
+        project.id,
+        TaskListQuery(sort=TaskSort.TITLE, order=SortOrder.ASC),
+    )
+    descending = repository.list(
+        project.id,
+        TaskListQuery(sort=TaskSort.TITLE, order=SortOrder.DESC),
+    )
+
+    assert [task.id for task in ascending] == [
+        upper_alpha.id,
+        lower_alpha.id,
+        beta.id,
+    ]
+    assert [task.id for task in descending] == [
+        beta.id,
+        upper_alpha.id,
+        lower_alpha.id,
+    ]
+
+
 def test_task_results_include_ordered_tags_and_empty_tuple(session: Session) -> None:
     project = create_project(session)
     repository = SQLAlchemyTaskRepository(session)
