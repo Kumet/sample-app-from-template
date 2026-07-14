@@ -1,4 +1,8 @@
+import json
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -14,6 +18,36 @@ from project_board.repositories.sqlalchemy_dashboard_repository import (
 class QueryForbiddenSession:
     def execute(self, _statement: object) -> Any:
         raise AssertionError("zero activity limit must not execute SQL")
+
+
+def test_importing_dashboard_boundaries_does_not_load_database_implementation() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    script = """
+import json
+import sys
+
+import project_board.domain.dashboard
+import project_board.repositories.dashboard_repository
+
+watched_modules = (
+    "sqlalchemy",
+    "project_board.repositories.sqlalchemy_dashboard_repository",
+    "project_board.infrastructure.database",
+    "project_board.infrastructure.models",
+)
+print(json.dumps([name for name in watched_modules if name in sys.modules]))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        cwd=repository_root,
+        env={"PYTHONPATH": str(repository_root / "src")},
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == []
 
 
 def test_due_query_accepts_one_normalized_utc_boundary_policy() -> None:

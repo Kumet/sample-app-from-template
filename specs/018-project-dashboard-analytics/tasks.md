@@ -45,7 +45,7 @@
   - Validation: app, integration
   - Dependencies: T005
   - Allowed paths: `src/project_board/api/**`, `tests/app/**`
-- [ ] T007: Prove query-count, parameter binding, no-mutation, determinism, isolation, and import boundaries.
+- [x] T007: Prove query-count, parameter binding, no-mutation, determinism, isolation, and import boundaries.
   - Requirements: REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, REQ-020
   - Acceptance criteria: AC-009, AC-010, AC-011, AC-012, AC-014
   - Validation: unit, app, integration, full

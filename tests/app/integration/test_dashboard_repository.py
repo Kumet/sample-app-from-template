@@ -3,10 +3,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from project_board.application import ProjectDashboardService
 from project_board.domain import CommentEventType, TaskPriority, TaskStatus
 from project_board.infrastructure import (
     create_database_engine,
@@ -24,6 +25,18 @@ from project_board.infrastructure.models import (
 from project_board.repositories import DashboardDueQuery
 from project_board.repositories.sqlalchemy_dashboard_repository import (
     SQLAlchemyProjectDashboardRepository,
+)
+from project_board.repositories.sqlalchemy_project_repository import (
+    SQLAlchemyProjectRepository,
+)
+
+DASHBOARD_TABLES = (
+    ProjectModel.__table__,
+    TaskModel.__table__,
+    TagModel.__table__,
+    TaskTagModel.__table__,
+    TaskCommentModel.__table__,
+    TaskCommentActivityModel.__table__,
 )
 
 
@@ -143,6 +156,17 @@ def due_query(as_of: datetime) -> DashboardDueQuery:
         today_end=today_end,
         upcoming_end=today_end + timedelta(days=7),
     )
+
+
+def database_fingerprint(session: Session) -> dict[str, tuple[tuple[object, ...], ...]]:
+    """Return every dashboard-relevant row in stable primary-key order."""
+    fingerprint: dict[str, tuple[tuple[object, ...], ...]] = {}
+    for table in DASHBOARD_TABLES:
+        statement = select(*table.c).order_by(*table.primary_key.columns)
+        fingerprint[table.name] = tuple(
+            tuple(row) for row in session.execute(statement).all()
+        )
+    return fingerprint
 
 
 def test_task_counts_are_zero_inclusive_grouped_and_ownership_scoped(
@@ -496,6 +520,183 @@ def test_recent_activities_disappear_when_their_task_is_deleted(
     )
 
     assert activities == ()
+
+
+@pytest.mark.parametrize("row_count", [0, 25])
+def test_complete_dashboard_uses_seven_parameterized_statements_at_any_scale(
+    session: Session, isolated_engine: Engine, row_count: int
+) -> None:
+    project_id = create_project(session, "Selected")
+    as_of = datetime(2026, 7, 15, 10, 30, tzinfo=UTC)
+    for index in range(row_count):
+        task_id = add_task(
+            session,
+            project_id,
+            f"Task {index}",
+            status=tuple(TaskStatus)[index % len(TaskStatus)],
+            priority=tuple(TaskPriority)[index % len(TaskPriority)],
+            due_at=as_of + timedelta(days=index % 10),
+        )
+        tag_id = add_tag(session, project_id, f"Tag {index}", f"tag-{index:02}")
+        session.add(TaskTagModel(project_id=project_id, task_id=task_id, tag_id=tag_id))
+        comment = add_comment(session, project_id, task_id, f"Comment {index}")
+        add_activity(
+            session,
+            project_id,
+            task_id,
+            comment.id,
+            tuple(CommentEventType)[index % len(CommentEventType)],
+            as_of + timedelta(seconds=index),
+        )
+    session.commit()
+    executed: list[tuple[str, object]] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        executed.append((statement, parameters))
+
+    event.listen(isolated_engine, "before_cursor_execute", record_statement)
+    try:
+        result = ProjectDashboardService(
+            SQLAlchemyProjectDashboardRepository(session),
+            SQLAlchemyProjectRepository(session),
+            clock=lambda: as_of,
+        ).get_dashboard(project_id, activity_limit=50)
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_statement)
+
+    assert result.tasks.total == row_count
+    assert len(result.tags) == row_count
+    assert result.comments.total == row_count
+    assert len(result.recent_activities) == min(row_count, 50)
+    assert len(executed) == 7
+    assert len(executed) <= 8
+    normalized = [" ".join(statement.upper().split()) for statement, _ in executed]
+    assert all(statement.startswith("SELECT ") for statement in normalized)
+    assert all("?" in statement for statement, _parameters in executed)
+    assert all(parameters for _statement, parameters in executed)
+    assert "WHERE PROJECTS.ID = ?" in normalized[0]
+    assert all("GROUP BY" in statement for statement in normalized[1:3])
+    assert "CASE WHEN" in normalized[3]
+    assert "COUNT(DISTINCT TASKS.ID)" in normalized[4]
+    assert "COUNT(DISTINCT TASKS.ID)" in normalized[5]
+    assert "LIMIT ?" in normalized[6]
+    assert all("2026-07-15" not in statement for statement, _ in executed)
+    assert not any(
+        "SELECT TASKS.ID, TASKS.PROJECT_ID, TASKS.TITLE" in statement
+        for statement in normalized
+    )
+
+
+def test_dashboard_is_deterministic_isolated_and_does_not_mutate_any_table(
+    session: Session,
+) -> None:
+    project_id = create_project(session, "Selected")
+    foreign_project_id = create_project(session, "Foreign")
+    as_of = datetime(2026, 7, 15, 10, 30, tzinfo=UTC)
+    selected_task_id = add_task(
+        session,
+        project_id,
+        "Selected Task",
+        status=TaskStatus.TODO,
+        priority=TaskPriority.HIGH,
+        due_at=as_of,
+    )
+    selected_tag_id = add_tag(session, project_id, "Selected Tag", "selected-tag")
+    session.add(
+        TaskTagModel(
+            project_id=project_id,
+            task_id=selected_task_id,
+            tag_id=selected_tag_id,
+        )
+    )
+    selected_comment = add_comment(
+        session, project_id, selected_task_id, "Selected comment"
+    )
+    selected_activity_id = add_activity(
+        session,
+        project_id,
+        selected_task_id,
+        selected_comment.id,
+        CommentEventType.CREATED,
+        as_of,
+    )
+    foreign_task_id = add_task(
+        session,
+        foreign_project_id,
+        "Foreign Task",
+        status=TaskStatus.DONE,
+        priority=TaskPriority.LOW,
+        due_at=as_of - timedelta(days=1),
+    )
+    foreign_tag_id = add_tag(session, foreign_project_id, "Foreign Tag", "foreign-tag")
+    session.add(
+        TaskTagModel(
+            project_id=foreign_project_id,
+            task_id=foreign_task_id,
+            tag_id=foreign_tag_id,
+        )
+    )
+    foreign_comment = add_comment(
+        session, foreign_project_id, foreign_task_id, "Foreign comment"
+    )
+    add_activity(
+        session,
+        foreign_project_id,
+        foreign_task_id,
+        foreign_comment.id,
+        CommentEventType.CREATED,
+        as_of + timedelta(days=1),
+    )
+    session.commit()
+    before = database_fingerprint(session)
+    lifecycle_events: list[str] = []
+
+    def record_flush(
+        _session: Session, _flush_context: object, _instances: object
+    ) -> None:
+        lifecycle_events.append("flush")
+
+    def record_commit(_session: Session) -> None:
+        lifecycle_events.append("commit")
+
+    event.listen(session, "before_flush", record_flush)
+    event.listen(session, "before_commit", record_commit)
+    try:
+        service = ProjectDashboardService(
+            SQLAlchemyProjectDashboardRepository(session),
+            SQLAlchemyProjectRepository(session),
+            clock=lambda: as_of,
+        )
+        first = service.get_dashboard(project_id, activity_limit=50)
+        second = service.get_dashboard(project_id, activity_limit=50)
+    finally:
+        event.remove(session, "before_flush", record_flush)
+        event.remove(session, "before_commit", record_commit)
+
+    after = database_fingerprint(session)
+
+    assert first == second
+    assert first.tasks.total == first.due.active_total == 1
+    assert [(tag.id, tag.task_count) for tag in first.tags] == [(selected_tag_id, 1)]
+    assert first.comments.total == first.comments.tasks_with_comments == 1
+    assert [activity.id for activity in first.recent_activities] == [
+        selected_activity_id
+    ]
+    assert all(
+        activity.project_id == project_id for activity in first.recent_activities
+    )
+    assert before == after
+    assert lifecycle_events == []
+    assert not session.new
+    assert not session.dirty
+    assert not session.deleted
 
 
 @pytest.mark.parametrize("task_count", [0, 25])
