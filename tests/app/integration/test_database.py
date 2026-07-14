@@ -76,7 +76,12 @@ finally:
         text=True,
     )
 
-    assert result.stdout.splitlines() == ["projects", "tasks"]
+    initialized_tables = result.stdout.splitlines()
+
+    # Keep the pre-Task schema guarantee explicit while also proving that the
+    # newly registered Task model is initialized in a fresh interpreter.
+    assert "projects" in initialized_tables
+    assert initialized_tables == ["projects", "tasks"]
 
 
 def test_session_factory_uses_only_its_configured_database(tmp_path: Path) -> None:

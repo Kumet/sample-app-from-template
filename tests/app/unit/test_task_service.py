@@ -266,11 +266,15 @@ def test_update_task_rejects_null_required_fields(field_name: str) -> None:
 def test_update_task_rejects_empty_patch_without_lookup_or_timestamp_change() -> None:
     original = make_task(3)
     repository = StubTaskRepository([original])
+    persisted_before = repository.tasks[(1, 3)]
 
     with pytest.raises(TaskValidationError, match="At least one Task field"):
         make_service(repository).update_task(1, 3)
 
-    assert repository.tasks[(1, 3)] is original
+    persisted_after = repository.tasks[(1, 3)]
+    assert persisted_after is persisted_before
+    assert persisted_after == original
+    assert persisted_after.updated_at == NOW
     assert repository.updated is None
 
 
@@ -313,3 +317,46 @@ def test_repository_errors_propagate_unchanged() -> None:
         service.create_task(1, "Task")
 
     assert captured.value is error
+
+
+def test_update_repository_error_propagates_without_partial_state_change() -> None:
+    error = RepositoryError("sanitized failure")
+    original = make_task(3)
+
+    class FailingTaskRepository(StubTaskRepository):
+        def update(self, task: Task) -> Task | None:
+            self.updated = task
+            raise error
+
+    repository = FailingTaskRepository([original])
+
+    with pytest.raises(RepositoryError) as captured:
+        make_service(repository).update_task(1, 3, title="Renamed")
+
+    persisted = repository.tasks[(1, 3)]
+    assert captured.value is error
+    assert repository.updated is not None
+    assert persisted is original
+    assert persisted.title == "Sample task"
+    assert persisted.updated_at == NOW
+
+
+def test_delete_repository_error_propagates_without_partial_state_change() -> None:
+    error = RepositoryError("sanitized failure")
+    original = make_task(3)
+
+    class FailingTaskRepository(StubTaskRepository):
+        def delete(self, project_id: int, task_id: int) -> bool:
+            self.deleted_key = (project_id, task_id)
+            raise error
+
+    repository = FailingTaskRepository([original])
+
+    with pytest.raises(RepositoryError) as captured:
+        make_service(repository).delete_task(1, 3)
+
+    persisted = repository.tasks[(1, 3)]
+    assert captured.value is error
+    assert repository.deleted_key == (1, 3)
+    assert persisted is original
+    assert persisted.updated_at == NOW
