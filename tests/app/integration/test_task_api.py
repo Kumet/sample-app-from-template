@@ -171,6 +171,7 @@ def test_task_list_filters_strict_due_bounds_paginates_and_isolates_projects(
         ("Before", "in_progress", "high", base + timedelta(days=1)),
         ("Boundary", "in_progress", "high", base + timedelta(days=2)),
         ("After", "done", "low", base + timedelta(days=3)),
+        ("No due", "todo", "medium", None),
     ):
         response = client.post(
             f"/api/projects/{project_id}/tasks",
@@ -178,7 +179,7 @@ def test_task_list_filters_strict_due_bounds_paginates_and_isolates_projects(
                 "title": title,
                 "status": task_status,
                 "priority": priority,
-                "due_at": due_at.isoformat(),
+                "due_at": None if due_at is None else due_at.isoformat(),
             },
         )
         assert response.status_code == 201
@@ -195,12 +196,38 @@ def test_task_list_filters_strict_due_bounds_paginates_and_isolates_projects(
             "due_before": (base + timedelta(days=2)).isoformat(),
         },
     )
+    status_filtered = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"status": "in_progress"},
+    )
+    priority_filtered = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"priority": "high"},
+    )
+    due_after_filtered = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"due_after": (base + timedelta(days=2)).isoformat()},
+    )
+    due_before_filtered = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"due_before": (base + timedelta(days=2)).isoformat()},
+    )
     paged = client.get(
         f"/api/projects/{project_id}/tasks", params={"limit": 1, "offset": 1}
     )
 
     assert filtered.status_code == 200
     assert [task["title"] for task in filtered.json()] == ["Before"]
+    assert [task["title"] for task in status_filtered.json()] == [
+        "Before",
+        "Boundary",
+    ]
+    assert [task["title"] for task in priority_filtered.json()] == [
+        "Before",
+        "Boundary",
+    ]
+    assert [task["title"] for task in due_after_filtered.json()] == ["After"]
+    assert [task["title"] for task in due_before_filtered.json()] == ["Before"]
     assert [task["title"] for task in paged.json()] == ["Boundary"]
 
 

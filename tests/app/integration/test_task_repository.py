@@ -262,6 +262,44 @@ def test_equal_primary_sort_values_always_use_ascending_id(session: Session) -> 
         assert [task.id for task in tasks] == [first.id, second.id]
 
 
+@pytest.mark.parametrize(
+    "sort",
+    [TaskSort.UPDATED_AT, TaskSort.DUE_AT, TaskSort.PRIORITY],
+)
+def test_other_equal_sort_values_use_ascending_id(
+    session: Session, sort: TaskSort
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    due_at = timestamp + timedelta(days=1)
+    first = repository.create(
+        make_task(
+            project.id,
+            "First",
+            timestamp,
+            priority=TaskPriority.HIGH,
+            due_at=due_at,
+        )
+    )
+    second = repository.create(
+        make_task(
+            project.id,
+            "Second",
+            timestamp,
+            priority=TaskPriority.HIGH,
+            due_at=due_at,
+        )
+    )
+
+    for order in SortOrder:
+        tasks = repository.list(
+            project.id,
+            TaskListQuery(sort=sort, order=order),
+        )
+        assert [task.id for task in tasks] == [first.id, second.id]
+
+
 def test_data_persists_after_engine_restart(database_url: str) -> None:
     first_engine = create_database_engine(database_url)
     initialize_schema(first_engine)

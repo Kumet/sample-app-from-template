@@ -80,6 +80,7 @@ finally:
 
     # Keep the pre-Task schema guarantee explicit while also proving that the
     # newly registered Task model is initialized in a fresh interpreter.
+    assert result.stdout.splitlines() == ["projects", "tasks"]
     assert "projects" in initialized_tables
     assert initialized_tables == ["projects", "tasks"]
 
