@@ -70,6 +70,7 @@ def make_task(
     title: str,
     timestamp: datetime,
     *,
+    description: str | None = None,
     status: TaskStatus = TaskStatus.TODO,
     priority: TaskPriority = TaskPriority.MEDIUM,
     due_at: datetime | None = None,
@@ -79,7 +80,7 @@ def make_task(
         id=0,
         project_id=project_id,
         title=title,
-        description=None,
+        description=description,
         status=status,
         priority=priority,
         due_at=due_at,
@@ -211,6 +212,172 @@ def test_list_applies_project_filters_strict_due_bounds_and_pagination(
         boundary.id,
         after.id,
     ]
+
+
+def test_list_searches_title_or_nullable_description_case_insensitively(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    title_match = repository.create(
+        make_task(project.id, "Release NOTES", timestamp, description=None)
+    )
+    description_match = repository.create(
+        make_task(
+            project.id,
+            "Unrelated",
+            timestamp + timedelta(seconds=1),
+            description="Contains release notes here",
+        )
+    )
+    repository.create(
+        make_task(
+            project.id,
+            "No match",
+            timestamp + timedelta(seconds=2),
+            description=None,
+        )
+    )
+
+    tasks = repository.list(project.id, TaskListQuery(q="release notes"))
+
+    assert [task.id for task in tasks] == [title_match.id, description_match.id]
+
+
+@pytest.mark.parametrize(
+    ("query_text", "expected_titles"),
+    [
+        ("%", ["Literal percent %", "Literal SQL %' OR 1=1 --"]),
+        ("_", ["Literal underscore _"]),
+        ("\\", ["Literal escape \\"]),
+        ("%' OR 1=1 --", ["Literal SQL %' OR 1=1 --"]),
+    ],
+)
+def test_list_treats_like_metacharacters_and_sql_shaped_search_as_literals(
+    session: Session,
+    query_text: str,
+    expected_titles: list[str],
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    for index, title in enumerate(
+        (
+            "Literal percent %",
+            "Literal underscore _",
+            "Literal escape \\",
+            "Literal SQL %' OR 1=1 --",
+            "Ordinary task",
+        )
+    ):
+        repository.create(
+            make_task(project.id, title, timestamp + timedelta(seconds=index))
+        )
+
+    tasks = repository.list(project.id, TaskListQuery(q=query_text))
+
+    assert [task.title for task in tasks] == expected_titles
+
+
+def test_list_uses_bound_parameter_for_literal_search(
+    session: Session, isolated_engine: Engine
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    repository.create(make_task(project.id, "Bound needle", timestamp))
+    executed: list[tuple[str, object]] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if "FROM tasks" in statement:
+            executed.append((statement, parameters))
+
+    event.listen(isolated_engine, "before_cursor_execute", record_statement)
+    try:
+        tasks = repository.list(project.id, TaskListQuery(q="needle"))
+    finally:
+        event.remove(isolated_engine, "before_cursor_execute", record_statement)
+
+    assert [task.title for task in tasks] == ["Bound needle"]
+    assert len(executed) == 1
+    statement, parameters = executed[0]
+    assert "needle" not in statement
+    assert " ESCAPE " in statement
+    assert "%needle%" in parameters
+
+
+def test_list_repeated_enum_values_are_or_within_fields_and_and_across_fields(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    repository = SQLAlchemyTaskRepository(session)
+    timestamp = datetime(2026, 7, 14, tzinfo=UTC)
+    expected = [
+        repository.create(
+            make_task(
+                project.id,
+                "Selected todo high",
+                timestamp,
+                status=TaskStatus.TODO,
+                priority=TaskPriority.HIGH,
+            )
+        ),
+        repository.create(
+            make_task(
+                project.id,
+                "Selected done low",
+                timestamp + timedelta(seconds=1),
+                status=TaskStatus.DONE,
+                priority=TaskPriority.LOW,
+            )
+        ),
+    ]
+    repository.create(
+        make_task(
+            project.id,
+            "Selected wrong status",
+            timestamp + timedelta(seconds=2),
+            status=TaskStatus.IN_PROGRESS,
+            priority=TaskPriority.HIGH,
+        )
+    )
+    repository.create(
+        make_task(
+            project.id,
+            "Selected wrong priority",
+            timestamp + timedelta(seconds=3),
+            status=TaskStatus.TODO,
+            priority=TaskPriority.MEDIUM,
+        )
+    )
+    repository.create(
+        make_task(
+            project.id,
+            "Unrelated todo high",
+            timestamp + timedelta(seconds=4),
+            status=TaskStatus.TODO,
+            priority=TaskPriority.HIGH,
+        )
+    )
+
+    tasks = repository.list(
+        project.id,
+        TaskListQuery(
+            q="selected",
+            statuses=(TaskStatus.TODO, TaskStatus.DONE),
+            priorities=(TaskPriority.HIGH, TaskPriority.LOW),
+        ),
+    )
+
+    assert [task.id for task in tasks] == [task.id for task in expected]
 
 
 @pytest.mark.parametrize(

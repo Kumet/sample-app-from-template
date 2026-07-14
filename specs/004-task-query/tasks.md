@@ -21,7 +21,7 @@
   - Validation: unit, app
   - Dependencies: T001
   - Allowed paths: `src/project_board/api/**`, `tests/app/unit/**`, `tests/app/integration/**`
-- [ ] T003: Implement bound literal search and repeated enum predicates in SQLAlchemy.
+- [x] T003: Implement bound literal search and repeated enum predicates in SQLAlchemy.
   - Requirements: REQ-004, REQ-005, REQ-006, REQ-011, REQ-013, REQ-016
   - Acceptance criteria: AC-004, AC-005, AC-006, AC-010
   - Validation: unit, integration

@@ -20,3 +20,4 @@ the framework and identify their exact HEAD.
 - Implementation: not started at this entry
 | 1 | T001 | PASS | task validation passed |
 | 1 | T002 | PASS | task validation passed |
+| 1 | T003 | PASS | task validation passed |
