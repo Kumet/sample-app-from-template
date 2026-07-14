@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 
 from project_board.api.dependencies import (
+    ProjectDashboardServiceDependency,
     ProjectServiceDependency,
     TagServiceDependency,
     TaskCommentServiceDependency,
@@ -16,7 +17,9 @@ from project_board.api.schemas import (
     CommentCreate,
     CommentResponse,
     CommentUpdate,
+    IntegerQueryValue,
     ProjectCreate,
+    ProjectDashboardResponse,
     ProjectResponse,
     ProjectUpdate,
     TagCreate,
@@ -99,6 +102,16 @@ def list_projects(service: ProjectServiceDependency) -> object:
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: int, service: ProjectServiceDependency) -> object:
     return _call_service(service.get_project, project_id)
+
+
+@router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
+def get_project_dashboard(
+    project_id: int,
+    service: ProjectDashboardServiceDependency,
+    activity_limit: Annotated[IntegerQueryValue, Query(ge=0, le=50)] = 10,
+) -> object:
+    """Return read-only aggregates and recent activity for one Project."""
+    return _call_service(service.get_dashboard, project_id, activity_limit)
 
 
 @router.post(

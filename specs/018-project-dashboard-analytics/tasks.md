@@ -39,7 +39,7 @@
   - Validation: unit, app
   - Dependencies: T001, T002, T003, T004
   - Allowed paths: `src/project_board/application/**`, `src/project_board/domain/**`, `tests/app/unit/**`
-- [ ] T006: Add dashboard response schemas, dependency wiring, route, and activity_limit validation.
+- [x] T006: Add dashboard response schemas, dependency wiring, route, and activity_limit validation.
   - Requirements: REQ-001, REQ-002, REQ-010, REQ-011, REQ-012, REQ-013
   - Acceptance criteria: AC-001, AC-002, AC-008, AC-009
   - Validation: app, integration

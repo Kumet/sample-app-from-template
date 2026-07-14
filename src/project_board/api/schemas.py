@@ -6,6 +6,7 @@ from typing import Annotated, TypeAlias
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     field_validator,
@@ -50,6 +51,22 @@ def _normalize_aware_utc_datetime(value: datetime) -> datetime:
 
 AwareUtcDatetime: TypeAlias = Annotated[
     datetime, AfterValidator(_normalize_aware_utc_datetime)
+]
+
+
+def _require_integer_query_value(value: object) -> object:
+    """Reject bool-like and non-integral query strings before coercion."""
+    if isinstance(value, bool):
+        raise ValueError("value must be an integer")
+    if isinstance(value, str):
+        digits = value[1:] if value.startswith(("+", "-")) else value
+        if not digits or not digits.isascii() or not digits.isdecimal():
+            raise ValueError("value must be an integer")
+    return value
+
+
+IntegerQueryValue: TypeAlias = Annotated[
+    int, BeforeValidator(_require_integer_query_value)
 ]
 
 
@@ -107,6 +124,62 @@ class ActivityResponse(BaseModel):
     comment_id: int
     event_type: CommentEventType
     occurred_at: datetime
+
+
+class DashboardTaskCountsResponse(BaseModel):
+    """Zero-inclusive Task aggregates returned by the dashboard API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total: int
+    by_status: dict[TaskStatus, int]
+    by_priority: dict[TaskPriority, int]
+
+
+class DashboardDueCountsResponse(BaseModel):
+    """Mutually exclusive active-Task due buckets."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    active_total: int
+    overdue: int
+    due_today: int
+    upcoming_7_days: int
+    later: int
+    no_due_date: int
+
+
+class DashboardTagCountResponse(BaseModel):
+    """Public Tag aggregate without its internal normalized name."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    task_count: int
+
+
+class DashboardCommentCountsResponse(BaseModel):
+    """Current Comment aggregates returned by the dashboard API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total: int
+    tasks_with_comments: int
+
+
+class ProjectDashboardResponse(BaseModel):
+    """Serialized Project dashboard returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: int
+    as_of: datetime
+    tasks: DashboardTaskCountsResponse
+    due: DashboardDueCountsResponse
+    tags: list[DashboardTagCountResponse]
+    comments: DashboardCommentCountsResponse
+    recent_activities: list[ActivityResponse]
 
 
 class ProjectCreate(BaseModel):
