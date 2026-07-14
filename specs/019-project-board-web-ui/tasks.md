@@ -27,7 +27,7 @@
   - Validation: unit, app
   - Dependencies: T002
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T004: Implement Project navigation and dashboard rendering/refresh.
+- [x] T004: Implement Project navigation and dashboard rendering/refresh.
   - Requirements: REQ-004, REQ-005
   - Acceptance criteria: AC-003
   - Validation: app, integration

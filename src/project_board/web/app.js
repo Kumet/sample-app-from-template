@@ -310,3 +310,429 @@ function clearError() {
   output.textContent = "";
   output.hidden = true;
 }
+
+function element(tagName, text = null) {
+  const node = document.createElement(tagName);
+  if (text !== null) {
+    node.textContent = String(text);
+  }
+  return node;
+}
+
+function setExplicitState(resource, itemCount) {
+  const loading = document.getElementById(`${resource}-loading`);
+  const empty = document.getElementById(`${resource}-empty`);
+  const error = document.getElementById(`${resource}-error`);
+  loading.hidden = !state.loading[resource];
+  error.hidden = state.errors[resource] === null;
+  if (state.errors[resource] !== null) {
+    error.textContent = state.errors[resource].message;
+  }
+  empty.hidden =
+    state.loading[resource] || state.errors[resource] !== null || itemCount !== 0;
+}
+
+function projectApiPath(projectId, suffix = "") {
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    throw new ApiError("The selected Project is invalid.", { kind: "client" });
+  }
+  return `/api/projects/${projectId}${suffix}`;
+}
+
+function selectedProject() {
+  return (
+    state.projects.find((project) => project.id === state.selectedProjectId) ??
+    null
+  );
+}
+
+function cancelResourceRequest(resource) {
+  const active = state.activeRequests[resource];
+  if (active !== null) {
+    active.controller.abort();
+  }
+  state.activeRequests[resource] = null;
+  state.loading[resource] = false;
+  state.errors[resource] = null;
+}
+
+function resetProjectDependents() {
+  for (const resource of RESOURCE_NAMES.filter(
+    (name) => name !== "projects",
+  )) {
+    cancelResourceRequest(resource);
+  }
+  state.dashboard = null;
+  state.tasks.items = [];
+  state.tasks.total = 0;
+  state.tasks.query.offset = 0;
+  state.selectedTaskId = null;
+  state.taskDetail = null;
+  state.tags = [];
+  state.comments.items = [];
+  state.comments.total = 0;
+  state.comments.offset = 0;
+  state.activities.items = [];
+  state.activities.total = 0;
+  state.activities.offset = 0;
+}
+
+function renderProjectList() {
+  const list = document.getElementById("project-list");
+  const fragment = document.createDocumentFragment();
+  for (const project of state.projects) {
+    const item = element("li");
+    const button = element("button", project.name);
+    button.type = "button";
+    if (project.id === state.selectedProjectId) {
+      button.setAttribute("aria-current", "page");
+    }
+    button.addEventListener("click", () => selectProject(project.id));
+    item.append(button);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  list.setAttribute("aria-busy", String(state.loading.projects));
+  setExplicitState("projects", state.projects.length);
+}
+
+function renderSelectedProject() {
+  const project = selectedProject();
+  document.getElementById("no-project-view").hidden = project !== null;
+  document.getElementById("project-view").hidden = project === null;
+  if (project === null) {
+    document.getElementById("selected-project-heading").textContent =
+      "Project details";
+    document.getElementById("selected-project-description").textContent = "";
+    document.getElementById("project-edit-panel").hidden = true;
+    return;
+  }
+  document.getElementById("selected-project-heading").textContent = project.name;
+  document.getElementById("selected-project-description").textContent =
+    project.description ?? "No description.";
+}
+
+function addDefinition(list, label, value) {
+  list.append(element("dt", label), element("dd", value));
+}
+
+function titledDefinitionList(title, values) {
+  const section = element("section");
+  section.append(element("h3", title));
+  const list = element("dl");
+  for (const [label, value] of values) {
+    addDefinition(list, label, value);
+  }
+  section.append(list);
+  return section;
+}
+
+function renderDashboard() {
+  const content = document.getElementById("dashboard-content");
+  const asOf = document.getElementById("dashboard-as-of");
+  content.setAttribute("aria-busy", String(state.loading.dashboard));
+  setExplicitState("dashboard", state.dashboard === null ? 0 : 1);
+
+  if (state.dashboard === null) {
+    asOf.textContent = "";
+    content.replaceChildren();
+    return;
+  }
+
+  const dashboard = state.dashboard;
+  asOf.textContent = `As of ${dashboard.as_of}`;
+  const fragment = document.createDocumentFragment();
+  fragment.append(
+    titledDefinitionList("Task counts", [
+      ["Total", dashboard.tasks.total],
+      ["Todo", dashboard.tasks.by_status.todo],
+      ["In progress", dashboard.tasks.by_status.in_progress],
+      ["Done", dashboard.tasks.by_status.done],
+      ["Low priority", dashboard.tasks.by_priority.low],
+      ["Medium priority", dashboard.tasks.by_priority.medium],
+      ["High priority", dashboard.tasks.by_priority.high],
+    ]),
+    titledDefinitionList("Due dates", [
+      ["Active Tasks", dashboard.due.active_total],
+      ["Overdue", dashboard.due.overdue],
+      ["Due today", dashboard.due.due_today],
+      ["Upcoming 7 days", dashboard.due.upcoming_7_days],
+      ["Later", dashboard.due.later],
+      ["No due date", dashboard.due.no_due_date],
+    ]),
+    titledDefinitionList("Comments", [
+      ["Total Comments", dashboard.comments.total],
+      ["Tasks with Comments", dashboard.comments.tasks_with_comments],
+    ]),
+  );
+
+  const tagsSection = element("section");
+  tagsSection.append(element("h3", "Tags"));
+  if (dashboard.tags.length === 0) {
+    tagsSection.append(element("p", "No Tags."));
+  } else {
+    const tags = element("ul");
+    for (const tag of dashboard.tags) {
+      tags.append(element("li", `${tag.name}: ${tag.task_count} Tasks`));
+    }
+    tagsSection.append(tags);
+  }
+  fragment.append(tagsSection);
+
+  const activitySection = element("section");
+  activitySection.append(element("h3", "Recent Activity"));
+  if (dashboard.recent_activities.length === 0) {
+    activitySection.append(element("p", "No recent Activity."));
+  } else {
+    const activities = element("ol");
+    for (const activity of dashboard.recent_activities) {
+      const item = element("li");
+      const details = element("dl");
+      addDefinition(details, "Event", activity.event_type);
+      addDefinition(details, "Task", activity.task_id);
+      addDefinition(details, "Comment", activity.comment_id);
+      addDefinition(details, "Occurred at", activity.occurred_at);
+      item.append(details);
+      activities.append(item);
+    }
+    activitySection.append(activities);
+  }
+  fragment.append(activitySection);
+  content.replaceChildren(fragment);
+}
+
+async function loadProjects() {
+  const pending = requestLatest("projects", "/api/projects");
+  renderProjectList();
+  try {
+    const result = await pending;
+    if (!result.accepted) {
+      return;
+    }
+    state.projects = result.data;
+    if (
+      state.selectedProjectId !== null &&
+      selectedProject() === null
+    ) {
+      state.selectedProjectId = null;
+      resetProjectDependents();
+    }
+    renderProjectList();
+    renderSelectedProject();
+    renderDashboard();
+  } catch (error) {
+    renderProjectList();
+    showError(error);
+  }
+}
+
+async function loadDashboard() {
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    state.dashboard = null;
+    renderDashboard();
+    return;
+  }
+  const pending = requestLatest(
+    "dashboard",
+    projectApiPath(projectId, "/dashboard"),
+  );
+  renderDashboard();
+  try {
+    const result = await pending;
+    if (!result.accepted || state.selectedProjectId !== projectId) {
+      return;
+    }
+    state.dashboard = result.data;
+    renderDashboard();
+  } catch (error) {
+    renderDashboard();
+    showError(error);
+  }
+}
+
+function selectProject(projectId) {
+  if (!state.projects.some((project) => project.id === projectId)) {
+    return;
+  }
+  state.selectedProjectId = projectId;
+  resetProjectDependents();
+  clearError();
+  renderProjectList();
+  renderSelectedProject();
+  renderDashboard();
+  showStatus(`Selected Project ${selectedProject().name}.`);
+  loadDashboard();
+}
+
+function projectPayload(form) {
+  const data = new FormData(form);
+  return {
+    name: String(data.get("name") ?? ""),
+    description: String(data.get("description") ?? ""),
+  };
+}
+
+async function createProject(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const created = await runMutation("createProject", () =>
+      apiRequest("/api/projects", {
+        method: "POST",
+        json: projectPayload(form),
+      }),
+    );
+    state.projects = [...state.projects, created];
+    form.reset();
+    document.getElementById("project-create-panel").hidden = true;
+    renderProjectList();
+    selectProject(created.id);
+    showStatus(`Created Project ${created.name}.`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function openProjectEditor() {
+  const project = selectedProject();
+  if (project === null) {
+    return;
+  }
+  const panel = document.getElementById("project-edit-panel");
+  document.getElementById("project-edit-name").value = project.name;
+  document.getElementById("project-edit-description").value =
+    project.description ?? "";
+  panel.hidden = false;
+  document.getElementById("project-edit-name").focus();
+}
+
+async function updateProject(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    return;
+  }
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const updated = await runMutation("updateProject", () =>
+      apiRequest(projectApiPath(projectId), {
+        method: "PATCH",
+        json: projectPayload(form),
+      }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    state.projects = state.projects.map((project) =>
+      project.id === updated.id ? updated : project,
+    );
+    document.getElementById("project-edit-panel").hidden = true;
+    renderProjectList();
+    renderSelectedProject();
+    showStatus(`Updated Project ${updated.name}.`);
+    await loadDashboard();
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function requestProjectDeletion() {
+  const project = selectedProject();
+  if (project === null) {
+    return;
+  }
+  const dialog = document.getElementById("destructive-confirmation-dialog");
+  dialog.dataset.action = "delete-project";
+  document.getElementById("confirmation-message").textContent =
+    `Delete Project ${project.name}? This action cannot be undone.`;
+  dialog.showModal();
+}
+
+async function deleteSelectedProject() {
+  const project = selectedProject();
+  if (project === null) {
+    return;
+  }
+  const projectId = project.id;
+  clearError();
+  document.getElementById("delete-project-button").disabled = true;
+  try {
+    await runMutation("deleteProject", () =>
+      apiRequest(projectApiPath(projectId), { method: "DELETE" }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    state.projects = state.projects.filter((item) => item.id !== projectId);
+    state.selectedProjectId = null;
+    resetProjectDependents();
+    renderProjectList();
+    renderSelectedProject();
+    renderDashboard();
+    showStatus(`Deleted Project ${project.name}.`);
+    await loadProjects();
+  } catch (error) {
+    showError(error);
+  } finally {
+    document.getElementById("delete-project-button").disabled = false;
+  }
+}
+
+function setupProjectUi() {
+  document.getElementById("new-project-button").addEventListener("click", () => {
+    const panel = document.getElementById("project-create-panel");
+    panel.hidden = false;
+    document.getElementById("project-create-name").focus();
+  });
+  document
+    .getElementById("cancel-project-create-button")
+    .addEventListener("click", () => {
+      document.getElementById("project-create-panel").hidden = true;
+    });
+  document
+    .getElementById("project-create-form")
+    .addEventListener("submit", createProject);
+  document
+    .getElementById("edit-project-button")
+    .addEventListener("click", openProjectEditor);
+  document
+    .getElementById("cancel-project-edit-button")
+    .addEventListener("click", () => {
+      document.getElementById("project-edit-panel").hidden = true;
+    });
+  document
+    .getElementById("project-edit-form")
+    .addEventListener("submit", updateProject);
+  document
+    .getElementById("delete-project-button")
+    .addEventListener("click", requestProjectDeletion);
+  document
+    .getElementById("destructive-confirmation-dialog")
+    .addEventListener("close", (event) => {
+      const dialog = event.currentTarget;
+      if (
+        dialog.returnValue === "confirm" &&
+        dialog.dataset.action === "delete-project"
+      ) {
+        deleteSelectedProject();
+      }
+      delete dialog.dataset.action;
+    });
+}
+
+setupProjectUi();
+renderProjectList();
+renderSelectedProject();
+renderDashboard();
+loadProjects();
