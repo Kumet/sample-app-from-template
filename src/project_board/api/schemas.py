@@ -1,4 +1,4 @@
-"""Pydantic request and response schemas for the Project and Task APIs."""
+"""Pydantic request and response schemas for the application APIs."""
 
 from datetime import datetime
 from typing import Annotated, TypeAlias
@@ -16,6 +16,11 @@ from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.project import (
     MAX_PROJECT_DESCRIPTION_LENGTH,
     MAX_PROJECT_NAME_LENGTH,
+)
+from project_board.domain.tag import (
+    MAX_TAG_NAME_LENGTH,
+    normalize_tag_color,
+    normalize_tag_name,
 )
 from project_board.domain.task import (
     MAX_TASK_DESCRIPTION_LENGTH,
@@ -109,6 +114,73 @@ class ProjectResponse(BaseModel):
     id: int
     name: str
     description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TagCreate(BaseModel):
+    """Payload accepted when creating a Tag under a Project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=MAX_TAG_NAME_LENGTH)
+    color: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return normalize_tag_name(value)[0]
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def normalize_color(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        return normalize_tag_color(value)
+
+
+class TagUpdate(BaseModel):
+    """Payload accepted for a partial Tag update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=MAX_TAG_NAME_LENGTH)
+    color: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        return normalize_tag_name(value)[0]
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def normalize_color(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        return normalize_tag_color(value)
+
+    @model_validator(mode="after")
+    def require_update_field(self) -> "TagUpdate":
+        if not self.model_fields_set.intersection({"name", "color"}):
+            raise ValueError("At least one Tag field is required")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Tag name cannot be null")
+        return self
+
+
+class TagResponse(BaseModel):
+    """Serialized public Tag returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    name: str
+    color: str | None
     created_at: datetime
     updated_at: datetime
 
