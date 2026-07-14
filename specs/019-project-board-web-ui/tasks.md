@@ -39,7 +39,7 @@
   - Validation: app, integration
   - Dependencies: T003, T004
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T006: Implement Tag CRUD and Task attach/detach flows.
+- [x] T006: Implement Tag CRUD and Task attach/detach flows.
   - Requirements: REQ-008
   - Acceptance criteria: AC-005
   - Validation: app, integration

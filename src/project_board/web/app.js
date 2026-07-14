@@ -583,6 +583,7 @@ function resetTaskDetail() {
   state.taskDetail = null;
   document.getElementById("task-detail").hidden = true;
   document.getElementById("task-detail-content").replaceChildren();
+  renderTaskTags();
 }
 
 function localDateTimeValue(value) {
@@ -598,6 +599,7 @@ function renderTaskDetail() {
   const section = document.getElementById("task-detail");
   section.hidden = state.selectedTaskId === null;
   if (state.selectedTaskId === null) {
+    renderTaskTags();
     return;
   }
   const loading = document.getElementById("task-detail-loading");
@@ -611,6 +613,7 @@ function renderTaskDetail() {
   content.setAttribute("aria-busy", String(state.loading.taskDetail));
   if (state.taskDetail === null) {
     content.replaceChildren();
+    renderTaskTags();
     return;
   }
   const task = state.taskDetail;
@@ -631,6 +634,343 @@ function renderTaskDetail() {
   document.getElementById("task-edit-due-at").value = localDateTimeValue(
     task.due_at,
   );
+  renderTaskTags();
+}
+
+function tagApiPath(projectId, tagId = null) {
+  if (tagId !== null && (!Number.isInteger(tagId) || tagId <= 0)) {
+    throw new ApiError("The selected Tag is invalid.", { kind: "client" });
+  }
+  const suffix = tagId === null ? "/tags" : `/tags/${tagId}`;
+  return projectApiPath(projectId, suffix);
+}
+
+function taskTagApiPath(projectId, taskId, tagId) {
+  if (!Number.isInteger(tagId) || tagId <= 0) {
+    throw new ApiError("The selected Tag is invalid.", { kind: "client" });
+  }
+  return `${taskApiPath(projectId, taskId)}/tags/${tagId}`;
+}
+
+function tagPayload(form) {
+  const data = new FormData(form);
+  const color = String(data.get("color") ?? "");
+  return {
+    name: String(data.get("name") ?? ""),
+    color: color === "" ? null : color,
+  };
+}
+
+function tagOption(tag) {
+  const option = element("option", tag.name);
+  option.value = String(tag.id);
+  return option;
+}
+
+function renderTagSelectors() {
+  const filter = document.getElementById("task-tag-filter");
+  const filterFragment = document.createDocumentFragment();
+  const anyTag = element("option", "Any Tag");
+  anyTag.value = "";
+  filterFragment.append(anyTag);
+  for (const tag of state.tags) {
+    filterFragment.append(tagOption(tag));
+  }
+  filter.replaceChildren(filterFragment);
+  filter.value =
+    state.tasks.query.tagId === null ? "" : String(state.tasks.query.tagId);
+
+  const attach = document.getElementById("task-tag-select");
+  const attachFragment = document.createDocumentFragment();
+  const attachedIds = new Set(
+    (state.taskDetail?.tags ?? []).map((tag) => tag.id),
+  );
+  for (const tag of state.tags) {
+    if (!attachedIds.has(tag.id)) {
+      attachFragment.append(tagOption(tag));
+    }
+  }
+  attach.replaceChildren(attachFragment);
+  const attachSubmit = document.querySelector(
+    '#task-tag-attach-form button[type="submit"]',
+  );
+  attach.disabled = attach.options.length === 0;
+  attachSubmit.disabled =
+    state.taskDetail === null || attach.options.length === 0;
+}
+
+function renderTags() {
+  const list = document.getElementById("tag-list");
+  const fragment = document.createDocumentFragment();
+  for (const tag of state.tags) {
+    const item = element("li");
+    const form = element("form");
+    form.dataset.tagId = String(tag.id);
+
+    const nameLabel = element("label", "Tag name");
+    const name = element("input");
+    name.name = "name";
+    name.value = tag.name;
+    name.maxLength = 50;
+    name.required = true;
+    nameLabel.append(name);
+
+    const colorLabel = element("label", "Color");
+    const color = element("input");
+    color.name = "color";
+    color.value = tag.color ?? "";
+    color.setAttribute("aria-label", `Color for ${tag.name}`);
+    colorLabel.append(color);
+
+    const displayedColor = element(
+      "span",
+      tag.color === null ? "No color" : tag.color,
+    );
+    const save = element("button", "Save Tag");
+    save.type = "submit";
+    const remove = element("button", `Delete Tag ${tag.name}`);
+    remove.type = "button";
+    remove.addEventListener("click", () => requestTagDeletion(tag.id));
+    form.addEventListener("submit", updateTag);
+    form.append(nameLabel, colorLabel, displayedColor, save, remove);
+    item.append(form);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  list.setAttribute("aria-busy", String(state.loading.tags));
+  setExplicitState("tags", state.tags.length);
+  renderTagSelectors();
+}
+
+function renderTaskTags() {
+  const list = document.getElementById("task-tag-list");
+  const fragment = document.createDocumentFragment();
+  const tags = state.taskDetail?.tags ?? [];
+  for (const tag of tags) {
+    const item = element("li");
+    const label = element(
+      "span",
+      tag.color === null ? tag.name : `${tag.name} (${tag.color})`,
+    );
+    const detach = element("button", `Detach Tag ${tag.name}`);
+    detach.type = "button";
+    detach.addEventListener("click", () => detachTag(tag.id, detach));
+    item.append(label, detach);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  document.getElementById("task-tags-empty").hidden = tags.length !== 0;
+  renderTagSelectors();
+}
+
+async function loadTags() {
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    state.tags = [];
+    renderTags();
+    renderTaskTags();
+    return;
+  }
+  const pending = requestLatest("tags", tagApiPath(projectId));
+  renderTags();
+  try {
+    const result = await pending;
+    if (!result.accepted || state.selectedProjectId !== projectId) {
+      return;
+    }
+    state.tags = result.data;
+    renderTags();
+    renderTaskTags();
+  } catch (error) {
+    renderTags();
+    showError(error);
+  }
+}
+
+async function createTag(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  if (projectId === null) {
+    return;
+  }
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const created = await runMutation("createTag", () =>
+      apiRequest(tagApiPath(projectId), {
+        method: "POST",
+        json: tagPayload(form),
+      }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    form.reset();
+    showStatus(`Created Tag ${created.name}.`);
+    await Promise.all([loadTags(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function updateTag(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  const form = event.currentTarget;
+  const tagId = Number(form.dataset.tagId);
+  if (projectId === null || !Number.isInteger(tagId) || tagId <= 0) {
+    return;
+  }
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    const updated = await runMutation(`updateTag:${tagId}`, () =>
+      apiRequest(tagApiPath(projectId, tagId), {
+        method: "PATCH",
+        json: tagPayload(form),
+      }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    showStatus(`Updated Tag ${updated.name}.`);
+    const detailRefresh =
+      state.selectedTaskId === null
+        ? Promise.resolve()
+        : loadTaskDetail(state.selectedTaskId);
+    await Promise.all([
+      loadTags(),
+      loadTasks(),
+      loadDashboard(),
+      detailRefresh,
+    ]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function requestTagDeletion(tagId) {
+  const tag = state.tags.find((item) => item.id === tagId);
+  if (tag === undefined) {
+    return;
+  }
+  const dialog = document.getElementById("destructive-confirmation-dialog");
+  dialog.dataset.action = "delete-tag";
+  dialog.dataset.tagId = String(tag.id);
+  document.getElementById("confirmation-message").textContent =
+    `Delete Tag ${tag.name}? It will be detached from every Task.`;
+  dialog.showModal();
+}
+
+async function deleteTag(tagId) {
+  const projectId = state.selectedProjectId;
+  const tag = state.tags.find((item) => item.id === tagId);
+  if (projectId === null || tag === undefined) {
+    return;
+  }
+  clearError();
+  try {
+    await runMutation(`deleteTag:${tagId}`, () =>
+      apiRequest(tagApiPath(projectId, tagId), { method: "DELETE" }),
+    );
+    if (state.selectedProjectId !== projectId) {
+      return;
+    }
+    if (state.tasks.query.tagId === tagId) {
+      state.tasks.query.tagId = null;
+      state.tasks.query.offset = 0;
+    }
+    showStatus(`Deleted Tag ${tag.name}.`);
+    const detailRefresh =
+      state.selectedTaskId === null
+        ? Promise.resolve()
+        : loadTaskDetail(state.selectedTaskId);
+    await Promise.all([
+      loadTags(),
+      loadTasks(),
+      loadDashboard(),
+      detailRefresh,
+    ]);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function attachTag(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  const tagId = Number(new FormData(form).get("tag_id"));
+  if (
+    projectId === null ||
+    taskId === null ||
+    !Number.isInteger(tagId) ||
+    tagId <= 0 ||
+    !state.tags.some((tag) => tag.id === tagId)
+  ) {
+    return;
+  }
+  clearError();
+  submit.disabled = true;
+  try {
+    await runMutation(`attachTag:${taskId}:${tagId}`, () =>
+      apiRequest(taskTagApiPath(projectId, taskId, tagId), { method: "PUT" }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    showStatus("Attached Tag to Task.");
+    await Promise.all([loadTasks(), loadDashboard(), loadTaskDetail(taskId)]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    renderTagSelectors();
+  }
+}
+
+async function detachTag(tagId, button) {
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (
+    projectId === null ||
+    taskId === null ||
+    !state.taskDetail?.tags.some((tag) => tag.id === tagId)
+  ) {
+    return;
+  }
+  clearError();
+  button.disabled = true;
+  try {
+    await runMutation(`detachTag:${taskId}:${tagId}`, () =>
+      apiRequest(taskTagApiPath(projectId, taskId, tagId), {
+        method: "DELETE",
+      }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    showStatus("Detached Tag from Task.");
+    await Promise.all([loadTasks(), loadDashboard(), loadTaskDetail(taskId)]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadTasks() {
@@ -869,6 +1209,7 @@ async function loadProjects() {
     renderDashboard();
     renderTasks();
     renderTaskDetail();
+    renderTags();
   } catch (error) {
     renderProjectList();
     showError(error);
@@ -912,9 +1253,11 @@ function selectProject(projectId) {
   renderDashboard();
   renderTasks();
   renderTaskDetail();
+  renderTags();
   showStatus(`Selected Project ${selectedProject().name}.`);
   loadDashboard();
   loadTasks();
+  loadTags();
 }
 
 function projectPayload(form) {
@@ -1034,6 +1377,7 @@ async function deleteSelectedProject() {
     renderDashboard();
     renderTasks();
     renderTaskDetail();
+    renderTags();
     showStatus(`Deleted Project ${project.name}.`);
     await loadProjects();
   } catch (error) {
@@ -1085,8 +1429,14 @@ function setupProjectUi() {
         dialog.dataset.action === "delete-task"
       ) {
         deleteSelectedTask();
+      } else if (
+        dialog.returnValue === "confirm" &&
+        dialog.dataset.action === "delete-tag"
+      ) {
+        deleteTag(Number(dialog.dataset.tagId));
       }
       delete dialog.dataset.action;
+      delete dialog.dataset.tagId;
     });
 }
 
@@ -1143,11 +1493,22 @@ function setupTaskUi() {
     });
 }
 
+function setupTagUi() {
+  document
+    .getElementById("tag-create-form")
+    .addEventListener("submit", createTag);
+  document
+    .getElementById("task-tag-attach-form")
+    .addEventListener("submit", attachTag);
+}
+
 setupProjectUi();
 setupTaskUi();
+setupTagUi();
 renderProjectList();
 renderSelectedProject();
 renderDashboard();
 renderTasks();
 renderTaskDetail();
+renderTags();
 loadProjects();
