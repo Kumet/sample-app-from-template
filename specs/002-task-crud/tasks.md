@@ -11,7 +11,7 @@
 
 ## Tasks
 
-- [ ] T001: Implement Task domain model, enums, errors, and repository interface.
+- [x] T001: Implement Task domain model, enums, errors, and repository interface.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-017, REQ-018
   - Acceptance criteria: AC-003, AC-004, AC-006, AC-007, AC-008, AC-019, AC-020
   - Validation: unit, app

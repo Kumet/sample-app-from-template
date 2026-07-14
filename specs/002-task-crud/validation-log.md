@@ -50,3 +50,4 @@
   by integration tests.
 - Project deletion changes from unconditional physical deletion to a 409 guard
   when Tasks exist and therefore requires high-risk review.
+| 1 | T001 | PASS | task validation passed |

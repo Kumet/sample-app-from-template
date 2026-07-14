@@ -1,8 +1,9 @@
 """Project domain model and its invariants."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
+from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.errors import ProjectValidationError
 
 MAX_PROJECT_NAME_LENGTH = 100
@@ -35,9 +36,10 @@ def _normalize_description(description: str | None) -> str | None:
 
 
 def _normalize_datetime(value: datetime, field_name: str) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ProjectValidationError(f"Project {field_name} must be timezone-aware")
-    return value.astimezone(UTC)
+    try:
+        return normalize_utc_datetime(value, f"Project {field_name}")
+    except ValueError as error:
+        raise ProjectValidationError(str(error)) from error
 
 
 @dataclass(frozen=True, slots=True)
