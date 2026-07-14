@@ -15,7 +15,7 @@
   - Validation: unit, app
   - Dependencies: none
   - Allowed paths: `src/project_board/api/**`, `src/project_board/web/**`, `tests/app/**`
-- [ ] T002: Build the semantic accessible HTML application shell.
+- [x] T002: Build the semantic accessible HTML application shell.
   - Requirements: REQ-011, REQ-012
   - Acceptance criteria: AC-008, AC-009
   - Validation: unit, app
