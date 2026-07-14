@@ -42,12 +42,14 @@ const state = {
     total: 0,
     limit: 50,
     offset: 0,
+    order: "asc",
   },
   activities: {
     items: [],
     total: 0,
     limit: 50,
     offset: 0,
+    order: "asc",
   },
   loading: resourceFlags(false),
   errors: resourceFlags(null),
@@ -319,17 +321,19 @@ function element(tagName, text = null) {
   return node;
 }
 
-function setExplicitState(resource, itemCount) {
+function setExplicitState(resource, itemCount, stateResource = resource) {
   const loading = document.getElementById(`${resource}-loading`);
   const empty = document.getElementById(`${resource}-empty`);
   const error = document.getElementById(`${resource}-error`);
-  loading.hidden = !state.loading[resource];
-  error.hidden = state.errors[resource] === null;
-  if (state.errors[resource] !== null) {
-    error.textContent = state.errors[resource].message;
+  loading.hidden = !state.loading[stateResource];
+  error.hidden = state.errors[stateResource] === null;
+  if (state.errors[stateResource] !== null) {
+    error.textContent = state.errors[stateResource].message;
   }
   empty.hidden =
-    state.loading[resource] || state.errors[resource] !== null || itemCount !== 0;
+    state.loading[stateResource] ||
+    state.errors[stateResource] !== null ||
+    itemCount !== 0;
 }
 
 function projectApiPath(projectId, suffix = "") {
@@ -579,11 +583,25 @@ function renderTasks() {
 
 function resetTaskDetail() {
   cancelResourceRequest("taskDetail");
+  resetTaskResources();
   state.selectedTaskId = null;
   state.taskDetail = null;
   document.getElementById("task-detail").hidden = true;
   document.getElementById("task-detail-content").replaceChildren();
   renderTaskTags();
+  renderComments();
+  renderActivities();
+}
+
+function resetTaskResources() {
+  cancelResourceRequest("comments");
+  cancelResourceRequest("activities");
+  state.comments.items = [];
+  state.comments.total = 0;
+  state.comments.offset = 0;
+  state.activities.items = [];
+  state.activities.total = 0;
+  state.activities.offset = 0;
 }
 
 function localDateTimeValue(value) {
@@ -600,6 +618,8 @@ function renderTaskDetail() {
   section.hidden = state.selectedTaskId === null;
   if (state.selectedTaskId === null) {
     renderTaskTags();
+    renderComments();
+    renderActivities();
     return;
   }
   const loading = document.getElementById("task-detail-loading");
@@ -614,6 +634,8 @@ function renderTaskDetail() {
   if (state.taskDetail === null) {
     content.replaceChildren();
     renderTaskTags();
+    renderComments();
+    renderActivities();
     return;
   }
   const task = state.taskDetail;
@@ -635,6 +657,289 @@ function renderTaskDetail() {
     task.due_at,
   );
   renderTaskTags();
+  renderComments();
+  renderActivities();
+}
+
+function taskChildApiPath(projectId, taskId, resource, childId = null) {
+  if (resource !== "comments" && resource !== "activities") {
+    throw new ApiError("The Task resource is invalid.", { kind: "client" });
+  }
+  if (childId !== null && (!Number.isInteger(childId) || childId <= 0)) {
+    throw new ApiError("The selected Comment is invalid.", { kind: "client" });
+  }
+  const childSuffix = childId === null ? "" : `/${childId}`;
+  return `${taskApiPath(projectId, taskId)}/${resource}${childSuffix}`;
+}
+
+function taskChildListPath(projectId, taskId, resource, collection) {
+  const parameters = new URLSearchParams();
+  parameters.set("limit", String(collection.limit));
+  parameters.set("offset", String(collection.offset));
+  parameters.set("order", collection.order);
+  return `${taskChildApiPath(projectId, taskId, resource)}?${parameters.toString()}`;
+}
+
+function renderCollectionPage(
+  resource,
+  collection,
+  itemLabel,
+  stateResource = resource,
+) {
+  const count = collection.items.length;
+  const first = count === 0 ? 0 : collection.offset + 1;
+  const last = collection.offset + count;
+  collection.total = last;
+  document.getElementById(`${resource}-page-status`).textContent =
+    count === 0
+      ? `No ${itemLabel} on this page.`
+      : `Showing ${itemLabel} ${first}\u2013${last}.`;
+  document.getElementById(`previous-${resource}-button`).disabled =
+    state.loading[stateResource] || collection.offset === 0;
+  document.getElementById(`next-${resource}-button`).disabled =
+    state.loading[stateResource] || count < collection.limit;
+}
+
+function renderComments() {
+  const list = document.getElementById("comment-list");
+  const fragment = document.createDocumentFragment();
+  for (const comment of state.comments.items) {
+    const item = element("li");
+    const body = element("pre", comment.body);
+    const details = element("dl");
+    addDefinition(details, "Created", comment.created_at);
+    addDefinition(details, "Updated", comment.updated_at);
+
+    const form = element("form");
+    form.dataset.commentId = String(comment.id);
+    const label = element("label", "Comment body");
+    const editor = element("textarea");
+    editor.name = "body";
+    editor.value = comment.body;
+    editor.maxLength = 2000;
+    editor.required = true;
+    label.append(editor);
+    const save = element("button", "Save Comment");
+    save.type = "submit";
+    const remove = element("button", `Delete Comment ${comment.id}`);
+    remove.type = "button";
+    remove.addEventListener("click", () => requestCommentDeletion(comment.id));
+    form.addEventListener("submit", updateComment);
+    form.append(label, save, remove);
+    item.append(body, details, form);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  list.setAttribute("aria-busy", String(state.loading.comments));
+  setExplicitState("comments", state.comments.items.length);
+  renderCollectionPage("comments", state.comments, "Comments");
+}
+
+function renderActivities() {
+  const list = document.getElementById("activity-list");
+  const fragment = document.createDocumentFragment();
+  for (const activity of state.activities.items) {
+    const item = element("li");
+    const details = element("dl");
+    addDefinition(details, "Event", activity.event_type);
+    addDefinition(details, "Comment", activity.comment_id);
+    addDefinition(details, "Occurred at", activity.occurred_at);
+    item.append(details);
+    fragment.append(item);
+  }
+  list.replaceChildren(fragment);
+  list.setAttribute("aria-busy", String(state.loading.activities));
+  setExplicitState("activity", state.activities.items.length, "activities");
+  renderCollectionPage(
+    "activity",
+    state.activities,
+    "Activity entries",
+    "activities",
+  );
+}
+
+async function loadComments() {
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (projectId === null || taskId === null) {
+    state.comments.items = [];
+    renderComments();
+    return;
+  }
+  const pending = requestLatest(
+    "comments",
+    taskChildListPath(projectId, taskId, "comments", state.comments),
+  );
+  renderComments();
+  try {
+    const result = await pending;
+    if (
+      !result.accepted ||
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    state.comments.items = result.data;
+    renderComments();
+  } catch (error) {
+    renderComments();
+    showError(error);
+  }
+}
+
+async function loadActivities() {
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (projectId === null || taskId === null) {
+    state.activities.items = [];
+    renderActivities();
+    return;
+  }
+  const pending = requestLatest(
+    "activities",
+    taskChildListPath(projectId, taskId, "activities", state.activities),
+  );
+  renderActivities();
+  try {
+    const result = await pending;
+    if (
+      !result.accepted ||
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    state.activities.items = result.data;
+    renderActivities();
+  } catch (error) {
+    renderActivities();
+    showError(error);
+  }
+}
+
+function commentPayload(form) {
+  return { body: String(new FormData(form).get("body") ?? "") };
+}
+
+async function createComment(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (projectId === null || taskId === null) {
+    return;
+  }
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    await runMutation(`createComment:${taskId}`, () =>
+      apiRequest(taskChildApiPath(projectId, taskId, "comments"), {
+        method: "POST",
+        json: commentPayload(form),
+      }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    form.reset();
+    showStatus("Created Comment.");
+    await Promise.all([loadComments(), loadActivities(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function updateComment(event) {
+  event.preventDefault();
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  const form = event.currentTarget;
+  const commentId = Number(form.dataset.commentId);
+  if (
+    projectId === null ||
+    taskId === null ||
+    !state.comments.items.some((comment) => comment.id === commentId)
+  ) {
+    return;
+  }
+  const submit = form.querySelector('button[type="submit"]');
+  clearError();
+  submit.disabled = true;
+  try {
+    await runMutation(`updateComment:${taskId}:${commentId}`, () =>
+      apiRequest(
+        taskChildApiPath(projectId, taskId, "comments", commentId),
+        { method: "PATCH", json: commentPayload(form) },
+      ),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    showStatus("Updated Comment.");
+    await Promise.all([loadComments(), loadActivities(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function requestCommentDeletion(commentId) {
+  if (!state.comments.items.some((comment) => comment.id === commentId)) {
+    return;
+  }
+  const dialog = document.getElementById("destructive-confirmation-dialog");
+  dialog.dataset.action = "delete-comment";
+  dialog.dataset.commentId = String(commentId);
+  document.getElementById("confirmation-message").textContent =
+    `Delete Comment ${commentId}? Its Activity history will remain.`;
+  dialog.showModal();
+}
+
+async function deleteComment(commentId) {
+  const projectId = state.selectedProjectId;
+  const taskId = state.selectedTaskId;
+  if (
+    projectId === null ||
+    taskId === null ||
+    !state.comments.items.some((comment) => comment.id === commentId)
+  ) {
+    return;
+  }
+  clearError();
+  try {
+    await runMutation(`deleteComment:${taskId}:${commentId}`, () =>
+      apiRequest(taskChildApiPath(projectId, taskId, "comments", commentId), {
+        method: "DELETE",
+      }),
+    );
+    if (
+      state.selectedProjectId !== projectId ||
+      state.selectedTaskId !== taskId
+    ) {
+      return;
+    }
+    if (state.comments.items.length === 1 && state.comments.offset > 0) {
+      state.comments.offset = Math.max(
+        0,
+        state.comments.offset - state.comments.limit,
+      );
+    }
+    showStatus("Deleted Comment.");
+    await Promise.all([loadComments(), loadActivities(), loadDashboard()]);
+  } catch (error) {
+    showError(error);
+  }
 }
 
 function tagApiPath(projectId, tagId = null) {
@@ -1030,12 +1335,15 @@ function selectTask(taskId) {
   if (!state.tasks.items.some((task) => task.id === taskId)) {
     return;
   }
+  resetTaskResources();
   state.selectedTaskId = taskId;
   state.taskDetail = null;
   clearError();
   renderTasks();
   renderTaskDetail();
   loadTaskDetail(taskId);
+  loadComments();
+  loadActivities();
 }
 
 function utcDateTimeOrNull(value) {
@@ -1434,9 +1742,15 @@ function setupProjectUi() {
         dialog.dataset.action === "delete-tag"
       ) {
         deleteTag(Number(dialog.dataset.tagId));
+      } else if (
+        dialog.returnValue === "confirm" &&
+        dialog.dataset.action === "delete-comment"
+      ) {
+        deleteComment(Number(dialog.dataset.commentId));
       }
       delete dialog.dataset.action;
       delete dialog.dataset.tagId;
+      delete dialog.dataset.commentId;
     });
 }
 
@@ -1502,9 +1816,46 @@ function setupTagUi() {
     .addEventListener("submit", attachTag);
 }
 
+function setupCommentUi() {
+  document
+    .getElementById("comment-create-form")
+    .addEventListener("submit", createComment);
+  document
+    .getElementById("previous-comments-button")
+    .addEventListener("click", () => {
+      state.comments.offset = Math.max(
+        0,
+        state.comments.offset - state.comments.limit,
+      );
+      loadComments();
+    });
+  document
+    .getElementById("next-comments-button")
+    .addEventListener("click", () => {
+      state.comments.offset += state.comments.limit;
+      loadComments();
+    });
+  document
+    .getElementById("previous-activity-button")
+    .addEventListener("click", () => {
+      state.activities.offset = Math.max(
+        0,
+        state.activities.offset - state.activities.limit,
+      );
+      loadActivities();
+    });
+  document
+    .getElementById("next-activity-button")
+    .addEventListener("click", () => {
+      state.activities.offset += state.activities.limit;
+      loadActivities();
+    });
+}
+
 setupProjectUi();
 setupTaskUi();
 setupTagUi();
+setupCommentUi();
 renderProjectList();
 renderSelectedProject();
 renderDashboard();

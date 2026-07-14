@@ -45,7 +45,7 @@
   - Validation: app, integration
   - Dependencies: T005
   - Allowed paths: `src/project_board/web/**`, `tests/app/**`
-- [ ] T007: Implement Comment CRUD, Activity list, pagination, and safe literal content rendering.
+- [x] T007: Implement Comment CRUD, Activity list, pagination, and safe literal content rendering.
   - Requirements: REQ-009, REQ-011
   - Acceptance criteria: AC-006, AC-008
   - Validation: app, integration
