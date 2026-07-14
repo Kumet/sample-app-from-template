@@ -1,11 +1,16 @@
 import json
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event, func, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from project_board.application import TaskService
 from project_board.domain import (
@@ -18,7 +23,19 @@ from project_board.domain import (
     TaskStatus,
     TaskValidationError,
 )
+from project_board.infrastructure import (
+    create_database_engine,
+    create_session_factory,
+    initialize_schema,
+)
+from project_board.infrastructure.models import TaskModel
 from project_board.repositories import TaskListQuery
+from project_board.repositories.sqlalchemy_project_repository import (
+    SQLAlchemyProjectRepository,
+)
+from project_board.repositories.sqlalchemy_task_repository import (
+    SQLAlchemyTaskRepository,
+)
 
 NOW = datetime(2026, 2, 1, 12, tzinfo=UTC)
 LATER = datetime(2026, 2, 2, 12, tzinfo=UTC)
@@ -111,6 +128,21 @@ def make_service(
         projects or StubProjectRepository([make_project()]),
         clock=lambda: LATER,
     )
+
+
+@pytest.fixture
+def sqlite_task_service(
+    tmp_path: Path,
+) -> Iterator[tuple[TaskService, Session, Engine, int]]:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'task-service.sqlite3'}")
+    initialize_schema(engine)
+    session = create_session_factory(engine)()
+    projects = SQLAlchemyProjectRepository(session)
+    tasks = SQLAlchemyTaskRepository(session)
+    project = projects.create(make_project())
+    yield TaskService(tasks, projects, clock=lambda: LATER), session, engine, project.id
+    session.close()
+    engine.dispose()
 
 
 def test_importing_task_service_does_not_load_sqlalchemy_infrastructure() -> None:
@@ -298,10 +330,88 @@ def test_delete_task_delegates_to_owned_repository_operation() -> None:
 
 
 def test_delete_task_raises_not_found_for_missing_or_mismatched_task() -> None:
-    repository = StubTaskRepository([make_task(4, project_id=2)])
-
+    missing_repository = StubTaskRepository()
     with pytest.raises(TaskNotFound):
-        make_service(repository).delete_task(1, 4)
+        make_service(missing_repository).delete_task(1, 4)
+
+    mismatched_repository = StubTaskRepository([make_task(4, project_id=2)])
+    with pytest.raises(TaskNotFound):
+        make_service(mismatched_repository).delete_task(1, 4)
+
+
+def test_create_failure_rolls_back_and_service_reuses_real_sqlite_session(
+    sqlite_task_service: tuple[TaskService, Session, Engine, int],
+) -> None:
+    service, session, engine, project_id = sqlite_task_service
+    flushed_counts: list[int | None] = []
+
+    def fail_after_flush(flushed_session: Session, _flush_context: object) -> None:
+        flushed_counts.append(
+            flushed_session.scalar(select(func.count()).select_from(TaskModel))
+        )
+        raise SQLAlchemyError("forced create failure")
+
+    event.listen(session, "after_flush_postexec", fail_after_flush, once=True)
+    with pytest.raises(RepositoryError, match="Task persistence operation failed"):
+        service.create_task(project_id, "Failed")
+
+    assert flushed_counts == [1]
+    assert session.in_transaction() is False
+    assert service.list_tasks(project_id, TaskListQuery()) == []
+    recovered = service.create_task(project_id, "Recovered")
+    assert service.get_task(project_id, recovered.id) == recovered
+    with create_session_factory(engine)() as verification_session:
+        assert (
+            verification_session.scalar(select(func.count()).select_from(TaskModel))
+            == 1
+        )
+
+
+def test_update_failure_rolls_back_and_service_reuses_real_sqlite_session(
+    sqlite_task_service: tuple[TaskService, Session, Engine, int],
+) -> None:
+    service, session, engine, project_id = sqlite_task_service
+    original = service.create_task(project_id, "Original")
+
+    def fail_after_flush(_session: Session, _flush_context: object) -> None:
+        raise SQLAlchemyError("forced update failure")
+
+    event.listen(session, "after_flush_postexec", fail_after_flush, once=True)
+    with pytest.raises(RepositoryError, match="Task persistence operation failed"):
+        service.update_task(project_id, original.id, title="Failed")
+
+    assert session.in_transaction() is False
+    assert service.get_task(project_id, original.id) == original
+    recovered = service.update_task(project_id, original.id, title="Recovered")
+    assert recovered.title == "Recovered"
+    with create_session_factory(engine)() as verification_session:
+        persisted = verification_session.get(TaskModel, original.id)
+        assert persisted is not None
+        assert persisted.title == "Recovered"
+
+
+def test_delete_failure_rolls_back_and_service_reuses_real_sqlite_session(
+    sqlite_task_service: tuple[TaskService, Session, Engine, int],
+) -> None:
+    service, session, engine, project_id = sqlite_task_service
+    original = service.create_task(project_id, "Original")
+
+    def fail_after_flush(_session: Session, _flush_context: object) -> None:
+        raise SQLAlchemyError("forced delete failure")
+
+    event.listen(session, "after_flush_postexec", fail_after_flush, once=True)
+    with pytest.raises(RepositoryError, match="Task persistence operation failed"):
+        service.delete_task(project_id, original.id)
+
+    assert session.in_transaction() is False
+    assert service.get_task(project_id, original.id) == original
+    recovered = service.create_task(project_id, "Recovered")
+    assert service.get_task(project_id, recovered.id) == recovered
+    with create_session_factory(engine)() as verification_session:
+        assert (
+            verification_session.scalar(select(func.count()).select_from(TaskModel))
+            == 2
+        )
 
 
 def test_repository_errors_propagate_unchanged() -> None:

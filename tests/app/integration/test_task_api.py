@@ -231,6 +231,32 @@ def test_task_list_filters_strict_due_bounds_paginates_and_isolates_projects(
     assert [task["title"] for task in paged.json()] == ["Boundary"]
 
 
+def test_task_list_normalizes_aware_due_filters_to_utc(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={"title": "UTC boundary", "due_at": "2026-07-14T00:00:00Z"},
+    )
+    assert created.status_code == 201
+
+    before = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"due_before": "2026-07-14T09:00:01+09:00"},
+    )
+    after = client.get(
+        f"/api/projects/{project_id}/tasks",
+        params={"due_after": "2026-07-14T08:59:59+09:00"},
+    )
+
+    assert before.status_code == 200
+    assert [task["title"] for task in before.json()] == ["UTC boundary"]
+    assert after.status_code == 200
+    assert [task["title"] for task in after.json()] == ["UTC boundary"]
+
+
 @pytest.mark.parametrize(
     ("params", "expected_titles"),
     [
@@ -365,6 +391,38 @@ def test_task_patch_updates_supplied_fields_and_clears_nullable_fields(
     assert updated["priority"] == "high"
     assert updated["due_at"] is None
     assert updated["project_id"] == project_id
+    assert updated["created_at"] == created["created_at"]
+    assert updated["updated_at"] != created["updated_at"]
+
+
+def test_task_patch_preserves_every_omitted_mutable_field(
+    task_api_database: tuple[TestClient, Engine],
+) -> None:
+    client, _ = task_api_database
+    project_id = create_project(client)
+    created = client.post(
+        f"/api/projects/{project_id}/tasks",
+        json={
+            "title": "Original",
+            "description": "Keep this",
+            "status": "in_progress",
+            "priority": "high",
+            "due_at": "2026-08-01T00:00:00Z",
+        },
+    ).json()
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{created['id']}",
+        json={"title": "Renamed"},
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["title"] == "Renamed"
+    for field_name in ("description", "status", "priority", "due_at"):
+        assert updated[field_name] == created[field_name]
+    assert updated["id"] == created["id"]
+    assert updated["project_id"] == created["project_id"]
     assert updated["created_at"] == created["created_at"]
     assert updated["updated_at"] != created["updated_at"]
 

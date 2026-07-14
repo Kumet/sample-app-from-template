@@ -1,8 +1,16 @@
 """Pydantic request and response schemas for the Project and Task APIs."""
 
 from datetime import datetime
+from typing import Annotated, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from project_board.domain.datetime import normalize_utc_datetime
 from project_board.domain.project import (
@@ -24,6 +32,15 @@ def _trim_description(value: object) -> object:
         return value
     trimmed = value.strip()
     return trimmed or None
+
+
+def _normalize_aware_utc_datetime(value: datetime) -> datetime:
+    return normalize_utc_datetime(value, "datetime query parameter")
+
+
+AwareUtcDatetime: TypeAlias = Annotated[
+    datetime, AfterValidator(_normalize_aware_utc_datetime)
+]
 
 
 class ProjectCreate(BaseModel):

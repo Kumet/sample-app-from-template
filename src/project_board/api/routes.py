@@ -1,6 +1,5 @@
 """FastAPI routes and sanitized error mapping for Project and Task CRUD."""
 
-from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, Query, Response, status
@@ -10,6 +9,7 @@ from project_board.api.dependencies import (
     TaskServiceDependency,
 )
 from project_board.api.schemas import (
+    AwareUtcDatetime,
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
@@ -94,8 +94,8 @@ def list_tasks(
     service: TaskServiceDependency,
     status_filter: Annotated[TaskStatus | None, Query(alias="status")] = None,
     priority: TaskPriority | None = None,
-    due_before: datetime | None = None,
-    due_after: datetime | None = None,
+    due_before: Annotated[AwareUtcDatetime | None, Query()] = None,
+    due_after: Annotated[AwareUtcDatetime | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: TaskSort = TaskSort.CREATED_AT,
