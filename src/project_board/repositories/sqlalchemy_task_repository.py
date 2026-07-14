@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 
-from sqlalchemy import and_, case, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -30,6 +30,12 @@ def _as_utc(value: datetime) -> datetime:
 
 def _optional_as_utc(value: datetime | None) -> datetime | None:
     return None if value is None else _as_utc(value)
+
+
+def _literal_like_pattern(value: str) -> str:
+    """Wrap escaped user text for a literal substring LIKE predicate."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _to_tag(model: TagModel) -> Tag:
@@ -81,10 +87,30 @@ class SQLAlchemyTaskRepository:
 
     def list(self, project_id: int, query: TaskListQuery) -> list[Task]:
         statement = select(TaskModel).where(TaskModel.project_id == project_id)
-        if query.status is not None:
-            statement = statement.where(TaskModel.status == query.status.value)
-        if query.priority is not None:
-            statement = statement.where(TaskModel.priority == query.priority.value)
+        if query.q is not None:
+            pattern = _literal_like_pattern(query.q)
+            statement = statement.where(
+                or_(
+                    TaskModel.title.ilike(pattern, escape="\\"),
+                    TaskModel.description.ilike(pattern, escape="\\"),
+                )
+            )
+
+        statuses = query.statuses
+        if not statuses and query.status is not None:
+            statuses = (query.status,)
+        if statuses:
+            statement = statement.where(
+                TaskModel.status.in_(status.value for status in statuses)
+            )
+
+        priorities = query.priorities
+        if not priorities and query.priority is not None:
+            priorities = (query.priority,)
+        if priorities:
+            statement = statement.where(
+                TaskModel.priority.in_(priority.value for priority in priorities)
+            )
         if query.due_before is not None:
             statement = statement.where(TaskModel.due_at < query.due_before)
         if query.due_after is not None:
@@ -108,6 +134,8 @@ class SQLAlchemyTaskRepository:
                 (TaskModel.priority == "medium", 1),
                 (TaskModel.priority == "high", 2),
             )
+        elif query.sort is TaskSort.TITLE:
+            primary_sort = func.lower(TaskModel.title)
         else:
             primary_sort = cast(
                 ColumnElement[Any],

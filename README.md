@@ -160,8 +160,8 @@ curl -X POST http://127.0.0.1:8000/api/projects/1/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"Implement Task CRUD","priority":"high","due_at":"2026-07-31T09:00:00+09:00"}'
 
-# List Project 1 Tasks, filtered and sorted by due date
-curl 'http://127.0.0.1:8000/api/projects/1/tasks?status=todo&sort=due_at&order=asc&limit=50&offset=0'
+# Search Project 1 Tasks across multiple statuses, sorted by title
+curl 'http://127.0.0.1:8000/api/projects/1/tasks?q=task&status=todo&status=in_progress&sort=title&order=asc&limit=50&offset=0'
 
 # Retrieve Task 1
 curl http://127.0.0.1:8000/api/projects/1/tasks/1
@@ -192,14 +192,17 @@ timestamps cannot be changed. Attach and detach return HTTP 204 with no body and
 are idempotent. Missing or cross-Project Tasks and Tags return HTTP 404. Deleting
 a Task removes its Tag associations but preserves its Tags.
 
-Task lists accept exact `status` and `priority` filters, strict `due_before` and
-`due_after` timestamps, an optional positive `tag_id`, `limit` from 1 to 100
-(default 50), and a non-negative `offset`. A missing or foreign `tag_id` returns
-HTTP 404. Tag filtering composes with the other filters, sorting, and pagination
-before the bounded result is returned. Sort fields are `created_at`,
-`updated_at`, `due_at`, and `priority`, with `asc` or `desc` order. Results use
-Task ID ascending as a stable tie-breaker; due-date nulls are always last and
-priority follows `low < medium < high`.
+Task lists accept a trimmed, case-insensitive substring search `q` from 1 to 100
+characters, repeated exact `status` and `priority` filters, strict `due_before`
+and `due_after` timestamps, an optional positive `tag_id`, `limit` from 1 to
+100 (default 50), and a non-negative `offset`. Repeated values within `status`
+or `priority` are ORed; different filter fields compose with AND. Search treats
+SQL wildcard characters as literal text. A missing or foreign `tag_id` returns
+HTTP 404. Filtering, sorting, and pagination occur before the bounded result is
+returned. Sort fields are `created_at`, `updated_at`, `due_at`, `priority`, and
+case-insensitive `title`, with `asc` or `desc` order. Results use Task ID
+ascending as a stable tie-breaker; due-date nulls are always last and priority
+follows `low < medium < high`.
 
 Every Task response contains a `tags` array, including an empty array for an
 untagged Task. Tags in Task responses are ordered by case-folded name and ID.
