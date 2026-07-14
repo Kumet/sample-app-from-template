@@ -269,3 +269,80 @@ def test_constraint_failure_is_sanitized_rolled_back_and_session_is_reusable(
     assert session.scalar(select(func.count()).select_from(TaskCommentModel)) == 0
     recovered = repository.create(make_comment(task, "Recovered", timestamp), timestamp)
     assert repository.get(task.project_id, task.id, recovered.id) == recovered
+
+
+@pytest.mark.parametrize("operation", ["create", "update", "delete"])
+def test_commit_failure_rolls_back_atomic_mutation_and_reuses_session(
+    session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    task = create_task(session)
+    repository = SQLAlchemyTaskCommentRepository(session)
+    timestamp = datetime(2026, 7, 15, 1, tzinfo=UTC)
+    original = None
+    if operation != "create":
+        original = repository.create(
+            make_comment(task, "Original", timestamp), timestamp
+        )
+
+    real_commit = session.commit
+    commit_calls = 0
+
+    def fail_first_commit() -> None:
+        nonlocal commit_calls
+        commit_calls += 1
+        if commit_calls == 1:
+            raise SQLAlchemyError(
+                "forced commit failure: task_comment_activities /private/db.sqlite3"
+            )
+        real_commit()
+
+    monkeypatch.setattr(session, "commit", fail_first_commit)
+    failed_at = timestamp + timedelta(minutes=1)
+
+    with pytest.raises(RepositoryError) as caught:
+        if operation == "create":
+            repository.create(make_comment(task, "Failed", failed_at), failed_at)
+        elif operation == "update":
+            assert original is not None
+            repository.update(
+                replace(original, body="Failed", updated_at=failed_at), failed_at
+            )
+        else:
+            assert original is not None
+            repository.delete(task.project_id, task.id, original.id, failed_at)
+
+    assert caught.value.args == ("Task Comment persistence operation failed",)
+    assert "task_comment_activities" not in str(caught.value)
+    assert "db.sqlite3" not in str(caught.value)
+    assert session.in_transaction() is False
+
+    if operation == "create":
+        assert session.scalar(select(func.count()).select_from(TaskCommentModel)) == 0
+        assert (
+            session.scalar(select(func.count()).select_from(TaskCommentActivityModel))
+            == 0
+        )
+        recovered = repository.create(
+            make_comment(task, "Recovered", failed_at), failed_at
+        )
+        assert repository.get(task.project_id, task.id, recovered.id) == recovered
+        return
+
+    assert original is not None
+    assert repository.get(task.project_id, task.id, original.id) == original
+    assert [
+        activity.event_type
+        for activity in repository.list_activities(
+            task.project_id, task.id, ActivityListQuery()
+        )
+    ] == [CommentEventType.CREATED]
+
+    recovered_at = failed_at + timedelta(minutes=1)
+    if operation == "update":
+        recovered = replace(original, body="Recovered", updated_at=recovered_at)
+        assert repository.update(recovered, recovered_at) == recovered
+    else:
+        assert (
+            repository.delete(task.project_id, task.id, original.id, recovered_at)
+            is True
+        )

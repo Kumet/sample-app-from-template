@@ -45,7 +45,7 @@
   - Validation: app, integration
   - Dependencies: T004, T005
   - Allowed paths: `src/project_board/api/**`, `src/project_board/application/**`, `tests/app/**`
-- [ ] T007: Prove atomic rollback, session reuse, and sanitized persistence failures.
+- [x] T007: Prove atomic rollback, session reuse, and sanitized persistence failures.
   - Requirements: REQ-014, REQ-015, REQ-016, REQ-017
   - Acceptance criteria: AC-009, AC-010, AC-011
   - Validation: unit, integration, full

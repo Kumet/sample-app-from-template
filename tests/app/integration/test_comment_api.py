@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from project_board.domain import CommentEventType
@@ -13,7 +14,10 @@ from project_board.infrastructure import (
     create_session_factory,
     initialize_schema,
 )
-from project_board.infrastructure.models import TaskCommentActivityModel
+from project_board.infrastructure.models import (
+    TaskCommentActivityModel,
+    TaskCommentModel,
+)
 from project_board.main import create_app
 
 
@@ -416,3 +420,69 @@ def test_activity_api_contract_exposes_only_the_read_only_collection_route(
 
     assert set(activity_routes) == {collection_path}
     assert set(activity_routes[collection_path]) == {"get"}
+
+
+@pytest.mark.parametrize("operation", ["create", "update", "delete"])
+def test_comment_mutation_failure_is_atomic_and_returns_only_sanitized_error(
+    comment_api_database: tuple[TestClient, Engine], operation: str
+) -> None:
+    client, engine = comment_api_database
+    project_id, task_id = create_task(client)
+    path = comment_path(project_id, task_id)
+    original = None
+    if operation != "create":
+        original = client.post(path, json={"body": "Original"}).json()
+
+    def fail_activity_insert(*_args: object) -> None:
+        raise SQLAlchemyError(
+            "forced SQL failure: task_comment_activities /private/db.sqlite3"
+        )
+
+    event.listen(
+        TaskCommentActivityModel, "before_insert", fail_activity_insert, once=True
+    )
+    if operation == "create":
+        failed = client.post(path, json={"body": "Failed"})
+    elif operation == "update":
+        assert original is not None
+        failed = client.patch(f"{path}/{original['id']}", json={"body": "Failed"})
+    else:
+        assert original is not None
+        failed = client.delete(f"{path}/{original['id']}")
+
+    assert failed.status_code == 500
+    assert failed.json() == {"detail": "An unexpected persistence error occurred"}
+    assert "task_comment_activities" not in failed.text
+    assert "db.sqlite3" not in failed.text
+
+    with Session(engine) as session:
+        comments = session.scalars(select(TaskCommentModel)).all()
+        event_types = session.scalars(
+            select(TaskCommentActivityModel.event_type).order_by(
+                TaskCommentActivityModel.id
+            )
+        ).all()
+        assert session.scalar(
+            select(func.count()).select_from(TaskCommentActivityModel)
+        ) == len(event_types)
+
+    if operation == "create":
+        assert comments == []
+        assert event_types == []
+        recovered = client.post(path, json={"body": "Recovered"})
+        assert recovered.status_code == 201
+        return
+
+    assert original is not None
+    assert len(comments) == 1
+    assert comments[0].id == original["id"]
+    assert comments[0].body == "Original"
+    assert event_types == [CommentEventType.CREATED.value]
+
+    if operation == "update":
+        recovered = client.patch(f"{path}/{original['id']}", json={"body": "Recovered"})
+        assert recovered.status_code == 200
+        assert recovered.json()["body"] == "Recovered"
+    else:
+        recovered = client.delete(f"{path}/{original['id']}")
+        assert recovered.status_code == 204
