@@ -11,11 +11,12 @@ and CI.
 
 ## Current status
 
-The Python 3.11+ application implements persistent Project CRUD and nested Task
-CRUD through a REST API backed by local SQLite and SQLAlchemy 2.x. Task lists
-support filtering, pagination, and deterministic sorting. `GET /health` remains
-available and does not query the database. Tag management, the Kanban UI, CLI,
-import/export, and backup/restore are not implemented yet.
+The Python 3.11+ application implements persistent Project CRUD, nested Task
+CRUD, Project-scoped Tag CRUD, and Task-Tag assignment through a REST API backed
+by local SQLite and SQLAlchemy 2.x. Task lists support filtering (including by
+Tag), pagination, and deterministic sorting. Task responses include their Tags.
+`GET /health` remains available and does not query the database. The Kanban UI,
+CLI, import/export, and backup/restore are not implemented yet.
 
 ## Requirements and setup
 
@@ -44,11 +45,13 @@ Start the development server from the repository root:
 python3 -m uvicorn project_board.main:app --reload
 ```
 
-On application startup, the development app explicitly creates missing Project
-and Task tables and indexes, then stores data in `project_board.sqlite3` in the
-current working directory. Existing Project rows are preserved when the Task
-table is added. SQLite foreign-key enforcement is enabled for every application
-connection so Tasks cannot reference missing Projects.
+On application startup, the development app explicitly creates missing Project,
+Task, Tag, and Task-Tag association tables and indexes, then stores data in
+`project_board.sqlite3` in the current working directory. Existing Project and
+Task rows are preserved when the Tag schema and Task ownership index are added.
+SQLite foreign-key enforcement is enabled for every application connection so
+Tasks cannot reference missing Projects and Task-Tag associations cannot cross
+Project boundaries.
 
 Metadata-based schema creation is intended only for development and tests. It
 does not version or upgrade an existing production schema, and this feature does
@@ -101,7 +104,46 @@ curl -X DELETE http://127.0.0.1:8000/api/projects/1
 Create returns HTTP 201, deletion returns HTTP 204 with no body, and operations
 on a missing Project return HTTP 404. Invalid input returns HTTP 422. Deleting a
 Project that still owns Tasks returns HTTP 409 and leaves both the Project and
-its Tasks unchanged; explicitly delete its Tasks before deleting the Project.
+its Tasks unchanged; explicitly delete its Tasks before deleting the Project. A
+Project with no Tasks can be deleted even when it owns Tags; those Tags and
+their associations are deleted with that Project.
+
+## Tag API
+
+Every Tag belongs to the Project identified by the nested URL. Names are
+required, trimmed, and limited to 50 characters. Names are unique within a
+Project using the trimmed name's case-folded value, while different Projects
+may use the same name. Colors are optional and must use `#RRGGBB`; lowercase
+hex values are returned in uppercase. Tags are listed by case-folded name and
+then by ID.
+
+```bash
+# Create a Tag in Project 1
+curl -X POST http://127.0.0.1:8000/api/projects/1/tags \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Backend","color":"#3366cc"}'
+
+# List Project 1 Tags
+curl http://127.0.0.1:8000/api/projects/1/tags
+
+# Retrieve Tag 1
+curl http://127.0.0.1:8000/api/projects/1/tags/1
+
+# Rename Tag 1 and clear its color
+curl -X PATCH http://127.0.0.1:8000/api/projects/1/tags/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"API","color":null}'
+
+# Permanently delete Tag 1 and its Task associations
+curl -X DELETE http://127.0.0.1:8000/api/projects/1/tags/1
+```
+
+Create returns HTTP 201, deletion returns HTTP 204 with no body, and a duplicate
+name within one Project returns HTTP 409. Missing Tags and cross-Project Tag
+lookups return HTTP 404 without disclosing ownership. Invalid input returns HTTP
+422. PATCH requires `name` or `color`; IDs, `project_id`, timestamps, and the
+internal normalized name cannot be changed or supplied. Deleting a Tag removes
+its Task associations but preserves its Tasks and Project.
 
 ## Task API
 
@@ -124,6 +166,15 @@ curl 'http://127.0.0.1:8000/api/projects/1/tasks?status=todo&sort=due_at&order=a
 # Retrieve Task 1
 curl http://127.0.0.1:8000/api/projects/1/tasks/1
 
+# Attach Tag 1 to Task 1 (safe to repeat)
+curl -X PUT http://127.0.0.1:8000/api/projects/1/tasks/1/tags/1
+
+# List only Tasks associated with Tag 1
+curl 'http://127.0.0.1:8000/api/projects/1/tasks?tag_id=1&limit=50&offset=0'
+
+# Detach Tag 1 from Task 1 (safe to repeat)
+curl -X DELETE http://127.0.0.1:8000/api/projects/1/tasks/1/tags/1
+
 # Partially update Task 1; null clears optional fields
 curl -X PATCH http://127.0.0.1:8000/api/projects/1/tasks/1 \
   -H 'Content-Type: application/json' \
@@ -137,13 +188,23 @@ Task create returns HTTP 201 and deletion returns HTTP 204 with no body. Missing
 Projects or Tasks and cross-Project Task lookups return HTTP 404 without
 disclosing another Project's ownership. Invalid bodies and query values return
 HTTP 422. PATCH requires at least one mutable field; `project_id`, IDs, and
-timestamps cannot be changed.
+timestamps cannot be changed. Attach and detach return HTTP 204 with no body and
+are idempotent. Missing or cross-Project Tasks and Tags return HTTP 404. Deleting
+a Task removes its Tag associations but preserves its Tags.
 
 Task lists accept exact `status` and `priority` filters, strict `due_before` and
-`due_after` timestamps, `limit` from 1 to 100 (default 50), and a non-negative
-`offset`. Sort fields are `created_at`, `updated_at`, `due_at`, and `priority`,
-with `asc` or `desc` order. Results use Task ID ascending as a stable tie-breaker;
-due-date nulls are always last and priority follows `low < medium < high`.
+`due_after` timestamps, an optional positive `tag_id`, `limit` from 1 to 100
+(default 50), and a non-negative `offset`. A missing or foreign `tag_id` returns
+HTTP 404. Tag filtering composes with the other filters, sorting, and pagination
+before the bounded result is returned. Sort fields are `created_at`,
+`updated_at`, `due_at`, and `priority`, with `asc` or `desc` order. Results use
+Task ID ascending as a stable tie-breaker; due-date nulls are always last and
+priority follows `low < medium < high`.
+
+Every Task response contains a `tags` array, including an empty array for an
+untagged Task. Tags in Task responses are ordered by case-folded name and ID.
+Task lists load Tags in bulk for the returned page rather than issuing one Tag
+query per Task.
 
 Tests and other callers can initialize an isolated SQLite database explicitly:
 
@@ -195,7 +256,7 @@ of scope.
 
 - Python 3.11 or later
 - FastAPI and Uvicorn for the REST API runtime
-- SQLite and SQLAlchemy 2.x for local Project and Task persistence
+- SQLite and SQLAlchemy 2.x for local Project, Task, and Tag persistence
 - pytest, Ruff, and mypy
 - `pyproject.toml` package management
 - Make-based quality commands
