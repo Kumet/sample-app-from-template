@@ -23,6 +23,85 @@ def event(sequence, head, data, result="PASS"):
 
 
 class WeakeningInspectionTests(unittest.TestCase):
+    def test_identifier_suffixes_are_not_test_skip_markers(self):
+        near_misses = (
+            "SystemExit(main())",
+            "raise SystemExit(main())",
+            "systemexit(main())",
+            "SYSTEMEXIT(main())",
+            "exit(main())",
+            "sys.exit(main())",
+            "myxit('reason')",
+            "_xit('reason')",
+            "prefixxit('reason')",
+            "caféxit('reason')",
+            "$xit('reason')",
+            "myxdescribe('suite')",
+            "_xdescribe('suite')",
+            "prefixxdescribe('suite')",
+        )
+        for added_line in near_misses:
+            with self.subTest(added_line=added_line):
+                inspection = weakening.inspect_patch(
+                    "diff --git a/scripts/example.py b/scripts/example.py\n"
+                    "+++ b/scripts/example.py\n"
+                    f"+{added_line}\n"
+                )
+                self.assertEqual(inspection.blocking_findings, ())
+                self.assertEqual(inspection.review_candidates, ())
+                self.assertEqual(inspection.mechanical_verdict, "PASS")
+
+    def test_actual_skip_tokens_remain_required_blocking_findings(self):
+        xit = "x" + "it"
+        xdescribe = "x" + "describe"
+        dot_skip = "." + "skip"
+        decorator_skip = "@" + "skip"
+        unittest_skip = "@unittest." + "skip"
+        pytest_skip = "pytest.mark." + "skip"
+        skip_markers = (
+            f"{xit}('test', callback)",
+            f"    {xit}('test', callback)",
+            f"{xdescribe}('suite', callback)",
+            f"describe{dot_skip}('suite', callback)",
+            f"it{dot_skip}('test', callback)",
+            f"test{dot_skip}('test', callback)",
+            f"{unittest_skip}('reason')",
+            f"{decorator_skip}('reason')",
+            pytest_skip,
+        )
+        for added_line in skip_markers:
+            with self.subTest(added_line=added_line):
+                inspection = weakening.inspect_patch(
+                    "diff --git a/tests/test_example.py b/tests/test_example.py\n"
+                    "+++ b/tests/test_example.py\n"
+                    f"+{added_line}\n"
+                )
+                self.assertEqual(inspection.mechanical_verdict, "FAIL")
+                self.assertEqual(len(inspection.blocking_findings), 1)
+                finding = inspection.blocking_findings[0]
+                self.assertEqual(finding.category, "test-skip")
+                self.assertEqual(finding.severity, "high")
+                self.assertTrue(finding.required)
+                self.assertEqual(inspection.review_candidates, ())
+
+    def test_inline_documentation_spellings_are_not_executable_skip_markers(self):
+        xit = "x" + "it"
+        xdescribe = "x" + "describe"
+        dot_skip = "." + "skip"
+        pytest_skip = "pytest.mark." + "skip"
+        patch = (
+            "diff --git a/specs/feature/spec.md b/specs/feature/spec.md\n"
+            "+++ b/specs/feature/spec.md\n"
+            f"+- `{xit}(...)` remains detectable in executable code.\n"
+            f"+- `{xdescribe}(...)` remains detectable in executable code.\n"
+            f"+- `{dot_skip}(...)` remains detectable in executable code.\n"
+            f"+- `{pytest_skip}` remains detectable in executable code.\n"
+        )
+        inspection = weakening.inspect_patch(patch)
+        self.assertEqual(inspection.blocking_findings, ())
+        self.assertEqual(inspection.review_candidates, ())
+        self.assertEqual(inspection.mechanical_verdict, "PASS")
+
     def test_assertion_expectation_replacement_is_only_a_review_candidate(self):
         patch = """diff --git a/tests/test_database.py b/tests/test_database.py
 --- a/tests/test_database.py

@@ -38,7 +38,17 @@ class Inspection:
         }
 
 
-SKIP_RE = re.compile(r"^\+.*(?:@(?:unittest\.)?skip|pytest\.mark\.skip|\.skip\(|xdescribe\(|xit\()", re.I)
+NON_CALL_PREFIX = r"\w$`\u200c\u200d"
+SKIP_RE = re.compile(
+    rf"^\+.*(?:"
+    rf"@(?:unittest\.)?skip|"
+    rf"(?<!`)pytest\.mark\.skip|"
+    rf"(?<!`)\.skip\(|"
+    rf"(?<![{NON_CALL_PREFIX}])xdescribe\(|"
+    rf"(?<![{NON_CALL_PREFIX}])xit\("
+    rf")",
+    re.I,
+)
 ASSERT_RE = re.compile(r"^-.*(?:assert|expect\(|should\.)", re.I)
 COVERAGE_RE = re.compile(r"^[+-].*(?:coverage|threshold|minimum).*[0-9]+", re.I)
 CI_WEAK_RE = re.compile(r"^\+.*(?:continue-on-error:\s*true|if:\s*false|allow_failure:\s*true)", re.I)
