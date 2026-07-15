@@ -1,0 +1,33 @@
+version = 2
+risk = "high"
+auto_merge = false
+risk_domains = ["infrastructure"]
+max_tasks = 4
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+integration = "integration-test"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "AC-002", "T001", "T002", "T003"]
+REQ-002 = ["AC-001", "T001", "T002", "T003"]
+REQ-003 = ["AC-002", "AC-003", "T001", "T002", "T003"]
+REQ-004 = ["AC-001", "AC-003", "T002", "T003"]
+REQ-005 = ["AC-003", "AC-004", "T003"]
+REQ-006 = ["AC-001", "T001", "T002"]
+REQ-007 = ["AC-004", "AC-005", "T003", "T004"]
+REQ-008 = ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "T001", "T003", "T004"]
+
+[dependencies]
+T002 = ["T001"]
+T003 = ["T002"]
+T004 = ["T003"]
+
+[scope]
+allowed = ["scripts/agent/weakening.py", "tests/test_weakening_evidence.py", "tests/test_autonomous_core.py", "README.md", "docs/**", "specs/022-token-boundary-skip-detection/**"]
+forbidden = [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/credentials.*", "**/secrets.*", ".github/**", "src/**", "scripts/agent/delivery.py", "scripts/agent/review.py", "scripts/agent/gates.py", ".agent-work/**", ".agent-worktrees/**", ".agent-worktree-owned"]

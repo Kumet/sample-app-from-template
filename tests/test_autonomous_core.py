@@ -284,6 +284,72 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertNotIn("container-build", validate_rule)
         self.assertNotIn("container-smoke", validate_rule)
 
+    def test_repair_runs_full_validation_before_and_at_exact_committed_head(self):
+        repo = Path("/repo")
+        feature_dir = repo / "specs" / "022-token-boundary-skip-detection"
+        changed = ["tests/test_autonomous_core.py"]
+        head = "a" * 40
+        successful = mock.Mock(succeeded=True)
+        config = mock.Mock()
+        order = []
+
+        def run_named(*_args):
+            order.append("validate")
+            return successful
+
+        def current_head(*_args):
+            order.append("head")
+            return mock.Mock(stdout=f"{head}\n")
+
+        with (
+            mock.patch(
+                "agent.delivery.codex_runner.render_prompt", return_value="prompt"
+            ),
+            mock.patch(
+                "agent.delivery.codex_runner.run",
+                return_value=mock.Mock(returncode=0, stderr=""),
+            ),
+            mock.patch(
+                "agent.delivery.git_utils.changed_paths",
+                side_effect=[changed, []],
+            ) as changed_paths,
+            mock.patch("agent.delivery.validation.validate_scope") as validate_scope,
+            mock.patch("agent.delivery.git_utils.diff_check") as diff_check,
+            mock.patch(
+                "agent.delivery.git_utils.commit",
+                side_effect=lambda *_args: order.append("commit"),
+            ) as commit,
+            mock.patch(
+                "agent.delivery.git_utils.run_git",
+                side_effect=current_head,
+            ) as run_git,
+            mock.patch(
+                "agent.delivery.validation.run_named", side_effect=run_named
+            ) as full_validation,
+        ):
+            repaired_head = delivery._repair_and_commit(
+                repo, feature_dir, config, "CI", "failure"
+            )
+
+        self.assertEqual(repaired_head, head)
+        self.assertEqual(
+            order, ["validate", "commit", "head", "validate", "head"]
+        )
+        self.assertEqual(
+            [call.args[2] for call in full_validation.call_args_list],
+            ["full", "full"],
+        )
+        validate_scope.assert_called_once_with(changed, config)
+        diff_check.assert_called_once_with(repo)
+        commit.assert_called_once_with(
+            repo, changed, "fix: address ci findings"
+        )
+        self.assertEqual(changed_paths.call_count, 2)
+        self.assertEqual(
+            [call.args[1] for call in run_git.call_args_list],
+            [["rev-parse", "HEAD"], ["rev-parse", "HEAD"]],
+        )
+
     def test_state_round_trip_resume_and_abort(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
