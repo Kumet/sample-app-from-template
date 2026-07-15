@@ -49,3 +49,25 @@ jobs:
 
       - name: Qualify stack fixtures
         run: make qualify-stacks
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build container image
+        run: make container-build
+
+      - name: Run real container smoke
+        run: make container-smoke
+
+      - name: Remove local build image
+        if: always()
+        run: docker image rm --force local-project-board:local

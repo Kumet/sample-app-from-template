@@ -39,7 +39,7 @@
   - Validation: unit, container-build
   - Dependencies: T002, T004
   - Allowed paths: `Makefile`, `tests/app/operations/**`
-- [ ] T006: Add a separate bounded real-container CI job and CI safety regressions.
+- [x] T006: Add a separate bounded real-container CI job and CI safety regressions.
   - Requirements: REQ-010, REQ-011, REQ-012, REQ-018
   - Acceptance criteria: AC-005, AC-007
   - Validation: unit
