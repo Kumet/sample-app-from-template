@@ -38,10 +38,22 @@ Evidence interpretation is normative: validation-log is a tracked pre-final
 snapshot only through its watermark. The snapshot event itself and later
 post-evidence events intentionally remain in append-only runtime evidence to
 avoid a self-referential tracked commit. Their absence from validation-log is
-normal and is not, by itself, stale evidence. Report stale or unattributable
-evidence only for an actual mismatch named by the mechanically verified
-evidence-semantics object. Only final-validation-accepted/PASS opens the gate;
-attempt-only, rejected, ordinary validation, and legacy events do not.
+normal and is not, by itself, stale evidence. A HEAD displayed in a
+validation-log row identifies that historical included event; it does not claim
+that the row HEAD is the current validated HEAD and need not equal
+`exact_head_sha`. Current-HEAD attribution comes from the mechanically verified
+snapshot/blob and referenced final-validation lifecycle. Report stale or
+unattributable evidence only for an actual mismatch named by the mechanically
+verified evidence-semantics object. Only final-validation-accepted/PASS opens
+the gate; attempt-only, rejected, ordinary validation, and legacy events do not.
+
+Scope-approval history is append-only. A legacy `scope-approved` event with
+missing attribution remains an audit record, but it is superseded when the
+mechanically verified evidence-semantics object identifies a later request and
+approval for the same path whose exact HEAD, repository, branch, and worktree
+all match. Do not report the retained legacy event alone as a finding when that
+authoritative corrective pair is present. Missing or mismatched corrective
+attribution remains a finding and must fail closed.
 
 Weakening evidence interpretation is also normative. A weakening event with
 `mechanical_verdict: PASS` means the high-confidence mechanical gate passed.

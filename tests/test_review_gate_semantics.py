@@ -425,7 +425,7 @@ class ReviewGateSemanticsTests(unittest.TestCase):
                 review.reusable_gate_event(store.read(), identity.digest), event
             )
 
-    def test_legacy_fail_is_not_promoted_but_legacy_pass_remains_compatible(self):
+    def test_chunks_without_canonical_gate_evidence_are_not_reusable(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             identity = self._identity("tests")
@@ -451,9 +451,13 @@ class ReviewGateSemanticsTests(unittest.TestCase):
                     "findings": [],
                 },
             )
-            self.assertEqual(review.reusable_gate_event(store.read(), identity.digest), passed)
+            self.assertIsNone(
+                review.reusable_gate_event(store.read(), identity.digest)
+            )
+            with self.assertRaisesRegex(ValueError, "canonical gate evidence"):
+                review.result_from_chunk_event(passed, identity.digest)
 
-    def test_parsed_raw_fail_finding_content_reaches_pr_body(self):
+    def test_parsed_raw_fail_finding_reaches_pr_body_only_after_redaction(self):
         raw_finding = {
             "severity": "medium",
             "category": "confidential-review-category",
@@ -491,7 +495,8 @@ class ReviewGateSemanticsTests(unittest.TestCase):
         self.assertIn("required=false", body)
         self.assertIn(f"category={raw_finding['category']}", body)
         self.assertIn(f"file={raw_finding['file']}", body)
-        self.assertIn(f"description={raw_finding['description']}", body)
+        self.assertNotIn(raw_finding["description"], body)
+        self.assertIn("description=token=[REDACTED]", body)
 
 
 if __name__ == "__main__":

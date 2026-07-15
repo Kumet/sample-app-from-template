@@ -647,6 +647,16 @@ class AutonomousCoreTests(unittest.TestCase):
             self.assertIn(
                 '"post_watermark_absence_from_log_is_stale":false', empty.prompt
             )
+            self.assertIn("authoritative corrective pair", empty.prompt)
+            self.assertIn(
+                '"validation_log_row_head_must_equal_exact_head":false',
+                empty.prompt,
+            )
+            self.assertIn(
+                "A HEAD displayed in a\nvalidation-log row identifies that "
+                "historical included event",
+                empty.prompt,
+            )
             self.assertNotIn("A-change", empty.prompt)
             self.assertNotIn("B-change", empty.prompt)
             for marker in (*artifacts.values(), runtime):
@@ -732,7 +742,8 @@ class AutonomousCoreTests(unittest.TestCase):
         validation = (
             "# Validation log\n<!-- validation-snapshot: "
             + json.dumps(metadata, sort_keys=True, separators=(",", ":"))
-            + " -->\n"
+            + " -->\n\n"
+            + "| 40 | task/task-complete | PASS | `c038fb0f6de8` | T005 |\n"
         )
         head = "a" * 40
         blob = "b" * 40
@@ -808,6 +819,40 @@ class AutonomousCoreTests(unittest.TestCase):
                 "data": {},
             }
         )
+        scope_identity = {
+            "head_sha": head,
+            "repository": "repo",
+            "branch": "agent/012-test",
+            "worktree": "/repo/.agent-worktrees/012-test",
+        }
+        events.extend(
+            [
+                {
+                    "sequence": 45,
+                    "kind": "scope-approved",
+                    "result": "PASS",
+                    "head_sha": "",
+                    "repository": "",
+                    "branch": "",
+                    "worktree": "",
+                    "data": {"path": "prompts/review-feature.md"},
+                },
+                {
+                    "sequence": 46,
+                    "kind": "scope-request",
+                    "result": "HUMAN_REQUIRED",
+                    **scope_identity,
+                    "data": {"paths": ["prompts/review-feature.md"]},
+                },
+                {
+                    "sequence": 47,
+                    "kind": "scope-approved",
+                    "result": "PASS",
+                    **scope_identity,
+                    "data": {"path": "prompts/review-feature.md"},
+                },
+            ]
+        )
 
         rendered = review.render_evidence_semantics(
             validation, contract, json.dumps(events), fields, head
@@ -818,7 +863,38 @@ class AutonomousCoreTests(unittest.TestCase):
         self.assertEqual(semantics["tracked_snapshot_event_sequence"], 41)
         self.assertEqual(semantics["final_validation_attempt_event_sequence"], 42)
         self.assertEqual(semantics["final_validation_accepted_event_sequence"], 43)
+        self.assertEqual(
+            semantics["validation_log_row_head_role"],
+            "historical included-event attribution",
+        )
+        self.assertFalse(semantics["validation_log_row_head_must_equal_exact_head"])
+        self.assertEqual(
+            semantics["current_head_authority"],
+            "mechanically-verified exact_head_sha and referenced lifecycle events",
+        )
         self.assertFalse(semantics["post_watermark_absence_from_log_is_stale"])
+        self.assertEqual(
+            semantics["scope_approval_corrections"],
+            [
+                {
+                    "path": "prompts/review-feature.md",
+                    "legacy_approval_event_sequence": 45,
+                    "request_event_sequence": 46,
+                    "approval_event_sequence": 47,
+                    **scope_identity,
+                }
+            ],
+        )
+
+        missing_correction = json.loads(json.dumps(events[:-1]))
+        with self.assertRaisesRegex(ValueError, "exact corrective pair"):
+            review.render_evidence_semantics(
+                validation,
+                contract,
+                json.dumps(missing_correction),
+                fields,
+                head,
+            )
 
         duplicated = json.loads(json.dumps(events))
         duplicated[-1]["sequence"] = 43

@@ -74,6 +74,11 @@ def request(feature_dir: Path, pattern: str, reason: str, events: EventStore,
 def apply(feature_dir: Path, pattern: str, reason: str, events: EventStore,
           state_path: Path | None = None) -> dict:
     result = preview(feature_dir, pattern, reason, events)
+    request_event = _pending_request_event(
+        events.read(), feature_dir.name, pattern
+    )
+    if request_event is None or not request_event.head_sha:
+        raise ValueError("Scope approval requires an exact-HEAD scope request")
     spec_path = feature_dir / "spec.md"
     spec = spec_path.read_text(encoding="utf-8")
     marker = "### Forbidden changes"
@@ -111,9 +116,18 @@ def apply(feature_dir: Path, pattern: str, reason: str, events: EventStore,
             contract_digest=contract_digest(digest_dir),
             changed_paths=changed_paths,
         ))
-    events.append(feature=feature_dir.name, repository="", branch="", worktree="",
-                  phase="approval", kind="scope-approved", result="PASS", head_sha="",
-                  detail=reason, data={"path": pattern})
+    events.append(
+        feature=feature_dir.name,
+        repository=request_event.repository,
+        branch=request_event.branch,
+        worktree=request_event.worktree,
+        phase="approval",
+        kind="scope-approved",
+        result="PASS",
+        head_sha=request_event.head_sha,
+        detail=reason,
+        data={"path": pattern},
+    )
     return result
 
 
@@ -149,11 +163,16 @@ def _event_paths(event) -> tuple[str, ...]:
 
 
 def _pending_request(history, feature: str, pattern: str) -> bool:
+    return _pending_request_event(history, feature, pattern) is not None
+
+
+def _pending_request_event(history, feature: str, pattern: str):
     last_request = max(
-        (event.sequence for event in history
+        (event for event in history
          if event.feature == feature and event.kind == "scope-request"
          and event.result in {"FAIL", "HUMAN_REQUIRED"} and pattern in _event_paths(event)),
-        default=0,
+        key=lambda event: event.sequence,
+        default=None,
     )
     last_approval = max(
         (event.sequence for event in history
@@ -161,7 +180,9 @@ def _pending_request(history, feature: str, pattern: str) -> bool:
          and event.result == "PASS" and pattern in _event_paths(event)),
         default=0,
     )
-    return last_request > last_approval
+    if last_request is None or last_request.sequence <= last_approval:
+        return None
+    return last_request
 
 
 def _request_state(feature_dir: Path, state_path: Path):
