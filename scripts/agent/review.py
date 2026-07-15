@@ -18,9 +18,9 @@ from .weakening import Finding
 MAX_REVIEW_INPUT_CHARS = 100_000
 REVIEW_TIMEOUT_SECONDS = 600
 REVIEW_SCHEMA_VERSION = "1"
-REVIEW_PROMPT_VERSION = "4"
+REVIEW_PROMPT_VERSION = "6"
 REVIEW_MODEL = "gpt-5.4-mini"
-REVIEW_IDENTITY_SCHEMA_VERSION = "4"
+REVIEW_IDENTITY_SCHEMA_VERSION = "5"
 REVIEW_IDENTITY_FIELDS = (
     "identity_schema_version",
     "feature",
@@ -83,16 +83,19 @@ class ReviewResult:
         return json.dumps([f.__dict__ for f in self.required_findings], sort_keys=True)
 
     def evidence_fields(self) -> dict:
-        payload = review_payload(self)
+        canonical = canonical_review_result(self)
+        payload = review_payload(canonical)
         return {
-            "result": self.result,
+            "result": canonical.result,
             "findings": payload["findings"],
-            "reviewer_result": self.result.upper(),
-            "gate_verdict": self.gate_verdict.upper(),
+            "reviewer_result": canonical.result.upper(),
+            "gate_verdict": canonical.gate_verdict.upper(),
             "schema_valid": True,
-            "required_findings": [f.__dict__ for f in self.required_findings],
+            "required_findings": [
+                f.__dict__ for f in canonical.required_findings
+            ],
             "non_required_findings": [
-                f.__dict__ for f in self.non_required_findings
+                f.__dict__ for f in canonical.non_required_findings
             ],
             "review_payload_digest": _digest(payload),
         }
@@ -250,6 +253,14 @@ def review_payload(result: ReviewResult) -> dict:
     }
 
 
+def canonical_review_result(result: ReviewResult) -> ReviewResult:
+    """Return the schema-validated representation persisted as review evidence."""
+    redacted = redact_value(review_payload(result))
+    if not isinstance(redacted, dict):
+        raise ValueError("Canonical review payload must be an object")
+    return parse_review(json.dumps(redacted, sort_keys=True))
+
+
 def result_from_chunk_event(event, identity_digest: str | None = None) -> ReviewResult:
     """Validate and restore one exact-identity review chunk result."""
     data = event.data or {}
@@ -291,15 +302,15 @@ def result_from_chunk_event(event, identity_digest: str | None = None) -> Review
     }
     present = canonical_fields.intersection(data)
     if not present:
-        # Compatibility is intentionally limited to old raw PASS events. A
-        # legacy FAIL cannot prove that non-required semantics were applied.
-        if event.result != "PASS" or parsed.result != "pass":
-            raise ValueError("Legacy review FAIL is not canonical gate evidence")
-        if parsed.required_findings:
-            raise ValueError("Legacy review PASS contains required findings")
-        return parsed
+        raise ValueError("Review chunk canonical gate evidence fields are missing")
     if present != canonical_fields:
         raise ValueError("Review chunk gate evidence fields are incomplete")
+    persisted_payload = {
+        "result": data.get("result", event.result.lower()),
+        "findings": data.get("findings", []),
+    }
+    if persisted_payload != review_payload(canonical_review_result(parsed)):
+        raise ValueError("Review chunk payload is not canonical redacted evidence")
     expected = parsed.evidence_fields()
     for field in canonical_fields:
         if data.get(field) != expected[field]:
@@ -339,7 +350,10 @@ def aggregate_evidence_fields(
         raise ValueError("Review aggregate chunk evidence is incomplete")
     if len(set(identity_digests)) != len(identity_digests):
         raise ValueError("Review aggregate contains duplicate chunk identities")
-    findings = tuple(finding for result in results for finding in result.findings)
+    canonical_results = tuple(canonical_review_result(result) for result in results)
+    findings = tuple(
+        finding for result in canonical_results for finding in result.findings
+    )
     required = tuple(finding for finding in findings if finding.required)
     non_required = tuple(finding for finding in findings if not finding.required)
     result = ReviewResult("fail" if required else "pass", findings)
@@ -535,8 +549,13 @@ def render_evidence_semantics(
     """Render the mechanically checked tracked/runtime evidence interpretation."""
     rules = {
         "tracked_log_role": "pre-final snapshot through included_event_sequence",
+        "validation_log_row_head_role": "historical included-event attribution",
+        "validation_log_row_head_must_equal_exact_head": False,
         "post_evidence_storage": "append-only runtime evidence outside tracked log",
         "post_watermark_absence_from_log_is_stale": False,
+        "current_head_authority": (
+            "mechanically-verified exact_head_sha and referenced lifecycle events"
+        ),
         "gate_authority": "final-validation-accepted/PASS only",
         "stale_finding_requires_actual_mismatch": [
             "included_event_sequence",
@@ -571,6 +590,7 @@ def render_evidence_semantics(
         raise ValueError("Runtime review evidence sequence is invalid")
     if len(set(sequences)) != len(sequences):
         raise ValueError("Runtime review evidence sequence is duplicated")
+    scope_approval_corrections = _scope_approval_corrections(events)
     snapshot_sequence = int(evidence_fields["tracked_snapshot_event_sequence"])
     attempt_sequence = int(evidence_fields["final_validation_attempt_event_sequence"])
     accepted_sequence = int(evidence_fields["final_validation_accepted_event_sequence"])
@@ -664,11 +684,93 @@ def render_evidence_semantics(
             "validation_log_blob_sha": log_blob,
             "exact_head_sha": head_sha,
             "validation_result_digest": result_digest,
+            "scope_approval_corrections": scope_approval_corrections,
+            "legacy_scope_approval_is_authoritative": False,
+            "corrective_scope_approval_pair_is_authoritative": True,
             **rules,
         },
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def _scope_approval_corrections(events: list[dict]) -> list[dict]:
+    """Bind unattributed legacy approvals to a later exact corrective pair."""
+    corrections = []
+    for legacy in events:
+        if legacy.get("kind") != "scope-approved" or legacy.get("result") != "PASS":
+            continue
+        identity = tuple(
+            legacy.get(field)
+            for field in ("head_sha", "repository", "branch", "worktree")
+        )
+        if all(isinstance(value, str) and value for value in identity):
+            continue
+        paths = _scope_event_paths(legacy)
+        if len(paths) != 1:
+            raise ValueError("Legacy scope approval path attribution is invalid")
+        path = paths[0]
+        legacy_sequence = legacy["sequence"]
+        correction = None
+        requests = [
+            event
+            for event in events
+            if event.get("sequence", 0) > legacy_sequence
+            and event.get("kind") == "scope-request"
+            and event.get("result") in {"FAIL", "HUMAN_REQUIRED"}
+            and path in _scope_event_paths(event)
+        ]
+        for request in requests:
+            request_identity = tuple(
+                request.get(field)
+                for field in ("head_sha", "repository", "branch", "worktree")
+            )
+            if not all(isinstance(value, str) and value for value in request_identity):
+                continue
+            approval = next(
+                (
+                    event
+                    for event in events
+                    if event.get("sequence", 0) > request["sequence"]
+                    and event.get("kind") == "scope-approved"
+                    and event.get("result") == "PASS"
+                    and path in _scope_event_paths(event)
+                    and tuple(
+                        event.get(field)
+                        for field in ("head_sha", "repository", "branch", "worktree")
+                    )
+                    == request_identity
+                ),
+                None,
+            )
+            if approval is not None:
+                correction = {
+                    "path": path,
+                    "legacy_approval_event_sequence": legacy_sequence,
+                    "request_event_sequence": request["sequence"],
+                    "approval_event_sequence": approval["sequence"],
+                    "head_sha": request["head_sha"],
+                    "repository": request["repository"],
+                    "branch": request["branch"],
+                    "worktree": request["worktree"],
+                }
+                break
+        if correction is None:
+            raise ValueError("Legacy scope approval lacks an exact corrective pair")
+        corrections.append(correction)
+    return corrections
+
+
+def _scope_event_paths(event: dict) -> tuple[str, ...]:
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return ()
+    if isinstance(data.get("path"), str):
+        return (data["path"],)
+    paths = data.get("paths")
+    if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+        return ()
+    return tuple(paths)
 
 
 def _review_guidance(focus: str) -> str:

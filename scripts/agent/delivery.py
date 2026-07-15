@@ -4,7 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import (
@@ -288,6 +288,24 @@ def deliver(
         repo, feature_dir, config, tasks, policy.default_branch
     )
     if not inspection["resume_safe"]:
+        if inspection.get("worktree_exists"):
+            saved_path = repo / ".agent-work" / feature_dir.name / "state.json"
+            saved = state.read_state(saved_path)
+            changed_paths = git_utils.changed_paths_read_only(existing_path)
+            try:
+                validation.validate_scope(changed_paths, config)
+            except validation.ScopeViolation as error:
+                _record_review_scope_failure(
+                    repo,
+                    feature_dir,
+                    event_store,
+                    saved,
+                    existing_path,
+                    error,
+                )
+                raise RuntimeError(
+                    "Delivery review repair requires scope approval"
+                ) from error
         raise RuntimeError(
             "Delivery worktree is unsafe: " + "; ".join(inspection["blocking_reasons"])
         )
@@ -299,6 +317,23 @@ def deliver(
     else:
         isolated = worktree.create(repo, feature_dir.name, git_utils.branch(repo))
     try:
+        pending_review = _pending_review_repair_event(
+            event_store.read(),
+            git_utils.run_git(isolated.path, ["rev-parse", "HEAD"]).stdout.strip(),
+        )
+        if resuming and saved.status == "complete" and pending_review is not None:
+            _record_review_repair_failure(
+                repo,
+                feature_dir,
+                event_store,
+                saved,
+                isolated.path,
+                RuntimeError("Prior independent review repair did not complete"),
+                source_review_event_sequence=pending_review.sequence,
+            )
+            raise ReviewResumeRequired(
+                "Independent review repair requires explicit recovery"
+            )
         if not (resuming and saved.status == "complete"):
             work_function(
                 isolated.path, feature_dir.name, state_root=repo, resume_mode=resuming
@@ -555,10 +590,44 @@ def deliver(
             return review_shards.aggregate(shard_results, head)
 
         def repair_review(findings):
-            detail = json.dumps([finding.__dict__ for finding in findings], indent=2)
-            _repair_and_commit(
-                isolated.path, isolated_feature, config, "REVIEW", detail
-            )
+            detail = _review_repair_detail(findings)
+            try:
+                _repair_and_commit(
+                    isolated.path, isolated_feature, config, "REVIEW", detail
+                )
+            except validation.ScopeViolation as error:
+                _record_review_scope_failure(
+                    repo,
+                    feature_dir,
+                    event_store,
+                    state.read_state(
+                        repo / ".agent-work" / feature_dir.name / "state.json"
+                    ),
+                    isolated.path,
+                    error,
+                )
+                raise
+            except Exception as error:
+                source = _pending_review_repair_event(
+                    event_store.read(),
+                    git_utils.run_git(
+                        isolated.path, ["rev-parse", "HEAD"]
+                    ).stdout.strip(),
+                )
+                _record_review_repair_failure(
+                    repo,
+                    feature_dir,
+                    event_store,
+                    state.read_state(
+                        repo / ".agent-work" / feature_dir.name / "state.json"
+                    ),
+                    isolated.path,
+                    error,
+                    source_review_event_sequence=(
+                        source.sequence if source is not None else None
+                    ),
+                )
+                raise
             _finalize_and_record_weakening(
                 isolated.path,
                 isolated_feature,
@@ -901,6 +970,7 @@ def _pr_body(
     final_binding=None,
     review_identity_digest: str = "",
 ) -> str:
+    safe_review_result = review.canonical_review_result(review_result)
     validation_sequence = (
         final_binding.final_validation_accepted_event_sequence
         if final_binding
@@ -920,11 +990,12 @@ def _pr_body(
         f"required={str(finding.required).lower()}; "
         f"category={finding.category}; file={finding.file}; "
         f"description={finding.description}"
-        for index, finding in enumerate(review_result.findings, start=1)
+        for index, finding in enumerate(safe_review_result.findings, start=1)
     ) or "- None"
-    return (
+    body = (
         f"## Feature\n\n`{feature}`\n\n## Risk\n\n{assessment.effective}: "
-        f"{', '.join(assessment.reasons)}\n\n## Validation\n\n"
+        f"{', '.join(redact(str(reason), 2000) for reason in assessment.reasons)}"
+        "\n\n## Validation\n\n"
         "Mechanical validation passed.\n\n"
         f"Tracked validation log cutoff event: {log_cutoff}. "
         f"Tracked validation log: `{log_path}`; blob `{log_blob}`. "
@@ -932,11 +1003,151 @@ def _pr_body(
         f"Final validation event: {validation_sequence}. "
         f"Validation result digest: `{result_digest}`. "
         f"Validated HEAD: `{validated_head}`.\n\n"
-        f"## Independent review\n\n{review_result.result}; "
-        f"{len(review_result.findings)} findings.\n\n{review_findings}\n\n"
+        f"## Independent review\n\n{safe_review_result.result}; "
+        f"{len(safe_review_result.findings)} findings.\n\n{review_findings}\n\n"
         f"Review identity digest: `{review_identity_digest}`.\n\n"
         f"## Test weakening\n\n{len(weakening_findings)} findings.\n"
     )
+    return redact(body, max(len(body), 1))
+
+
+def _review_repair_detail(findings) -> str:
+    result = review.ReviewResult("fail", tuple(findings))
+    safe = review.canonical_review_result(result)
+    detail = json.dumps(
+        [finding.__dict__ for finding in safe.findings], indent=2, sort_keys=True
+    )
+    return redact(detail, max(len(detail), 1))
+
+
+def _record_review_scope_failure(
+    repo: Path,
+    feature_dir: Path,
+    event_store: EventStore,
+    saved: state.RunState,
+    repair_worktree: Path,
+    error: validation.ScopeViolation,
+) -> None:
+    """Persist a review-repair scope stop without discarding its patch."""
+    current_paths = tuple(git_utils.changed_paths_read_only(repair_worktree))
+    requested_paths = tuple(error.paths)
+    if not requested_paths or not set(requested_paths).issubset(current_paths):
+        raise RuntimeError("Review repair scope paths do not match the worktree")
+    current_head = git_utils.run_git(
+        repair_worktree, ["rev-parse", "HEAD"]
+    ).stdout.strip()
+    current_branch = git_utils.branch(repair_worktree)
+    isolated_feature = resolve_feature(repair_worktree, feature_dir.name)
+    updated_at = dt.datetime.now(dt.UTC).isoformat()
+    failed = replace(
+        saved,
+        branch=current_branch,
+        head_commit=current_head,
+        contract_digest=state.contract_digest(isolated_feature),
+        task="REVIEW",
+        attempt=max(saved.attempt, 1),
+        phase="review-repair",
+        failure_class="scope",
+        changed_paths=current_paths,
+        status="failed",
+        worktree=str(repair_worktree),
+        updated_at=updated_at,
+    )
+    state_path = repo / ".agent-work" / feature_dir.name / "state.json"
+    state.write_state(state_path, failed)
+    try:
+        event_store.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=current_branch,
+            worktree=str(repair_worktree),
+            phase="approval",
+            kind="scope-request",
+            result="HUMAN_REQUIRED",
+            head_sha=current_head,
+            detail="Review repair requires approved scope expansion",
+            data={
+                "task": "REVIEW",
+                "paths": list(requested_paths),
+                "state_updated_at": updated_at,
+            },
+        )
+    except Exception:
+        state.write_state(state_path, saved)
+        raise
+
+
+def _pending_review_repair_event(events, head_sha: str):
+    integration = [
+        event
+        for event in events
+        if event.kind == "review-shard"
+        and event.head_sha == head_sha
+        and (event.data or {}).get("aggregate") is True
+        and (event.data or {}).get("shard") == "integration"
+    ]
+    if not integration:
+        return None
+    latest = max(integration, key=lambda event: event.sequence)
+    if latest.result != "FAIL" or not (latest.data or {}).get("required_findings"):
+        return None
+    return latest
+
+
+def _record_review_repair_failure(
+    repo: Path,
+    feature_dir: Path,
+    event_store: EventStore,
+    saved: state.RunState,
+    repair_worktree: Path,
+    error: Exception,
+    *,
+    source_review_event_sequence: int | None,
+) -> None:
+    """Persist a resumable review-repair stop without exposing error details."""
+    current_head = git_utils.run_git(
+        repair_worktree, ["rev-parse", "HEAD"]
+    ).stdout.strip()
+    current_branch = git_utils.branch(repair_worktree)
+    isolated_feature = resolve_feature(repair_worktree, feature_dir.name)
+    updated_at = dt.datetime.now(dt.UTC).isoformat()
+    failed = replace(
+        saved,
+        branch=current_branch,
+        head_commit=current_head,
+        contract_digest=state.contract_digest(isolated_feature),
+        task="REVIEW",
+        attempt=max(saved.attempt, 1),
+        phase="review-repair",
+        failure_class="review-repair",
+        changed_paths=tuple(git_utils.changed_paths_read_only(repair_worktree)),
+        status="failed",
+        worktree=str(repair_worktree),
+        updated_at=updated_at,
+    )
+    state_path = repo / ".agent-work" / feature_dir.name / "state.json"
+    state.write_state(state_path, failed)
+    try:
+        event_store.append(
+            feature=feature_dir.name,
+            repository=str(repo),
+            branch=current_branch,
+            worktree=str(repair_worktree),
+            phase="review",
+            kind="review-repair-failure",
+            result="HUMAN_REQUIRED",
+            head_sha=current_head,
+            detail="Independent review repair requires explicit recovery",
+            data={
+                "task": "REVIEW",
+                "error_class": type(error).__name__,
+                "source_review_event_sequence": source_review_event_sequence,
+                "state_updated_at": updated_at,
+            },
+        )
+    except Exception:
+        state.write_state(state_path, saved)
+        raise
 
 
 def _finalize_delivery_evidence(

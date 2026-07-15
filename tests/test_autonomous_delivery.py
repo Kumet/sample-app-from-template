@@ -182,8 +182,7 @@ class DeliveryTests(unittest.TestCase):
                     "shard": "spec-scope",
                     "identity_digest": identity.digest,
                     "identity": identity.payload(),
-                    "result": "pass",
-                    "findings": [],
+                    **review.ReviewResult("pass", ()).evidence_fields(),
                 },
             )
             store.append(
@@ -530,6 +529,149 @@ class DeliveryTests(unittest.TestCase):
             )
             self.assertFalse(invalid["ownership_valid"])
             self.assertFalse(invalid["resume_safe"])
+
+    def test_review_scope_failure_is_reissued_as_failed_state_and_request(self):
+        temporary, repo, isolated, _, _, saved = self._resumable_repo()
+        with temporary:
+            feature = repo / "specs" / "008-test"
+            state_path = repo / ".agent-work" / "008-test" / "state.json"
+            (isolated.path / "prompts").mkdir()
+            (isolated.path / "prompts" / "review-feature.md").write_text(
+                "original\n", encoding="utf-8"
+            )
+            subprocess.run(
+                ["git", "add", "prompts/review-feature.md"],
+                cwd=isolated.path,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "add review prompt"],
+                cwd=isolated.path,
+                check=True,
+            )
+            head = git_utils.run_git(
+                isolated.path, ["rev-parse", "HEAD"]
+            ).stdout.strip()
+            completed = state.RunState(
+                **{
+                    **saved.__dict__,
+                    "head_commit": head,
+                    "status": "complete",
+                    "task": None,
+                }
+            )
+            state.write_state(state_path, completed)
+            (isolated.path / "prompts" / "review-feature.md").write_text(
+                "approved repair pending\n", encoding="utf-8"
+            )
+            store = EventStore(
+                repo / ".agent-work" / "008-test" / "events.jsonl"
+            )
+
+            delivery_module._record_review_scope_failure(
+                repo,
+                feature,
+                store,
+                completed,
+                isolated.path,
+                delivery_module.validation.ScopeViolation(
+                    "outside", ["prompts/review-feature.md"]
+                ),
+            )
+
+            failed = state.read_state(state_path)
+            self.assertEqual((failed.status, failed.failure_class), ("failed", "scope"))
+            self.assertEqual((failed.phase, failed.task), ("review-repair", "REVIEW"))
+            self.assertEqual(failed.changed_paths, ("prompts/review-feature.md",))
+            request = store.read()[-1]
+            self.assertEqual(
+                (request.kind, request.result),
+                ("scope-request", "HUMAN_REQUIRED"),
+            )
+            self.assertEqual(request.data["paths"], ["prompts/review-feature.md"])
+            self.assertEqual(request.data["state_updated_at"], failed.updated_at)
+
+    def test_review_scope_failure_rolls_back_state_if_event_append_fails(self):
+        temporary, repo, isolated, _, _, saved = self._resumable_repo()
+        with temporary:
+            feature = repo / "specs" / "008-test"
+            state_path = repo / ".agent-work" / "008-test" / "state.json"
+            completed = state.RunState(**{**saved.__dict__, "status": "complete"})
+            state.write_state(state_path, completed)
+            (isolated.path / "outside.txt").write_text("repair\n", encoding="utf-8")
+            store = mock.Mock()
+            store.append.side_effect = OSError("injected append failure")
+
+            with self.assertRaisesRegex(OSError, "injected append failure"):
+                delivery_module._record_review_scope_failure(
+                    repo,
+                    feature,
+                    store,
+                    completed,
+                    isolated.path,
+                    delivery_module.validation.ScopeViolation(
+                        "outside", ["outside.txt"]
+                    ),
+                )
+
+            self.assertEqual(state.read_state(state_path), completed)
+
+    def test_review_repair_failure_is_resumable_and_bound_to_failed_review(self):
+        temporary, repo, isolated, _, _, saved = self._resumable_repo()
+        with temporary:
+            feature = repo / "specs" / "008-test"
+            state_path = repo / ".agent-work" / "008-test" / "state.json"
+            completed = state.RunState(
+                **{**saved.__dict__, "status": "complete", "task": None}
+            )
+            state.write_state(state_path, completed)
+            store = EventStore(repo / ".agent-work" / "008-test" / "events.jsonl")
+            review_failure = store.append(
+                feature="008-test",
+                repository=str(repo),
+                branch=isolated.branch,
+                worktree=str(isolated.path),
+                phase="review",
+                kind="review-shard",
+                result="FAIL",
+                head_sha=completed.head_commit,
+                data={
+                    "shard": "integration",
+                    "aggregate": True,
+                    "required_findings": [{"required": True}],
+                },
+            )
+
+            self.assertEqual(
+                delivery_module._pending_review_repair_event(
+                    store.read(), completed.head_commit
+                ),
+                review_failure,
+            )
+            delivery_module._record_review_repair_failure(
+                repo,
+                feature,
+                store,
+                completed,
+                isolated.path,
+                RuntimeError("repair produced no changes"),
+                source_review_event_sequence=review_failure.sequence,
+            )
+
+            failed = state.read_state(state_path)
+            self.assertEqual(
+                (failed.status, failed.failure_class, failed.phase, failed.task),
+                ("failed", "review-repair", "review-repair", "REVIEW"),
+            )
+            event = store.read()[-1]
+            self.assertEqual(
+                (event.kind, event.result),
+                ("review-repair-failure", "HUMAN_REQUIRED"),
+            )
+            self.assertEqual(
+                event.data["source_review_event_sequence"], review_failure.sequence
+            )
+            self.assertNotIn("produced no changes", event.detail)
 
     def test_inspection_fails_closed_for_state_identity_mismatches(self):
         temporary, repo, _, config, task, saved = self._resumable_repo()

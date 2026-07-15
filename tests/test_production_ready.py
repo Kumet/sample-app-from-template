@@ -72,7 +72,7 @@ class ProductionReadyTests(unittest.TestCase):
             aggregates = {}
             for shard in REQUIRED_REVIEW_SHARDS:
                 identity = ReviewIdentity(
-                    identity_schema_version="4",
+                    identity_schema_version=review.REVIEW_IDENTITY_SCHEMA_VERSION,
                     feature="007-x",
                     head_sha="abc",
                     shard=shard,
@@ -102,6 +102,7 @@ class ProductionReadyTests(unittest.TestCase):
                         "shard": shard,
                         "identity_digest": identity.digest,
                         "identity": identity.payload(),
+                        **review.ReviewResult("pass", ()).evidence_fields(),
                     },
                 )
                 aggregates[shard] = store.append(
@@ -131,7 +132,7 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             identity = ReviewIdentity(
-                identity_schema_version="4",
+                identity_schema_version=review.REVIEW_IDENTITY_SCHEMA_VERSION,
                 feature="007-x",
                 head_sha="abc",
                 shard="security",
@@ -208,7 +209,7 @@ class ProductionReadyTests(unittest.TestCase):
             )
             for shard in REQUIRED_REVIEW_SHARDS:
                 identity = ReviewIdentity(
-                    identity_schema_version="4",
+                    identity_schema_version=review.REVIEW_IDENTITY_SCHEMA_VERSION,
                     feature="007-x",
                     head_sha="abc",
                     shard=shard,
@@ -288,7 +289,7 @@ class ProductionReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
             identity = ReviewIdentity(
-                identity_schema_version="4",
+                identity_schema_version=review.REVIEW_IDENTITY_SCHEMA_VERSION,
                 feature="007-x",
                 head_sha="abc",
                 shard="security",
@@ -683,6 +684,11 @@ class ProductionReadyTests(unittest.TestCase):
                 "prompts/**",
             )
             scope_apply(feature, "prompts/**", "review", store)
+            approval = store.read()[-1]
+            self.assertEqual(approval.head_sha, "abc")
+            self.assertEqual(approval.repository, "r")
+            self.assertEqual(approval.branch, "b")
+            self.assertEqual(approval.worktree, "w")
             self.assertIn(
                 "prompts/**", (feature / "spec.md").read_text(encoding="utf-8")
             )
@@ -777,7 +783,9 @@ class ProductionReadyTests(unittest.TestCase):
                 ".gitignore",
             )
             scope_apply(feature, ".gitignore", "approved", store, state_path)
-            self.assertEqual(store.read()[-1].kind, "scope-approved")
+            approval = store.read()[-1]
+            self.assertEqual(approval.kind, "scope-approved")
+            self.assertEqual(approval.head_sha, "head")
             self.assertIn(
                 '".gitignore"',
                 (feature / "validation.toml").read_text(encoding="utf-8"),
@@ -824,6 +832,37 @@ class ProductionReadyTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "No matching"):
                 scope_preview(feature, "README.md", "reason", store)
+
+    def test_scope_approval_rejects_request_without_head_attribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature = root / "specs" / "012-x"
+            feature.mkdir(parents=True)
+            (feature / "spec.md").write_text(
+                "## Scope\n\n### Allowed changes\n\n- `src/**`\n\n"
+                "### Forbidden changes\n\n- secrets\n",
+                encoding="utf-8",
+            )
+            (feature / "validation.toml").write_text(
+                'version=2\n[scope]\nallowed=["src/**"]\nforbidden=["**/*.key"]\n',
+                encoding="utf-8",
+            )
+            store = EventStore(root / "events.jsonl")
+            store.append(
+                feature="012-x",
+                repository="r",
+                branch="b",
+                worktree="w",
+                phase="approval",
+                kind="scope-request",
+                result="HUMAN_REQUIRED",
+                head_sha="",
+                data={"paths": ["README.md"]},
+            )
+
+            with self.assertRaisesRegex(ValueError, "exact-HEAD scope request"):
+                scope_apply(feature, "README.md", "approved", store)
+            self.assertEqual(len(store.read()), 1)
 
     def test_scope_approval_synchronizes_failed_worktree_contract(self):
         with tempfile.TemporaryDirectory() as directory:
