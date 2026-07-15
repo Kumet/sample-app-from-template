@@ -30,6 +30,7 @@ Requirements:
 
 - Python 3.11 or later
 - Git and Make
+- Docker with Docker Compose v2 (only for the container workflow)
 
 Create and activate a virtual environment, then install the application and
 development tools:
@@ -42,6 +43,66 @@ make setup
 
 `make setup` installs the source-layout `project_board` package in editable
 mode with the approved development dependencies.
+
+## Run with Docker Compose
+
+The container workflow binds the application only to
+<http://127.0.0.1:8000/> and keeps its SQLite database in the Compose-managed
+`project-board-data` named volume. It is intended for reproducible local use,
+not production deployment.
+
+Build the local image without starting a container:
+
+```bash
+make container-build
+```
+
+Build and start the complete application with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Leave that command running. In another terminal, verify the container status,
+health response, and browser UI:
+
+```bash
+docker compose ps
+curl --fail http://127.0.0.1:8000/health
+```
+
+The health request must return:
+
+```json
+{"status":"ok"}
+```
+
+Then open <http://127.0.0.1:8000/>. Data created through the UI or API is stored
+at `/data/project_board.sqlite3` inside the named volume, not in the repository.
+To verify persistence, create a Project, stop normally, start again with
+`docker compose up --build`, and confirm that the Project is still present.
+
+Stop and remove the Compose container and network while preserving application
+data:
+
+```bash
+docker compose down
+```
+
+### Warning: permanently delete container data
+
+The following command is destructive. It removes the Compose container,
+network, and the `project-board-data` named volume, permanently deleting the
+containerized SQLite database. Use it only when you intentionally want a clean
+container data store:
+
+```bash
+docker compose down --volumes
+```
+
+Neither command performs system-wide Docker cleanup or removes unrelated
+resources. The opt-in `make container-smoke` validation uses separate,
+uniquely named temporary resources and cleans up only those resources.
 
 ## Run the application
 

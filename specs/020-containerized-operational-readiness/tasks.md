@@ -45,7 +45,7 @@
   - Validation: unit
   - Dependencies: T004, T005
   - Allowed paths: `.github/workflows/ci.yml`, `tests/app/operations/**`
-- [ ] T007: Document build, start, verify, stop, persistence, and destructive cleanup.
+- [x] T007: Document build, start, verify, stop, persistence, and destructive cleanup.
   - Requirements: REQ-013, REQ-018
   - Acceptance criteria: AC-008
   - Validation: unit
