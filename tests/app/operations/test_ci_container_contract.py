@@ -3,6 +3,47 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parents[3]
 CI_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
 
+ORIGINAL_VALIDATE_JOB = """  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Set up project
+        run: make setup
+
+      - name: Validate template files
+        run: |
+          test -f AGENTS.md
+          test -f CLAUDE.md
+          test -f Makefile
+          test -f .agent-policy.toml
+          test -f docs/project-context.md
+          test -f .github/pull_request_template.md
+          test -f schemas/review-result.schema.json
+          test -f adapters/generic.toml
+
+      - name: Check scripts are executable
+        run: |
+          test -x scripts/init-project.sh
+          test -x scripts/check-secrets.sh
+          test -x scripts/validate-spec.sh
+
+      - name: Run project validation
+        run: make validate
+
+      - name: Qualify stack fixtures
+        run: make qualify-stacks"""
+
 
 def _job_block(workflow: str, job: str) -> str:
     lines = workflow.splitlines()
@@ -36,6 +77,12 @@ def test_real_container_checks_run_in_a_separate_bounded_job() -> None:
     assert '          python-version: "3.11"' in container_job
     assert container_job.count("        run: make container-build") == 1
     assert container_job.count("        run: make container-smoke") == 1
+
+
+def test_existing_validation_job_is_preserved_exactly() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert _job_block(workflow, "validate").rstrip() == ORIGINAL_VALIDATE_JOB
 
 
 def test_container_job_has_exact_always_run_cleanup_without_forbidden_actions() -> None:

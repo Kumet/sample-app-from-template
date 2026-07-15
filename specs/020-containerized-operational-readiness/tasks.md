@@ -63,7 +63,7 @@
   - Validation: integration
   - Dependencies: T008
   - Allowed paths: `specs/020-containerized-operational-readiness/**`
-- [ ] T010: Complete regressions, exact evidence, independent review, and PR readiness.
+- [x] T010: Complete regressions, exact evidence, independent review, and PR readiness.
   - Requirements: REQ-011, REQ-012, REQ-016, REQ-017, REQ-018
   - Acceptance criteria: AC-006, AC-007, AC-010, AC-011, AC-012
   - Validation: full, container-smoke
