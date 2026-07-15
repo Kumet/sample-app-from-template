@@ -27,7 +27,7 @@
   - Validation: unit
   - Dependencies: T002
   - Allowed paths: `compose.yaml`, `tests/app/operations/**`
-- [ ] T004: Implement unique-resource real HTTP and persistence smoke lifecycle.
+- [x] T004: Implement unique-resource real HTTP and persistence smoke lifecycle.
   - Requirements: REQ-008, REQ-009, REQ-010, REQ-018
   - Acceptance criteria: AC-004, AC-005
   - Validation: unit
