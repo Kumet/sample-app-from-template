@@ -33,7 +33,7 @@
   - Validation: unit
   - Dependencies: T002, T003
   - Allowed paths: `scripts/operations/**`, `tests/app/operations/**`
-- [ ] T005: Add opt-in Make container targets without changing ordinary validation.
+- [x] T005: Add opt-in Make container targets without changing ordinary validation.
   - Requirements: REQ-007, REQ-011
   - Acceptance criteria: AC-006
   - Validation: unit, container-build
