@@ -1,5 +1,5 @@
 # Validation log: 020-containerized-operational-readiness
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"020-containerized-operational-readiness","generated_at":"2026-07-15T16:12:43.394648+00:00","included_event_sequence":38,"snapshot_format_version":2,"validation_contract_digest":"9682080ad3de95b17edddaecc3fe4712402f79153ff299e0adc7f618d84c39b2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"020-containerized-operational-readiness","generated_at":"2026-07-15T16:19:26.587940+00:00","included_event_sequence":50,"snapshot_format_version":2,"validation_contract_digest":"9682080ad3de95b17edddaecc3fe4712402f79153ff299e0adc7f618d84c39b2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -49,3 +49,15 @@ Final included event result: PASS.
 | 36 | review/review-shard | PASS | `59a2fb10d5f3` |  |
 | 37 | review/review-shard | PASS | `59a2fb10d5f3` |  |
 | 38 | review/review-shard | PASS | `59a2fb10d5f3` |  |
+| 39 | evidence/tracked-evidence-snapshot | PASS | `243bb6325878` |  |
+| 40 | post-evidence/final-validation-attempt | PASS | `243bb6325878` |  |
+| 41 | post-evidence/final-validation-accepted | PASS | `243bb6325878` |  |
+| 42 | delivery/weakening | PASS | `243bb6325878` |  |
+| 43 | review/review-shard | PASS | `243bb6325878` |  |
+| 44 | review/review-shard | PASS | `243bb6325878` |  |
+| 45 | review/review-shard | PASS | `243bb6325878` |  |
+| 46 | review/review-shard | PASS | `243bb6325878` |  |
+| 47 | review/review-shard | FAIL | `243bb6325878` |  |
+| 48 | review/review-shard | FAIL | `243bb6325878` |  |
+| 49 | review/review-shard | PASS | `243bb6325878` |  |
+| 50 | review/review-shard | PASS | `243bb6325878` |  |
