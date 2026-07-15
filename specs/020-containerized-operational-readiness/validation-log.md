@@ -1,5 +1,5 @@
 # Validation log: 020-containerized-operational-readiness
-<!-- validation-snapshot: {"event_schema_version":1,"feature":"020-containerized-operational-readiness","generated_at":"2026-07-15T16:19:26.587940+00:00","included_event_sequence":50,"snapshot_format_version":2,"validation_contract_digest":"9682080ad3de95b17edddaecc3fe4712402f79153ff299e0adc7f618d84c39b2"} -->
+<!-- validation-snapshot: {"event_schema_version":1,"feature":"020-containerized-operational-readiness","generated_at":"2026-07-15T18:50:34.871154+00:00","included_event_sequence":63,"snapshot_format_version":2,"validation_contract_digest":"9682080ad3de95b17edddaecc3fe4712402f79153ff299e0adc7f618d84c39b2"} -->
 
 This tracked snapshot does not embed its own commit SHA. Its commit and blob are attributed by the append-only tracked-evidence-snapshot event.
 
@@ -61,3 +61,16 @@ Final included event result: PASS.
 | 48 | review/review-shard | FAIL | `243bb6325878` |  |
 | 49 | review/review-shard | PASS | `243bb6325878` |  |
 | 50 | review/review-shard | PASS | `243bb6325878` |  |
+| 51 | evidence/tracked-evidence-snapshot | PASS | `407ca3175c06` |  |
+| 52 | post-evidence/final-validation-attempt | PASS | `407ca3175c06` |  |
+| 53 | post-evidence/final-validation-accepted | PASS | `407ca3175c06` |  |
+| 54 | delivery/weakening | PASS | `407ca3175c06` |  |
+| 55 | review/review-shard | HUMAN_REQUIRED | `407ca3175c06` | ReviewBudgetExhausted |
+| 56 | review/review-shard | PASS | `407ca3175c06` |  |
+| 57 | review/review-shard | PASS | `407ca3175c06` |  |
+| 58 | review/review-shard | PASS | `407ca3175c06` |  |
+| 59 | review/review-shard | PASS | `407ca3175c06` |  |
+| 60 | review/review-shard | FAIL | `407ca3175c06` |  |
+| 61 | review/review-shard | FAIL | `407ca3175c06` |  |
+| 62 | review/review-shard | PASS | `407ca3175c06` |  |
+| 63 | review/review-shard | PASS | `407ca3175c06` |  |
