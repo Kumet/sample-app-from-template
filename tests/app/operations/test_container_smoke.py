@@ -170,6 +170,11 @@ def _commands(fake: FakeDocker) -> list[list[str]]:
     return [call[0] for call in fake.calls]
 
 
+def test_real_container_smoke_builds_and_recreates_persistent_runtime() -> None:
+    """Exercise the complete smoke lifecycle against the Docker daemon."""
+    run_smoke()
+
+
 def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> None:
     docker = FakeDocker()
     http = FakeHttp()

@@ -29,7 +29,10 @@ def test_container_targets_are_explicit_phony_entry_points() -> None:
     )
     assert _target_rule(makefile, "container-smoke") == (
         "container-smoke:",
-        ["$(PYTHON) scripts/operations/container_smoke.py"],
+        [
+            "$(PYTHON) -m pytest tests/app/operations/test_container_smoke.py::"
+            "test_real_container_smoke_builds_and_recreates_persistent_runtime"
+        ],
     )
 
 

@@ -62,6 +62,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up project
+        run: make setup
+
       - name: Build container image
         run: make container-build
 

@@ -75,6 +75,7 @@ def test_real_container_checks_run_in_a_separate_bounded_job() -> None:
     assert "        uses: actions/checkout@v4" in container_job
     assert "        uses: actions/setup-python@v5" in container_job
     assert '          python-version: "3.11"' in container_job
+    assert container_job.count("        run: make setup") == 1
     assert container_job.count("        run: make container-build") == 1
     assert container_job.count("        run: make container-smoke") == 1
 
