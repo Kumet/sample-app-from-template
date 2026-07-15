@@ -57,7 +57,41 @@ def test_healthcheck_uses_only_python_standard_library_and_exact_response() -> N
 
 def test_build_context_is_an_explicit_wheel_input_allowlist() -> None:
     rules = [
-        line for line in DOCKERIGNORE.read_text(encoding="utf-8").splitlines() if line
+        line
+        for line in DOCKERIGNORE.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
     ]
 
-    assert rules == ["**", "!pyproject.toml", "!README.md", "!src/", "!src/**"]
+    assert rules[:5] == ["**", "!pyproject.toml", "!README.md", "!src/", "!src/**"]
+
+    required_denies = {
+        ".git/**",
+        "tests/**",
+        "specs/**",
+        ".agent-work/**",
+        ".agent-worktree-owned",
+        ".agents/**",
+        ".codex/**",
+        ".env.*",
+        ".venv/**",
+        "venv/**",
+        "env/**",
+        "*.pem",
+        "*.key",
+        "**/__pycache__/**",
+        ".pytest_cache/**",
+        ".mypy_cache/**",
+        ".ruff_cache/**",
+        "build/**",
+        "dist/**",
+        "**/*.egg-info/**",
+        "artifacts/**",
+        "htmlcov/**",
+        ".coverage.*",
+        "coverage.xml",
+        "*.sqlite",
+        "*.sqlite3",
+        "*.db",
+    }
+    assert required_denies <= set(rules)
+    assert all(rule in rules[5:] for rule in required_denies)
