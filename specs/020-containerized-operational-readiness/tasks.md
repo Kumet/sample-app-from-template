@@ -57,7 +57,7 @@
   - Validation: container-build, container-smoke
   - Dependencies: T005, T006, T007
   - Allowed paths: `Dockerfile`, `.dockerignore`, `compose.yaml`, `Makefile`, `scripts/operations/**`, `tests/app/operations/**`, `specs/020-containerized-operational-readiness/**`
-- [ ] T009: Run browser acceptance with temporary data and record honest results.
+- [x] T009: Run browser acceptance with temporary data and record honest results.
   - Requirements: REQ-014, REQ-015, REQ-016
   - Acceptance criteria: AC-009, AC-012
   - Validation: integration
