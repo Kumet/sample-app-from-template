@@ -20,7 +20,12 @@ from agent.evidence_snapshot import (
     utc_now,
 )
 from agent.gates import REQUIRED_REVIEW_SHARDS, require_pre_push
-from agent.review import REVIEW_IDENTITY_FIELDS, ReviewIdentity
+from agent.review import (
+    REVIEW_IDENTITY_FIELDS,
+    REVIEW_IDENTITY_SCHEMA_VERSION,
+    ReviewIdentity,
+    ReviewResult,
+)
 from agent.review_shards import record_reuse_decision, reusable_event
 from agent.validation import CommandResult
 
@@ -441,7 +446,7 @@ class EvidenceSnapshotTests(unittest.TestCase):
                 ):
                     require_pre_push(self.repo, self.feature, self.store.read(), head)
             identity = ReviewIdentity(
-                identity_schema_version="4",
+                identity_schema_version=REVIEW_IDENTITY_SCHEMA_VERSION,
                 feature=self.feature.name,
                 head_sha=head,
                 shard=shard,
@@ -475,7 +480,7 @@ class EvidenceSnapshotTests(unittest.TestCase):
                     "shard": shard,
                     "identity_digest": identity.digest,
                     "identity": identity.payload(),
-                    "findings": [],
+                    **ReviewResult("pass", ()).evidence_fields(),
                 },
             )
             self.store.append(

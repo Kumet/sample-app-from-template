@@ -305,8 +305,8 @@ class WeakeningReviewEvidenceTests(unittest.TestCase):
         self.assertIn("candidate alone", review._review_guidance("integration"))
 
     def test_prompt_and_identity_versions_invalidate_old_reviews(self):
-        self.assertEqual(review.REVIEW_PROMPT_VERSION, "4")
-        self.assertEqual(review.REVIEW_IDENTITY_SCHEMA_VERSION, "4")
+        self.assertEqual(review.REVIEW_PROMPT_VERSION, "6")
+        self.assertEqual(review.REVIEW_IDENTITY_SCHEMA_VERSION, "5")
         self.assertEqual(review.MAX_REVIEW_INPUT_CHARS, 100_000)
 
         identity_values = {
