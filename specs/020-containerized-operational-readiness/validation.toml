@@ -1,0 +1,74 @@
+version = 2
+risk = "high"
+auto_merge = false
+risk_domains = ["infrastructure", "ci"]
+max_tasks = 10
+max_attempts_per_task = 3
+max_final_validation_attempts = 3
+max_review_attempts = 3
+max_ci_attempts = 3
+
+[validations]
+unit = "test"
+integration = "integration-test"
+container-build = "container-build"
+container-smoke = "container-smoke"
+full = "validate"
+
+[traceability]
+REQ-001 = ["AC-001", "AC-002", "T001", "T002", "T008"]
+REQ-002 = ["AC-001", "AC-004", "T002", "T008"]
+REQ-003 = ["AC-001", "AC-003", "AC-004", "T001", "T002", "T003", "T008"]
+REQ-004 = ["AC-001", "AC-003", "AC-004", "T002", "T003", "T008"]
+REQ-005 = ["AC-002", "T002"]
+REQ-006 = ["AC-003", "T001", "T003"]
+REQ-007 = ["AC-006", "T005"]
+REQ-008 = ["AC-004", "T001", "T004", "T008"]
+REQ-009 = ["AC-004", "T004", "T008"]
+REQ-010 = ["AC-005", "T004", "T006", "T008"]
+REQ-011 = ["AC-005", "AC-006", "AC-007", "T004", "T005", "T006", "T010"]
+REQ-012 = ["AC-007", "T001", "T006", "T010"]
+REQ-013 = ["AC-008", "T007"]
+REQ-014 = ["AC-009", "T001", "T009"]
+REQ-015 = ["AC-009", "T009"]
+REQ-016 = ["AC-002", "AC-012", "T002", "T009", "T010"]
+REQ-017 = ["AC-010", "AC-011", "T001", "T010"]
+REQ-018 = ["AC-003", "AC-005", "AC-007", "T003", "T004", "T006", "T007", "T010"]
+
+[dependencies]
+T002 = ["T001"]
+T003 = ["T002"]
+T004 = ["T002", "T003"]
+T005 = ["T002", "T004"]
+T006 = ["T004", "T005"]
+T007 = ["T003", "T005"]
+T008 = ["T005", "T006", "T007"]
+T009 = ["T008"]
+T010 = ["T008", "T009"]
+
+[scope]
+allowed = [
+  "Dockerfile",
+  ".dockerignore",
+  "compose.yaml",
+  "Makefile",
+  ".github/workflows/ci.yml",
+  "scripts/operations/**",
+  "tests/app/operations/**",
+  "tests/app/integration/**",
+  "README.md",
+  "specs/020-containerized-operational-readiness/**",
+]
+forbidden = [
+  ".env", ".env.*", "**/.env", "**/.env.*",
+  "local.properties", "**/local.properties", "**/*.pem", "**/*.key",
+  "**/*.p12", "**/*.pfx", "**/credentials.*", "**/secrets.*",
+  "src/project_board/**", "pyproject.toml", "prompts/**", "schemas/**",
+  "scripts/agent/**", ".agent-policy.toml", "migrations/**",
+  "specs/001*/**", "specs/002*/**", "specs/003*/**", "specs/004*/**",
+  "specs/005*/**", "specs/006*/**", "specs/007*/**", "specs/008*/**",
+  "specs/009*/**", "specs/010*/**", "specs/011*/**", "specs/012*/**",
+  "specs/013*/**", "specs/014*/**", "specs/015*/**", "specs/016*/**",
+  "specs/017*/**", "specs/018*/**", "specs/019*/**", "specs/021*/**",
+  ".agent-work/**", ".agent-worktrees/**", ".agent-worktree-owned",
+]
