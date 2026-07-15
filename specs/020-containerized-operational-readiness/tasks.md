@@ -21,7 +21,7 @@
   - Validation: unit
   - Dependencies: T001
   - Allowed paths: `Dockerfile`, `.dockerignore`, `tests/app/operations/**`
-- [ ] T003: Add localhost-only hardened Compose and structural regressions.
+- [x] T003: Add localhost-only hardened Compose and structural regressions.
   - Requirements: REQ-003, REQ-004, REQ-006, REQ-018
   - Acceptance criteria: AC-003
   - Validation: unit
