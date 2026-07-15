@@ -182,6 +182,14 @@ The runtime sequence is strictly:
    succeeds; otherwise append `final-validation-rejected` when attribution fails.
 7. Require the accepted PASS before review.
 
+Rows at or below the tracked log's `included_event_sequence` are historical
+events from an earlier snapshot cycle. They are not alternate copies of later
+runtime events merely because their `kind` values match. A gate chain is
+identified by the snapshot, attempt, and acceptance sequence references; each
+event in that referenced chain must carry the same exact HEAD. Consequently, a
+tracked log can contain an older accepted validation for one HEAD while the
+authoritative post-watermark runtime chain correctly validates a newer HEAD.
+
 Ordinary task or pre-commit `validation` events never satisfy the final gate.
 All reviewer exceptions pass through centralized redaction before event,
 diagnostic, notification, or report persistence; EventStore recursively redacts
