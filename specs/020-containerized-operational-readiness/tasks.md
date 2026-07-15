@@ -15,7 +15,7 @@
   - Validation: unit
   - Dependencies: none
   - Allowed paths: `specs/020-containerized-operational-readiness/**`
-- [ ] T002: Add the multi-stage non-root Dockerfile and deny-oriented build context.
+- [x] T002: Add the multi-stage non-root Dockerfile and deny-oriented build context.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-016
   - Acceptance criteria: AC-001, AC-002
   - Validation: unit
