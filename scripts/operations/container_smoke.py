@@ -108,6 +108,19 @@ class RepositoryFingerprint:
     database: tuple[bool, int, str]
 
 
+@dataclass(frozen=True)
+class SmokeResult:
+    """Observable evidence produced by one successful real-container smoke."""
+
+    resources: ResourceNames
+    repository_before: RepositoryFingerprint
+    repository_after: RepositoryFingerprint
+    first_url: str
+    second_url: str
+    project_id: int
+    project_name: str
+
+
 def run_command(
     arguments: Sequence[str],
     *,
@@ -478,7 +491,7 @@ def run_smoke(
     command: Command = run_command,
     http: HttpRequest = request_http,
     run_id: str | None = None,
-) -> None:
+) -> SmokeResult:
     """Build and verify one isolated container lifecycle, then always clean it."""
     names = ResourceNames.unique(run_id)
     created = CreatedResources()
@@ -523,8 +536,18 @@ def run_smoke(
             raise AssertionError(
                 "Container smoke changed Git state or repository-local SQLite data"
             )
+        result = SmokeResult(
+            resources=names,
+            repository_before=before,
+            repository_after=after,
+            first_url=first_url,
+            second_url=second_url,
+            project_id=project["id"],
+            project_name=project["name"],
+        )
     finally:
         _cleanup(command, names, created)
+    return result
 
 
 def main() -> int:

@@ -1,9 +1,11 @@
 import json
 import subprocess
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
+from scripts.operations import container_smoke
 from scripts.operations.container_smoke import ResourceNames, request_http, run_smoke
 
 RUN_ID = "unit-lifecycle"
@@ -172,14 +174,29 @@ def _commands(fake: FakeDocker) -> list[list[str]]:
 
 def test_real_container_smoke_builds_and_recreates_persistent_runtime() -> None:
     """Exercise the complete smoke lifecycle against the Docker daemon."""
-    run_smoke()
+    result = run_smoke()
+
+    assert result.resources.first_container != result.resources.second_container
+    assert result.first_url.startswith("http://127.0.0.1:")
+    assert result.second_url.startswith("http://127.0.0.1:")
+    assert result.project_id > 0
+    assert result.project_name == (
+        f"Container smoke {result.resources.first_container}"
+    )
+    assert result.repository_before.git_status == result.repository_after.git_status
+    assert result.repository_before.database == result.repository_after.database
 
 
-def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> None:
+def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     docker = FakeDocker()
     http = FakeHttp()
+    local_database = tmp_path / "project_board.sqlite3"
+    local_database.write_bytes(b"repository database sentinel")
+    monkeypatch.setattr(container_smoke, "LOCAL_DATABASE", local_database)
 
-    run_smoke(command=docker, http=http, run_id=RUN_ID)
+    result = run_smoke(command=docker, http=http, run_id=RUN_ID)
 
     commands = _commands(docker)
     assert ["docker", "build", "--tag", f"{PREFIX}:local", "."] in commands
@@ -216,6 +233,17 @@ def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> No
     assert ["docker", "volume", "rm", f"{PREFIX}-data"] in commands
     assert ["docker", "image", "rm", "--force", f"{PREFIX}:local"] in commands
     assert not any("prune" in argument for command in commands for argument in command)
+    assert (
+        commands.count(["git", "status", "--porcelain=v1", "--untracked-files=all"])
+        == 2
+    )
+    assert result.repository_before.git_status == "?? existing-user-file\n"
+    assert result.repository_before == result.repository_after
+    database_exists, database_size, database_digest = result.repository_before.database
+    assert database_exists is True
+    assert database_size == len(b"repository database sentinel")
+    assert len(database_digest) == 64
+    assert local_database.read_bytes() == b"repository database sentinel"
 
     persisted_gets = [
         url for url, method, _ in http.calls if method == "GET" and url.endswith("/7")
@@ -224,6 +252,41 @@ def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> No
         "http://127.0.0.1:49151/api/projects/7",
         "http://127.0.0.1:49152/api/projects/7",
     ]
+
+
+def test_repository_local_sqlite_mutation_fails_and_cleans_exact_resources(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    docker = FakeDocker()
+    local_database = tmp_path / "project_board.sqlite3"
+    local_database.write_bytes(b"before smoke")
+    monkeypatch.setattr(container_smoke, "LOCAL_DATABASE", local_database)
+
+    class MutatingHttp(FakeHttp):
+        def __call__(
+            self,
+            url: str,
+            *,
+            method: str = "GET",
+            payload: dict[str, str] | None = None,
+        ) -> tuple[int, dict[str, str], bytes]:
+            response = super().__call__(url, method=method, payload=payload)
+            if url == "http://127.0.0.1:49152/api/projects/7":
+                local_database.write_bytes(b"changed during smoke")
+            return response
+
+    with pytest.raises(AssertionError, match="repository-local SQLite"):
+        run_smoke(command=docker, http=MutatingHttp(), run_id=RUN_ID)
+
+    commands = _commands(docker)
+    assert (
+        commands.count(["git", "status", "--porcelain=v1", "--untracked-files=all"])
+        == 2
+    )
+    assert ["docker", "rm", "--force", f"{PREFIX}-second"] in commands
+    assert ["docker", "volume", "rm", f"{PREFIX}-data"] in commands
+    assert ["docker", "network", "rm", f"{PREFIX}-network"] in commands
+    assert ["docker", "image", "rm", "--force", f"{PREFIX}:local"] in commands
 
 
 def test_persistence_failure_still_cleans_every_created_exact_resource() -> None:
