@@ -68,6 +68,7 @@ class ResourceNames:
     image: str
     network: str
     volume: str
+    boundary_container: str
     first_container: str
     second_container: str
 
@@ -81,6 +82,7 @@ class ResourceNames:
             image=f"{prefix}:local",
             network=f"{prefix}-network",
             volume=f"{prefix}-data",
+            boundary_container=f"{prefix}-boundary",
             first_container=f"{prefix}-first",
             second_container=f"{prefix}-second",
         )
@@ -93,6 +95,7 @@ class CreatedResources:
     image: bool = False
     network: bool = False
     volume: bool = False
+    boundary_container: bool = False
     first_container: bool = False
     second_container: bool = False
 
@@ -184,6 +187,97 @@ def _inspect_container(command: Command, container: str) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise AssertionError(f"Docker returned invalid inspection data for {container}")
     return result
+
+
+def _inspect_image(command: Command, image: str) -> dict[str, Any]:
+    output = command(["docker", "image", "inspect", image]).stdout
+    inspected = json.loads(output)
+    if not isinstance(inspected, list) or len(inspected) != 1:
+        raise AssertionError(f"Docker returned invalid inspection data for {image}")
+    result = inspected[0]
+    if not isinstance(result, dict):
+        raise AssertionError(f"Docker returned invalid inspection data for {image}")
+    return result
+
+
+def _verify_image_boundary(
+    command: Command,
+    names: ResourceNames,
+    created: CreatedResources,
+) -> None:
+    """Inspect the built image and its pristine runtime filesystem."""
+    inspected = _inspect_image(command, names.image)
+    config = inspected.get("Config", {})
+    if config.get("User") != "10001:10001":
+        raise AssertionError("Built image is not configured for UID/GID 10001:10001")
+    if config.get("WorkingDir") != "/data":
+        raise AssertionError("Built image working directory is not /data")
+
+    environment = set(config.get("Env", []))
+    required_environment = {
+        "HOME=/data",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "PYTHONUNBUFFERED=1",
+    }
+    if not required_environment.issubset(environment):
+        raise AssertionError("Built image is missing required runtime environment")
+
+    expected_command = [
+        "python",
+        "-m",
+        "uvicorn",
+        "project_board.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+    ]
+    if config.get("Cmd") != expected_command:
+        raise AssertionError("Built image command does not match the runtime contract")
+
+    health_test = config.get("Healthcheck", {}).get("Test", [])
+    health_contract = " ".join(str(part) for part in health_test)
+    if (
+        not health_test
+        or health_test[0] != "CMD"
+        or "urllib.request" not in health_contract
+        or "http://127.0.0.1:8000/health" not in health_contract
+        or "response.status == 200" not in health_contract
+        or "{'status': 'ok'}" not in health_contract
+    ):
+        raise AssertionError("Built image healthcheck does not match the HTTP contract")
+
+    boundary_script = (
+        "import os; from pathlib import Path; "
+        "assert (os.getuid(), os.getgid()) == (10001, 10001); "
+        "assert Path.cwd() == Path('/data'); "
+        "assert not any(Path('/data').iterdir()); "
+        "forbidden = ('/build', '/wheels', '/src', '/tests', '/specs', '/.git', "
+        "'/.env', '/project_board.sqlite3'); "
+        "assert not any(Path(path).exists() for path in forbidden)"
+    )
+    result = command(
+        [
+            "docker",
+            "run",
+            "--name",
+            names.boundary_container,
+            "--network",
+            "none",
+            "--entrypoint",
+            "python",
+            names.image,
+            "-c",
+            boundary_script,
+        ],
+        check=False,
+    )
+    created.boundary_container = True
+    if result.returncode != 0:
+        detail = (
+            result.stderr.strip() or result.stdout.strip() or str(result.returncode)
+        )
+        raise AssertionError(f"Built image filesystem boundary failed: {detail}")
 
 
 def _wait_for_healthy(
@@ -352,6 +446,10 @@ def _cleanup(command: Command, names: ResourceNames, created: CreatedResources) 
             created.first_container,
             ["docker", "rm", "--force", names.first_container],
         ),
+        (
+            created.boundary_container,
+            ["docker", "rm", "--force", names.boundary_container],
+        ),
         (created.volume, ["docker", "volume", "rm", names.volume]),
         (created.network, ["docker", "network", "rm", names.network]),
         (
@@ -393,6 +491,7 @@ def run_smoke(
             timeout=BUILD_TIMEOUT_SECONDS,
         )
         created.image = True
+        _verify_image_boundary(command, names, created)
         command(["docker", "network", "create", names.network])
         created.network = True
         command(["docker", "volume", "create", names.volume])

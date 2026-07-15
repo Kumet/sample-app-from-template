@@ -12,11 +12,16 @@ PREFIX = f"project-board-smoke-{RUN_ID}"
 
 class FakeDocker:
     def __init__(
-        self, *, unsafe_logs: bool = False, fail_first_remove_once: bool = False
+        self,
+        *,
+        unsafe_logs: bool = False,
+        fail_first_remove_once: bool = False,
+        fail_boundary: bool = False,
     ) -> None:
         self.calls: list[tuple[list[str], bool, int]] = []
         self.unsafe_logs = unsafe_logs
         self.fail_first_remove_once = fail_first_remove_once
+        self.fail_boundary = fail_boundary
 
     def __call__(
         self,
@@ -31,6 +36,45 @@ class FakeDocker:
         stderr = ""
         if args[:2] == ["git", "status"]:
             stdout = "?? existing-user-file\n"
+        elif args[:3] == ["docker", "image", "inspect"]:
+            stdout = json.dumps(
+                [
+                    {
+                        "Config": {
+                            "User": "10001:10001",
+                            "WorkingDir": "/data",
+                            "Env": [
+                                "PATH=/usr/local/bin:/usr/bin:/bin",
+                                "HOME=/data",
+                                "PYTHONDONTWRITEBYTECODE=1",
+                                "PYTHONUNBUFFERED=1",
+                            ],
+                            "Cmd": [
+                                "python",
+                                "-m",
+                                "uvicorn",
+                                "project_board.main:app",
+                                "--host",
+                                "0.0.0.0",
+                                "--port",
+                                "8000",
+                            ],
+                            "Healthcheck": {
+                                "Test": [
+                                    "CMD",
+                                    "python",
+                                    "-c",
+                                    "import urllib.request; response = "
+                                    "urllib.request.urlopen("
+                                    "'http://127.0.0.1:8000/health'); "
+                                    "assert response.status == 200; "
+                                    "assert {'status': 'ok'}",
+                                ]
+                            },
+                        }
+                    }
+                ]
+            )
         elif args[:2] == ["docker", "inspect"]:
             stdout = json.dumps(
                 [
@@ -55,6 +99,13 @@ class FakeDocker:
                 else "Application startup complete.\n"
             )
         returncode = 0
+        if (
+            args[:2] == ["docker", "run"]
+            and f"{PREFIX}-boundary" in args
+            and self.fail_boundary
+        ):
+            returncode = 1
+            stderr = "pristine image assertion failed"
         first_remove = ["docker", "rm", "--force", f"{PREFIX}-first"]
         if args == first_remove and self.fail_first_remove_once:
             self.fail_first_remove_once = False
@@ -127,7 +178,20 @@ def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> No
 
     commands = _commands(docker)
     assert ["docker", "build", "--tag", f"{PREFIX}:local", "."] in commands
-    runs = [command for command in commands if command[:2] == ["docker", "run"]]
+    boundary_run = next(
+        command
+        for command in commands
+        if command[:2] == ["docker", "run"] and "--entrypoint" in command
+    )
+    assert boundary_run[boundary_run.index("--name") + 1] == f"{PREFIX}-boundary"
+    assert boundary_run[boundary_run.index("--network") + 1] == "none"
+    assert boundary_run[boundary_run.index("--entrypoint") + 1] == "python"
+
+    runs = [
+        command
+        for command in commands
+        if command[:2] == ["docker", "run"] and "--detach" in command
+    ]
     assert len(runs) == 2
     assert runs[0][runs[0].index("--name") + 1] == f"{PREFIX}-first"
     assert runs[1][runs[1].index("--name") + 1] == f"{PREFIX}-second"
@@ -142,6 +206,7 @@ def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume() -> No
     second_run = commands.index(runs[1])
     assert first_remove < second_run
     assert ["docker", "rm", "--force", f"{PREFIX}-second"] in commands
+    assert ["docker", "rm", "--force", f"{PREFIX}-boundary"] in commands
     assert ["docker", "network", "rm", f"{PREFIX}-network"] in commands
     assert ["docker", "volume", "rm", f"{PREFIX}-data"] in commands
     assert ["docker", "image", "rm", "--force", f"{PREFIX}:local"] in commands
@@ -182,6 +247,19 @@ def test_persistence_failure_still_cleans_every_created_exact_resource() -> None
     assert ["docker", "volume", "rm", f"{PREFIX}-data"] in cleanup
     assert ["docker", "image", "rm", "--force", f"{PREFIX}:local"] in cleanup
     assert all(PREFIX in " ".join(command) for command in cleanup)
+
+
+def test_image_boundary_failure_cleans_its_container_and_image() -> None:
+    docker = FakeDocker(fail_boundary=True)
+
+    with pytest.raises(AssertionError, match="filesystem boundary failed"):
+        run_smoke(command=docker, http=FakeHttp(), run_id=RUN_ID)
+
+    commands = _commands(docker)
+    assert ["docker", "rm", "--force", f"{PREFIX}-boundary"] in commands
+    assert ["docker", "image", "rm", "--force", f"{PREFIX}:local"] in commands
+    assert ["docker", "network", "create", f"{PREFIX}-network"] not in commands
+    assert ["docker", "volume", "create", f"{PREFIX}-data"] not in commands
 
 
 def test_sensitive_container_log_failure_is_rejected_after_persistence() -> None:

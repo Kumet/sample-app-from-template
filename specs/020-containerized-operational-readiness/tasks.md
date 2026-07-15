@@ -51,7 +51,7 @@
   - Validation: unit
   - Dependencies: T003, T005
   - Allowed paths: `README.md`, `tests/app/operations/**`
-- [ ] T008: Prove real build, runtime boundary, HTTP flow, and restart persistence.
+- [x] T008: Prove real build, runtime boundary, HTTP flow, and restart persistence.
   - Requirements: REQ-001, REQ-002, REQ-003, REQ-004, REQ-008, REQ-009, REQ-010
   - Acceptance criteria: AC-001, AC-002, AC-003, AC-004, AC-005
   - Validation: container-build, container-smoke
