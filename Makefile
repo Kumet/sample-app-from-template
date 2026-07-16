@@ -2,7 +2,7 @@
 
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif command -v python3.11 >/dev/null 2>&1; then command -v python3.11; else command -v python3; fi)
 
-.PHONY: setup format format-check lint typecheck test-framework test-app test integration-test build ci secrets validate clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run request-scope request-scope-dry-run approve-recovery-patch approve-recovery-patch-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
+.PHONY: setup format format-check lint typecheck test-framework test-app test integration-test build container-build container-smoke ci secrets validate clean work work-dry-run work-status validate-spec spec-lint work-resume work-abort deliver deliver-dry-run cleanup-worktree detect-stack init-stack doctor quality-check approve-scope approve-scope-dry-run request-scope request-scope-dry-run approve-recovery-patch approve-recovery-patch-dry-run migrate-contract migrate-contract-dry-run queue-add queue-status queue-run queue-cancel qualify-stacks release-check render-validation-log
 
 setup:
 	$(PYTHON) -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ is required"'
@@ -38,6 +38,12 @@ integration-test:
 
 build:
 	$(PYTHON) -m build
+
+container-build:
+	docker build --tag local-project-board:local .
+
+container-smoke:
+	$(PYTHON) -m pytest tests/app/operations/test_container_smoke.py::test_real_container_smoke_builds_and_recreates_persistent_runtime
 
 ci: format-check lint typecheck test integration-test build
 
