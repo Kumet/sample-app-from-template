@@ -24,6 +24,31 @@ served from `GET /`, uses those same APIs for local Project, Task, Tag, Comment,
 Activity, dashboard, and Task-query workflows. The CLI, import/export, and
 backup/restore are not implemented yet.
 
+## Development result
+
+The sample-application development phase completed at main commit
+`27f372ac967a8c684a0294e645a6b81faf611195`. The result is a local-first Project
+Board with a REST API, dependency-free browser UI, SQLite persistence,
+Project-level analytics, and a reproducible non-root Docker Compose workflow.
+
+The application was built feature by feature from approved specifications. Each
+feature followed specification, clarification, plan, task implementation,
+validation, exact-HEAD evidence, independent review, pull request, and CI gates.
+The same sample delivery also exercised and improved the reusable AI development
+framework, including resumable worktrees, bounded review budgets, weakening
+detection, review-evidence identity and redaction, and high-risk approval gates.
+
+At completion, the main-branch validation passed 127 framework tests, 601
+application tests, and 283 integration tests. The container CI also passed the
+real image build, non-root health check, HTTP smoke test, SQLite restart
+persistence, and isolated Docker-resource cleanup. All application and framework
+PRs through PR #24 were merged through review and CI; no direct main push or
+auto-merge was used.
+
+See [Sample application development report](docs/sample-app-development-report.md)
+for the implemented scope, architecture, development process, template
+assessment, validation evidence, limitations, and recommended next steps.
+
 ## Requirements and setup
 
 Requirements:
