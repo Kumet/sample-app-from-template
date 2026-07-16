@@ -174,7 +174,37 @@ def _commands(fake: FakeDocker) -> list[list[str]]:
 
 def test_real_container_smoke_builds_and_recreates_persistent_runtime() -> None:
     """Exercise the complete smoke lifecycle against the Docker daemon."""
-    result = run_smoke()
+    command_calls: list[tuple[list[str], subprocess.CompletedProcess[str]]] = []
+    http_calls: list[
+        tuple[
+            str,
+            str,
+            dict[str, str] | None,
+            tuple[int, dict[str, str], bytes],
+        ]
+    ] = []
+
+    def recording_command(
+        arguments: Sequence[str],
+        *,
+        check: bool = True,
+        timeout: int = container_smoke.COMMAND_TIMEOUT_SECONDS,
+    ) -> subprocess.CompletedProcess[str]:
+        completed = container_smoke.run_command(arguments, check=check, timeout=timeout)
+        command_calls.append((list(arguments), completed))
+        return completed
+
+    def recording_http(
+        url: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        response = request_http(url, method=method, payload=payload)
+        http_calls.append((url, method, payload, response))
+        return response
+
+    result = run_smoke(command=recording_command, http=recording_http)
 
     assert result.resources.first_container != result.resources.second_container
     assert result.first_url.startswith("http://127.0.0.1:")
@@ -185,6 +215,65 @@ def test_real_container_smoke_builds_and_recreates_persistent_runtime() -> None:
     )
     assert result.repository_before.git_status == result.repository_after.git_status
     assert result.repository_before.database == result.repository_after.database
+
+    command_results = {
+        tuple(arguments): completed for arguments, completed in command_calls
+    }
+    for container in (
+        result.resources.first_container,
+        result.resources.second_container,
+    ):
+        inspected = json.loads(
+            command_results[("docker", "inspect", container)].stdout
+        )[0]
+        assert inspected["State"]["Status"] == "running"
+        assert inspected["State"]["Health"]["Status"] == "healthy"
+        assert inspected["Config"]["User"] == "10001:10001"
+        assert (
+            command_results[("docker", "exec", container, "id", "-u")].stdout.strip()
+            == "10001"
+        )
+        assert (
+            command_results[("docker", "exec", container, "id", "-g")].stdout.strip()
+            == "10001"
+        )
+
+    http_results = {(url, method): response for url, method, _, response in http_calls}
+    for base_url in (result.first_url, result.second_url):
+        health_status, _, health_body = http_results[(f"{base_url}/health", "GET")]
+        assert health_status == 200
+        assert json.loads(health_body) == {"status": "ok"}
+
+        html_status, html_headers, html_body = http_results[(f"{base_url}/", "GET")]
+        assert html_status == 200
+        assert "text/html" in html_headers["content-type"]
+        assert b"Local Project Board" in html_body
+
+        css_status, css_headers, css_body = http_results[
+            (f"{base_url}/static/app.css", "GET")
+        ]
+        assert css_status == 200
+        assert "text/css" in css_headers["content-type"]
+        assert b":root" in css_body
+
+        js_status, js_headers, js_body = http_results[
+            (f"{base_url}/static/app.js", "GET")
+        ]
+        assert js_status == 200
+        assert "javascript" in js_headers["content-type"]
+        assert b"/api/projects" in js_body
+
+    logs = "\n".join(
+        f"{completed.stdout}\n{completed.stderr}"
+        for arguments, completed in command_calls
+        if arguments[:2] == ["docker", "logs"]
+    )
+    assert (
+        sum(arguments[:2] == ["docker", "logs"] for arguments, _ in command_calls) == 2
+    )
+    assert all(
+        not rejection.search(logs) for rejection in container_smoke.LOG_REJECTIONS
+    )
 
 
 def test_smoke_uses_unique_exact_resources_and_recreates_with_one_volume(
